@@ -51,6 +51,7 @@ class NetworkConfig:
     max_sim_time_ns: float = 10_000_000_000.0  # logical-time ceiling (10 s)
     max_retries_per_request: int = 128
     max_chaos_events: int = 10_000             # safety bound on injected failures
+    purification_protocol: str | None = None   # "BBPSSW" | "DEJMPS" | None
 
     def __post_init__(self):
         if not (0 <= self.swap_success_probability <= 1):
@@ -65,6 +66,11 @@ class NetworkConfig:
             raise ValueError("Simulation limits must be positive.")
         if self.max_retries_per_request < 1:
             raise ValueError("max_retries_per_request must be >= 1.")
+        if self.purification_protocol is not None and \
+                self.purification_protocol not in ("BBPSSW", "DEJMPS"):
+            raise ValueError(
+                "purification_protocol must be 'BBPSSW', 'DEJMPS', or None."
+            )
 
 
 @dataclass
@@ -92,6 +98,9 @@ class NetworkStats:
     swaps_failed: int = 0
     memory_expirations: int = 0
     teleportations_completed: int = 0
+    purification_rounds_attempted: int = 0
+    purification_rounds_succeeded: int = 0
+    pairs_consumed_by_purification: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -102,6 +111,9 @@ class NetworkStats:
             "swaps_failed": self.swaps_failed,
             "memory_expirations": self.memory_expirations,
             "teleportations_completed": self.teleportations_completed,
+            "purification_rounds_attempted": self.purification_rounds_attempted,
+            "purification_rounds_succeeded": self.purification_rounds_succeeded,
+            "pairs_consumed_by_purification": self.pairs_consumed_by_purification,
         }
 
 
@@ -412,8 +424,77 @@ class NetworkEngine:
             self.clock.now_ns + self.config.memory_coherence_ns, "memory_expired",
             source=a, destination=b, pair_id=pid,
         )
+        if self.config.purification_protocol is not None:
+            self._try_purification(request_id)
         self._try_swaps(request_id)
         self._schedule_segment_attempts(request_id)
+
+    def _try_purification(self, request_id: int) -> None:
+        """Optional post-generation purification (directive §21).
+
+        When TWO live pairs cover the SAME route segment, consume both and run
+        one round of the configured protocol; success replaces them with a
+        single higher-fidelity pair covering that segment. Failure consumes
+        both pairs and leaves the segment uncovered (honest accounting).
+        """
+        from .purification import purify_once
+        from ..quantum.states import QuantumCoreError
+
+        active = self._active.get(request_id)
+        if active is None or active.route is None:
+            return
+        by_segment: dict[int, list[int]] = {}
+        live = self._live_halves_by_pair(active)
+        for pid, (s, e) in list(active.coverage.items()):
+            if s == e - 1 and pid in live:
+                by_segment.setdefault(s, []).append(pid)
+        for seg, pids in by_segment.items():
+            if len(pids) < 2:
+                continue
+            pid_a, pid_b = pids[0], pids[1]
+            involved = [
+                (name, h) for name, m in self.resources.memories.items()
+                for h in m.all_halves() if h.pair_id in (pid_a, pid_b)
+            ]
+            fa = next(h for n, h in involved if h.pair_id == pid_a)                 .current_fidelity(self.clock.now_ns, self.config.memory_coherence_ns)
+            fb = next(h for n, h in involved if h.pair_id == pid_b)                 .current_fidelity(self.clock.now_ns, self.config.memory_coherence_ns)
+            # Protocols require identical inputs; asymmetric fidelities are
+            # skipped honestly rather than silently approximated.
+            if abs(fa - fb) > 1e-6 or fa < 0.5:
+                continue
+            self.stats.purification_rounds_attempted += 1
+            try:
+                outcome = purify_once(
+                    self.config.purification_protocol, float((fa + fb) / 2),
+                    rng=self.rng,
+                )
+            except QuantumCoreError as exc:
+                self.engine_errors.append(f"purification: {exc}")
+                return
+            for name, h in involved:
+                self.resources.memories[name].release(h.slot)
+            self.resources.pairs.consume_pair(pid_a)
+            self.resources.pairs.consume_pair(pid_b)
+            active.coverage.pop(pid_a, None)
+            active.coverage.pop(pid_b, None)
+            if outcome.success:
+                self.stats.purification_rounds_succeeded += 1
+                end_a = next(n for n, h in involved if h.pair_id == pid_a)
+                end_b = next(n for n, h in involved if h.pair_id == pid_b)
+                new_pid = self.resources.pairs.create_pair_id(end_a, end_b)
+                ha = EntangledPairHalf(new_pid, end_b, self.clock.now_ns,
+                                       outcome.output_fidelity, slot=-1)
+                hb = EntangledPairHalf(new_pid, end_a, self.clock.now_ns,
+                                       outcome.output_fidelity, slot=-1)
+                self.resources.memories[end_a].store(ha)
+                self.resources.memories[end_b].store(hb)
+                active.coverage[new_pid] = (seg, seg + 1)
+            else:
+                # both pairs consumed; the segment is uncovered again — honest
+                # accounting, no silent replacement.
+                pass
+            self.stats.pairs_consumed_by_purification += 2
+            return  # one purification round per generation event
 
     def _try_swaps(self, request_id: int) -> None:
         active = self._active.get(request_id)

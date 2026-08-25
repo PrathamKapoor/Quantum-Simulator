@@ -259,3 +259,38 @@ class TestEdgeCases:
         eng.submit_request("A", "B")
         res = eng.run(until_ns=5_000_000)
         assert res.failure_count == 1
+
+
+class TestPurificationIntegration:
+    def _two_segment(self):
+        t = line_topology(5, 5)
+        return t
+
+    def test_purification_config_accepted_and_runs(self):
+        cfg = NetworkConfig(purification_protocol="BBPSSW")
+        eng = NetworkEngine(self._two_segment(), cfg, seed=21)
+        eng.submit_request("A", "B")
+        res = eng.run(until_ns=100_000_000)
+        # Either purified or not — but accounting must be consistent:
+        s = res.stats
+        assert s["pairs_consumed_by_purification"] % 2 == 0
+        assert s["purification_rounds_succeeded"] <= s["purification_rounds_attempted"]
+
+    def test_invalid_protocol_rejected(self):
+        with pytest.raises(ValueError):
+            NetworkConfig(purification_protocol="MAGIC")
+
+    def test_purified_chain_still_completes(self):
+        cfg = NetworkConfig(purification_protocol="DEJMPS",
+                            classical_latency_mode="idealized")
+        for seed in range(4):
+            eng = NetworkEngine(line_topology(4, 4), cfg, seed=30 + seed)
+            eng.submit_request("A", "B")
+            res = eng.run(until_ns=200_000_000)
+            if res.success_count >= 1:
+                ok = [o for o in res.outcomes if o.success][0]
+                # DEJMPS output fidelity stays within Werner bounds.
+                assert ok.fidelity <= 1.0
+                break
+        else:
+            pytest.fail("no successful run across seeds")

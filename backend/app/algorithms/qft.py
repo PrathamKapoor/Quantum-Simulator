@@ -16,6 +16,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+import numpy as np
+
 from ..circuits.model import Circuit
 
 
@@ -109,8 +111,6 @@ def _append_inverse(target: Circuit, op) -> None:
 
 def dft_matrix(n_qubits: int) -> "np.ndarray":
     """Explicit QFT matrix F_{kj} = ω^{jk}/√N — reference implementation."""
-    import numpy as np
-
     dim = 1 << n_qubits
     j = np.arange(dim)
     omega = np.exp(2j * np.pi * np.outer(j, j) / dim)

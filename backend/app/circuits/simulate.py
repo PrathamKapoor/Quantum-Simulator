@@ -315,7 +315,7 @@ class DensityMatrixEngine:
                     rho = self._project_density(rho, qubit, bit)
                     if bit == 1:
                         from ..quantum.apply import apply_gate_density
-                        x = build_gate("X", [])
+                        x = resolve_gate(circuit, "X", [])
                         rho = DensityMatrix(
                             apply_gate_density(rho.matrix, circuit.num_qubits, [qubit], x.matrix),
                             circuit.num_qubits,

@@ -19,9 +19,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ..circuits.model import Circuit
+from ..circuits.model import Circuit, Operation
 from ..circuits.simulate import simulate
-from ..quantum.states import QuantumCoreError
+from ..quantum.states import StateVector, QuantumCoreError
 
 
 # ---------------------------------------------------------------------------

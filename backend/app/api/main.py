@@ -731,6 +731,104 @@ def cancel_job(job_id: int):
     return {"cancelled": True}
 
 
+class HardwareTranspileRequest(BaseModel):
+    circuit: dict
+    profile_name: str
+
+    @field_validator("circuit")
+    @classmethod
+    def _check_schema(cls, v: dict) -> dict:
+        if not isinstance(v, dict) or v.get("schema") != "quantumlab.circuit":
+            raise ValueError('circuit document must declare schema "quantumlab.circuit"')
+        return v
+
+
+@app.get("/api/hardware/profiles")
+def list_hardware_profiles():
+    """Capability discovery for hardware model profiles (§229-231)."""
+    from ..hardware.profiles import PROFILE_REGISTRY
+
+    out = []
+    for name, factory in PROFILE_REGISTRY.items():
+        p = factory()
+        out.append({
+            "name": p.name,
+            "n_qubits": p.n_qubits,
+            "coupling_edges": [sorted(e) for e in sorted(p.coupling, key=sorted)],
+            "native_gates": sorted(p.native_gates),
+            "t1_us": p.t1_us,
+            "t2_us": p.t2_us,
+            "readout": {
+                "p_read1_given_0": p.readout_p_read1_given_0,
+                "p_read0_given_1": p.readout_p_read0_given_1,
+            },
+            "model_label": p.model_label,
+        })
+    return out
+
+
+@app.post("/api/hardware/transpile")
+def hardware_transpile(req: HardwareTranspileRequest):
+    """Map a logical circuit onto a hardware profile with SWAP insertion.
+
+    Validation status of the mapping is reported per run (ideal-action check
+    when the qubit count permits dense verification).
+    """
+    from ..hardware.profiles import PROFILE_REGISTRY
+    from ..hardware.transpile import (
+        transpile_for_hardware, verify_mapping_preserves_action,
+    )
+    from ..circuits.analysis import analyze_circuit
+    from ..circuits import circuit_to_dict
+
+    if req.profile_name not in PROFILE_REGISTRY:
+        raise http_error(
+            400, "UNKNOWN_PROFILE",
+            f"Unknown hardware profile {req.profile_name!r}.",
+            suggestion=f"Available: {sorted(PROFILE_REGISTRY)}",
+        )
+    try:
+        logical = circuit_from_dict(req.circuit)
+        result = transpile_for_hardware(logical, PROFILE_REGISTRY[req.profile_name]())
+    except ValueError as e:
+        raise http_error(400, "VALIDATION_ERROR", str(e))
+    except QuantumCoreError as e:
+        raise http_error(400, "TRANSPILE_ERROR", str(e),
+                         suggestion="Check gate set and qubit count against the profile.")
+    verification = verify_mapping_preserves_action(logical, result)
+    return {
+        "mapped_circuit": circuit_to_dict(result.circuit),
+        "final_mapping": {str(k): v for k, v in result.final_mapping.items()},
+        "metrics": {
+            "swap_count": result.swap_count,
+            "original_depth": result.original_depth,
+            "mapped_depth": result.mapped_depth,
+            "original_gate_count": result.original_gate_count,
+            "mapped_gate_count": result.mapped_gate_count,
+            "added_two_qubit_gates": result.added_two_qubit_gates,
+        },
+        "verification": verification,
+        "warnings": result.warnings,
+    }
+
+
+@app.post("/api/circuits/analyze")
+def analyze_circuit_endpoint(req: schemas.ValidateCircuitRequest):
+    """Structural metrics for a circuit (depth, counts, T accounting, pairs)."""
+    from ..circuits.analysis import analyze_circuit
+
+    try:
+        circuit = circuit_from_dict(req.circuit)
+    except ValueError as e:
+        raise http_error(400, "INVALID_DOCUMENT", str(e))
+    issues = validate_circuit(circuit)
+    blocking = [i for i in issues if i.code != "EMPTY_CIRCUIT"]
+    if blocking:
+        raise http_error(400, "VALIDATION_ERROR",
+                         "; ".join(i.code for i in blocking))
+    return analyze_circuit(circuit).to_dict()
+
+
 class QuantumInfoRequest(BaseModel):
     circuit: dict = Field(..., description="quantumlab.circuit v1 document (unitary part defines the state)")
     split_qubits: list[int] | None = None

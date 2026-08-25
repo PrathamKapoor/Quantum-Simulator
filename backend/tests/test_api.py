@@ -252,3 +252,40 @@ class TestQuantumInfoEndpoint:
                "num_qubits": 12, "num_clbits": 0, "metadata": {}, "operations": []}
         r = client.post("/api/quantum-info/state-report", json={"circuit": doc})
         assert r.status_code == 400
+
+
+class TestHardwareEndpoints:
+    def test_profiles_listed(self, client):
+        r = client.get("/api/hardware/profiles")
+        names = {p["name"] for p in r.json()}
+        assert {"Ideal-8Q", "NoisyGeneric-8Q", "SuperconductingInspired-16Q"} <= names
+        for p in r.json():
+            assert "MODEL" in p["model_label"].upper()
+
+    def _bell(self):
+        return bell_document()
+
+    def test_transpile_inserts_swaps_on_line(self, client):
+        doc = self._bell()
+        # Force long-range CX by using qubits 0 and 4 on a 5-qubit circuit.
+        doc = dict(doc)
+        doc.update(num_qubits=5, num_clbits=0, operations=[
+            {"kind": "gate", "gate": "H", "params": [], "qubits": [0], "clbits": [], "condition": None},
+            {"kind": "gate", "gate": "CX", "params": [], "qubits": [0, 4], "clbits": [], "condition": None},
+        ])
+        r = client.post("/api/hardware/transpile", json={
+            "circuit": doc, "profile_name": "NoisyGeneric-8Q"})
+        body = r.json()
+        assert body["metrics"]["swap_count"] >= 3
+        assert body["verification"]["verified"]
+
+    def test_analyze_endpoint(self, client):
+        r = client.post("/api/circuits/analyze", json={"circuit": self._bell()})
+        d = r.json()
+        assert d["two_qubit_gate_count"] == 1
+        assert d["depth"] == 3  # H -> CX -> measure layers
+
+    def test_unknown_profile_rejected(self, client):
+        r = client.post("/api/hardware/transpile", json={
+            "circuit": self._bell(), "profile_name": "QuantumDot-99"})
+        assert r.status_code == 400

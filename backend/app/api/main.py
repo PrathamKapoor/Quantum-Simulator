@@ -485,6 +485,8 @@ def network_simulate(req: schemas.NetworkSimulateRequest):
     if req.node_failure_rate_per_s > 0 or req.link_failure_rate_per_s > 0:
         cfg_kwargs.update(node_failure_rate_per_s=req.node_failure_rate_per_s,
                           link_failure_rate_per_s=req.link_failure_rate_per_s)
+    if req.purification_protocol is not None:
+        cfg_kwargs["purification_protocol"] = req.purification_protocol
     engine = NetworkEngine(topo, NetworkConfig(**cfg_kwargs), seed=req.seed)
     for rq in req.requests:
         engine.submit_request(

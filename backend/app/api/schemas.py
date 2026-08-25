@@ -180,6 +180,7 @@ class NetworkSimulateRequest(BaseModel):
     sim_time_ms: float = Field(default=500, gt=0, le=60_000)
     trace_mode: Literal["full", "summary", "sampled"] = "summary"
     seed: int = 7
+    purification_protocol: Literal["BBPSSW", "DEJMPS"] | None = None
 
 
 # ---------------- optimization ----------------

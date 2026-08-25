@@ -52,3 +52,39 @@ See ROADMAP.md P9 section: stabilizer/tensor-network backends, tomography,
 randomized benchmarking, MWPM decoding, entanglement purification protocol
 (interface exists, raises NotImplementedError honestly), planar surface-code
 layout, process-isolated workers.
+
+# Session-2 additions
+
+## Quantum information
+- Concurrence strictly two-qubit (enforced); negativity PPT scope labeled per
+  bipartition dimension.
+- Quantum-info state reports bounded at 10 qubits via API.
+
+## Channels / mitigation
+- Diamond norms NOT implemented; only Choi-based CP/TP validation and process
+  fidelity to a reference unitary are provided.
+- Readout mitigation assumes tensor-product confusion; ≤ 8 qubits.
+- ZNE limited to odd-integral global folding and polynomial fits; circuits
+  containing measurements/resets cannot fold (clear error).
+- Mitigated values can be less reliable than raw ones under ill-conditioned
+  inversion — condition number and clipped mass always reported.
+
+## Hardware / transpiler
+- SWAP routing is greedy shortest-path, not depth-optimal.
+- Dense mapping verification capped at 7 qubits.
+- Model presets have no crosstalk/leakage/correlated noise.
+
+## Purification / repeaters
+- Protocols require identical input fidelities (asymmetric skipped honestly).
+- One purification round per generated pair event in the network engine.
+- DEJMPS modeled on symmetric Werner inputs; full Bell-diagonal input support
+  is roadmap work.
+
+## Distributed computing
+- Implemented subset: double-teleportation remote CNOT (2 ebits + 4 cbits).
+  Single-ebit remote gates and multi-node partitioners are NOT implemented.
+- Ideal local operations assumed for the distributed protocol.
+
+## QKD over loss
+- Dark counts modeled as uniform random registrations (no time windows).
+- Secret-fraction figure is an asymptotic estimate, not finite-key security.

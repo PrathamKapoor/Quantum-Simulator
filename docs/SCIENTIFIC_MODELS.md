@@ -159,3 +159,59 @@ interpolated two-qubit effective-Hamiltonian coefficients — an approximate
 molecular model, not electronic structure. MaxCut baselines are exact brute
 force; "approximation ratio" compares QAOA's most likely cut to the optimum and
 is explicitly NOT an advantage claim.
+
+---
+
+# Session-2 additions
+
+## Quantum information measures
+See QUANTUM_INFORMATION.md for the full table (18 quantities). Highlights:
+Rényi family S_α = log₂Tr(ρ^α)/(1−α) with α→1 branch; min-entropy −log₂λ_max;
+relative entropy with explicit support-violation errors; two-qubit concurrence
+via Wootters spin-flip; negativity/logarithmic negativity via partial transpose
+trace norm; Schmidt decomposition by SVD; PPT separability reports that label
+their own scope (sufficient only for 2×2/2×3).
+
+## Channel algebra
+Choi matrix J(E)=Σ_ij |i⟩⟨j|⊗E(|i⟩⟨j|) (un-normalized); validated Hermitian,
+PS (complete positivity), Tr_out J = I_in (TP). Composition {l_j k_i} and
+tensor products verified against sequential application on test operators.
+Process fidelity F_pro = ⟨Φ̃|J(E)|Φ̃⟩/d with Φ̃=(U*⊗I)|Φ⟩/√d;
+F_avg=(d·F_pro+1)/(d+1). Reference points: unitary channel→1; fully
+depolarizing single-qubit→F_avg=1/2.
+Generalized amplitude damping: cold/hot bath mixture weighted by (1−N)/N
+(N = bath excited population); N=0 reduces exactly to amplitude damping.
+Readout confusion channel: classical off-diagonal Kraus pair acting on the
+diagonal only (documented simplification).
+
+## Hardware mapping
+Mapped circuit satisfies M_mapped = P_end·M_logical where P_end scatters
+logical bit l to physical bit final_mapping[l]; verified by dense column-
+scatter comparison (≤7 qubits). Routing inserts shortest-path SWAPs (3 CX
+each) updating the permutation consistently.
+
+## Error mitigation
+Readout mitigation inverts the tensor-product confusion matrix by least
+squares; condition number reported; negative quasi-probabilities clipped with
+the clipped mass reported. ZNE folds circuits U→U(U†U)^{(s−1)/2} (unitary
+action preserved — dense-verified), estimates observables in exact
+density-matrix mode, fits linear/quadratic polynomials over odd scale factors,
+and WARNS when extrapolation leaves the measured range. Parity postselection
+reports kept/discarded counts and discard rate.
+
+## Purification
+BBPSSW: p=F²+2F(1−F)/3+5((1−F)/3)², F'=(F²+((1−F)/3)²)/p.
+DEJMPS: p=(F+(1−F)/3)², F'=(F²+((1−F)/3)²)/(F+(1−F)/3)².
+Both assume identical Werner inputs, ideal local ops; each attempt consumes
+both pairs; failure ends the chain. Validated fixed points (F=1; BBPSSW F=½)
+and DEJMPS value 0.625 at F=½.
+
+## Repeaters
+L0/L1/L2 strategy studies run identical request workloads across distances on
+chain topologies (~25 km spacing heuristic); success probabilities carry
+Wilson CIs; pairs-generated-per-success reported as resource consumption.
+
+## Lossy-channel QKD
+Per-signal survival η=10^(−αd/10)·det_eff; lost signals excluded from sifting;
+optional uniform-random dark counts; secret fraction r≥1−2h₂(QBER) labeled an
+ASYMPTOTIC ESTIMATE under the documented model, not a finite-key proof.

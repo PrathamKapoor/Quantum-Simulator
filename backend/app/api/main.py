@@ -702,6 +702,33 @@ def get_run_result(run_id: int):
     return res
 
 
+@app.post("/api/runs/{run_id}/reproduce")
+def reproduce_run(run_id: int):
+    """Re-execute a completed run from its stored config+seed and compare
+    result documents (directive §44). Original run is never modified."""
+    svc = get_service()
+    if not svc.get_run(run_id):
+        raise http_error(404, "NOT_FOUND", f"Run {run_id} does not exist.")
+    try:
+        report = svc.reproduce_run(run_id)
+    except ValueError as e:
+        raise http_error(409, "NOT_REPRODUCIBLE", str(e))
+    return report.to_dict()
+
+
+@app.get("/api/runs/{run_id}/export.csv")
+def export_run_csv(run_id: int):
+    """Provenance-rich CSV of the run's tabular artifacts (§97, §210)."""
+    from fastapi.responses import PlainTextResponse
+
+    svc = get_service()
+    try:
+        csv_text = svc.export_run_csv(run_id)
+    except ValueError as e:
+        raise http_error(404, "NOT_FOUND", str(e))
+    return PlainTextResponse(csv_text, media_type="text/csv")
+
+
 @app.post("/api/experiments/compare")
 def compare_experiments_runs(req: schemas.RunActionRequest):
     return get_service().compare_runs(req.run_ids)

@@ -268,3 +268,73 @@ class TestNewRunners:
         table = doc["artifacts"]["table"]
         det = [r["detected"] for r in table]
         assert det[0] >= det[-1]  # loss model reduces detections with distance
+
+
+class TestReproducibilityAndExport:
+    def test_reproduce_deterministic_run_exact_match(self, db):
+        """§44: same config+seed => identical result document."""
+        svc = ExperimentService(db)
+        spec = ExperimentSpec(name="deterministic", module="circuit_shots",
+                              config={"circuit": bell_circuit_document(),
+                                      "shots": 256},
+                              seed=77)
+        exp = svc.create_experiment(spec)
+        rid = svc.create_runs_for_experiment(exp)[0]
+        svc.execute_run_now(rid)
+        report = svc.reproduce_run(rid)
+        assert report.status == "EXACT_MATCH", report.differences
+        assert report.reproduced_run_id != rid
+        # original untouched:
+        assert svc.get_run(rid)["status"] == "COMPLETED"
+
+    def test_export_csv_contains_provenance_columns(self, db):
+        svc = ExperimentService(db)
+        spec = ExperimentSpec(name="csv check", module="qec_sweep",
+                              config={"code": "bit-flip-3",
+                                      "physical_error_permille": [5],
+                                      "trials_per_point": 200}, seed=9)
+        exp = svc.create_experiment(spec)
+        rid = svc.create_runs_for_experiment(exp)[0]
+        svc.execute_run_now(rid)
+        csv_text = svc.export_run_csv(rid)
+        header = csv_text.splitlines()[0]
+        assert "experiment_id" in header and "seed" in header and "run_id" in header
+        assert len(csv_text.splitlines()) >= 2
+
+    def test_reproduce_rejects_incomplete_run(self, db):
+        svc = ExperimentService(db)
+        spec = ExperimentSpec(name="not run yet", module="bb84_study",
+                              config={"n_qubits": 64}, seed=1)
+        exp = svc.create_experiment(spec)
+        rid = svc.create_runs_for_experiment(exp)[0]
+        with pytest.raises(ValueError, match="only COMPLETED"):
+            svc.reproduce_run(rid)
+
+
+class TestStatisticsSubsystem:
+    def test_summary_includes_n_and_interval(self):
+        from app.analytics.statistics import summarize_samples, proportion_summary
+        import numpy as np
+
+        vals = list(np.random.default_rng(1).normal(10, 2, size=200))
+        s = summarize_samples(vals)
+        assert s["n"] == 200
+        assert abs(s["mean"] - 10) < 0.5
+        assert s["ci_low"] < s["mean"] < s["ci_high"]
+        assert s["small_sample_warning"] is False
+
+    def test_proportion_summary_explicit_counts(self):
+        from app.analytics.statistics import proportion_summary
+
+        p = proportion_summary(3, 100)
+        assert p["successes"] == 3 and p["trials"] == 100
+        assert p["proportion"] == 0.03
+        assert p["ci_low"] <= 0.03 <= p["ci_high"]
+
+    def test_bootstrap_median_robust(self):
+        from app.analytics.statistics import bootstrap_confidence_interval
+
+        vals = [1.0] * 50 + [1000.0]   # heavy outlier
+        ci = bootstrap_confidence_interval(vals, statistic="median", seed=3)
+        assert ci.low == pytest.approx(1.0)
+        assert ci.high == pytest.approx(1.0)

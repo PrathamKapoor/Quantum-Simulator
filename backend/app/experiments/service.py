@@ -165,6 +165,73 @@ class ExperimentService:
             "document": doc,
         }
 
+    # ---------------- reproducibility ----------------
+
+    def reproduce_run(self, run_id: int) -> "ReproductionReport":
+        """Re-execute the stored configuration+seed as a NEW run and compare
+        result documents (directive §44). The original run is never modified
+        (§127 immutability of completed runs)."""
+        from .reproducibility import ReproductionReport, compare_result_documents
+
+        original = self.get_run(run_id)
+        if not original:
+            raise ValueError(f"Unknown run {run_id}.")
+        if original["status"] != "COMPLETED":
+            raise ValueError(
+                f"Run {run_id} is {original['status']}; only COMPLETED runs "
+                "can be reproduced."
+            )
+        cur = self.db.execute(
+            "INSERT INTO runs (experiment_id, run_index, label, resolved_config, "
+            "backend, noise_model, seed, status, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'CREATED', ?)",
+            (original["experiment_id"], original["run_index"],
+             f"reproduce-of-{run_id}", original["resolved_config"],
+             original["backend"], original["noise_model"], original["seed"],
+             _utcnow()))
+        new_run_id = int(cur.lastrowid)
+        self.execute_run_now(new_run_id)
+        original_doc = self.get_result(run_id)
+        reproduced_doc = self.get_result(new_run_id)
+        if not original_doc or not reproduced_doc:
+            report = ReproductionReport(
+                run_id=run_id, reproduced_run_id=new_run_id,
+                status="ERROR", differences=["missing stored result document"])
+            report.reproduced_run_id = new_run_id
+            return report
+        report = compare_result_documents(
+            original_doc["document"], reproduced_doc["document"])
+        report.run_id = run_id
+        report.reproduced_run_id = new_run_id
+        self.db.audit("run", run_id, "reproduced",
+                      f"{report.status} via run {new_run_id}")
+        return report
+
+    def export_run_csv(self, run_id: int) -> str:
+        """Provenance-rich CSV export of an artifacts table (§97).
+
+        Every row carries experiment/run ids and seed so exported data can be
+        traced back to its provenance.
+        """
+        import csv
+        import io
+
+        run = self.get_run(run_id)
+        if not run:
+            raise ValueError(f"Unknown run {run_id}.")
+        res = self.get_result(run_id)
+        if not res:
+            raise ValueError(f"Run {run_id} has no stored result.")
+        doc = res["document"]
+        table = (doc.get("artifacts") or {}).get("table")             or [doc.get("metrics", {})]
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["experiment_id", "run_id", "seed", *table[0].keys()])
+        for row in table:
+            writer.writerow([run["experiment_id"], run_id, run["seed"],
+                             *row.values()])
+        return buf.getvalue()
+
     def compare_runs(self, run_ids: list[int]) -> dict:
         """Comparison across runs of possibly different configs (§107)."""
         rows = []

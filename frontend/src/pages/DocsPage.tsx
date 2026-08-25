@@ -2,11 +2,20 @@ import { useEffect, useState } from "react";
 
 const DOCS: [string, string][] = [
   ["README", "README"],
-  ["ARCHITECTURE", "ARCHITECTURE"],
-  ["SCIENTIFIC_MODELS", "SCIENTIFIC_MODELS"],
-  ["LIMITATIONS", "LIMITATIONS"],
-  ["TESTING", "TESTING"],
-  ["ROADMAP", "ROADMAP"],
+  ["Architecture", "ARCHITECTURE"],
+  ["Scientific Models", "SCIENTIFIC_MODELS"],
+  ["Quantum Information", "QUANTUM_INFORMATION"],
+  ["Network Models", "NETWORK_MODELS"],
+  ["QEC Models", "QEC_MODELS"],
+  ["Hardware Models", "HARDWARE_MODELS"],
+  ["Mitigation Models", "MITIGATION_MODELS"],
+  ["Experiments", "EXPERIMENTS"],
+  ["Limitations", "LIMITATIONS"],
+  ["Testing", "TESTING"],
+  ["Roadmap", "ROADMAP"],
+  ["Decisions", "ARCHITECTURE_DECISIONS"],
+  ["Session Log", "AUTONOMOUS_SESSION_LOG"],
+  ["Final Report", "AUTONOMOUS_FINAL_REPORT"],
 ];
 
 export default function DocsPage() {

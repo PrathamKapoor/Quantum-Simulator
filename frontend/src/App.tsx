@@ -9,6 +9,8 @@ import QecLab from "./pages/QecLab";
 import Protocols from "./pages/Protocols";
 import OptimizeLab from "./pages/OptimizeLab";
 import Experiments from "./pages/Experiments";
+import InfoTheoryLab from "./pages/InfoTheoryLab";
+import HardwareLab from "./pages/HardwareLab";
 import DocsPage from "./pages/DocsPage";
 
 const PAGES: Record<string, { label: string; component: React.ComponentType }> = {
@@ -19,6 +21,8 @@ const PAGES: Record<string, { label: string; component: React.ComponentType }> =
   qec: { label: "Error Correction", component: QecLab },
   protocols: { label: "Cryptography", component: Protocols },
   optimize: { label: "Optimization & QML", component: OptimizeLab },
+  info: { label: "Information Theory", component: InfoTheoryLab },
+  hardware: { label: "Hardware Lab", component: HardwareLab },
   experiments: { label: "Experiments", component: Experiments },
   docs: { label: "Documentation", component: DocsPage },
 };

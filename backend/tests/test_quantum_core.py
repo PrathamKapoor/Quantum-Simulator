@@ -252,3 +252,43 @@ class TestDensityMatrix:
         rho = DensityMatrix.pure(StateVector.zero(1))
         sig = DensityMatrix.pure(StateVector.one(1))
         assert abs(trace_distance(rho, sig) - 1.0) < 1e-12
+
+
+class TestPartialTraceMultiQubitRegression:
+    """Regression for the interleaved-output-order partial-trace bug: with
+    len(keep) >= 2 the reduced state was axis-mixed and only diagonal
+    marginals (GHZ) masked it. Off-diagonal validation added per RULE 3."""
+
+    def test_bell_full_system_identity(self):
+        psi = StateVector.from_amplitudes(np.array([1, 0, 0, 1]) / np.sqrt(2))
+        rho = DensityMatrix.pure(psi)
+        red = rho.partial_trace([0, 1])
+        assert np.allclose(red.matrix, rho.matrix, atol=1e-12)
+
+    def test_ghz_offdiagonal_two_qubit_keep(self):
+        # |W> state has off-diagonal reduced entries on a 1|2 split.
+        w = StateVector.from_amplitudes(
+            np.array([0, 1, 1, 0, 1, 0, 0, 0]) / np.sqrt(3))
+        rho = DensityMatrix.pure(w)
+        red = rho.partial_trace([0])
+        # reference: each qubit of |W> is excited with probability 1/3
+        assert np.allclose(np.real(np.diag(red.matrix)), [2 / 3, 1 / 3], atol=1e-9)
+
+    def test_two_qubit_keep_order_matches_documented_mapping(self):
+        # |01> on qubits (q1=0? no): basis_state(2, 0b10) -> q1=1,q0=0.
+        psi = StateVector.basis_state(2, 0b10)
+        red = DensityMatrix.pure(psi).partial_trace([1, 0])
+        # keep=[1,0]: output qubit0 <-> input q1 (=1), qubit1 <-> q0 (=0)
+        expected = np.zeros((4, 4)); expected[1 * 2 + 0, 1 * 2 + 0] = 1.0
+        assert np.allclose(red.matrix, expected)
+
+    def test_trace_preserved_for_random_states_multi_keep(self):
+        rng = np.random.default_rng(12)
+        for _ in range(5):
+            amps = rng.normal(size=16) + 1j * rng.normal(size=16)
+            psi = StateVector.from_amplitudes(amps, normalize_if_needed=True)
+            rho = DensityMatrix.pure(psi)
+            red = rho.partial_trace([0, 3])
+            tr = float(np.real(np.trace(red.matrix)))
+            assert abs(tr - 1) < 1e-9
+            assert abs(red.purity()) <= 1 + 1e-9

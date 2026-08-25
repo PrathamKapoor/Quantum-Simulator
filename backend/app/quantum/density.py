@@ -134,23 +134,32 @@ class DensityMatrix:
         traced = [q for q in range(n) if q not in seen]
         t = self.matrix.reshape((2,) * (2 * n))
         # Build einsum subscript strings: kept qubits get distinct row/col
-        # letters (both appear in the output); traced-out qubits reuse ONE
-        # letter for their row and col bit so they are contracted away.
+        # letters; traced-out qubits reuse ONE letter for their row/col bit so
+        # they are contracted away.
+        #
+        # CRITICAL (bug fixed 2026-08 session 2): the OUTPUT letter order must
+        # list ALL kept ROW letters first, then ALL kept COLUMN letters, so
+        # that the reshape to (d, d) yields rows = kept-row-bits and columns =
+        # kept-col-bits. Interleaving row/col per qubit silently produced a
+        # transposed-axis mixing that only manifested for off-diagonal reduced
+        # states with multi-qubit keeps (caught by remote-CNOT validation).
         idx_in = [None] * (2 * n)
-        idx_out = []
+        row_letters: list[str] = []
+        col_letters: list[str] = []
         letters = iter("abcdefghijklmnopqrstuvwx")
-        for j, q in enumerate(keep):
+        for q in keep:
             rl = next(letters)
             cl = next(letters)
             idx_in[n - 1 - q] = rl      # row bit of q
             idx_in[2 * n - 1 - q] = cl  # col bit of q
-            idx_out.extend([rl, cl])
+            row_letters.append(rl)
+            col_letters.append(cl)
         for q in traced:
             l = next(letters)
             idx_in[n - 1 - q] = l
             idx_in[2 * n - 1 - q] = l
         spec_in = "".join(idx_in)
-        spec_out = "".join(idx_out)
+        spec_out = "".join(row_letters + col_letters)
         k = len(keep)
         reduced = np.einsum(spec_in + "->" + spec_out, t).reshape(1 << k, 1 << k)
         # Normalize trace drift from float error (documented policy: trace is

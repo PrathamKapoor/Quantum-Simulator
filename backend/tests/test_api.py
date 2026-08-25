@@ -289,3 +289,20 @@ class TestHardwareEndpoints:
         r = client.post("/api/hardware/transpile", json={
             "circuit": self._bell(), "profile_name": "QuantumDot-99"})
         assert r.status_code == 400
+
+
+class TestMitigationEndpoints:
+    def test_readout_mitigation(self, client):
+        r = client.post("/api/mitigation/readout", json={
+            "counts": {"00": 470, "01": 20, "10": 8, "11": 502},
+            "p_read1_given_0": 0.04, "p_read0_given_1": 0.03})
+        body = r.json()
+        leak_raw = sum(v for k, v in body["raw_probabilities"].items() if k in ("01", "10"))
+        leak_mit = sum(v for k, v in body["mitigated_probabilities"].items() if k in ("01", "10"))
+        assert leak_mit < leak_raw
+
+    def test_zne_endpoint_flags_unstable_fit(self, client):
+        r = client.post("/api/mitigation/zne", json={
+            "scale_factors": [1, 3], "estimates": [0.2, 0.19]})
+        body = r.json()
+        assert body["extrapolated_value"] > 0.2

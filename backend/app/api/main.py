@@ -856,6 +856,68 @@ def analyze_circuit_endpoint(req: schemas.ValidateCircuitRequest):
     return analyze_circuit(circuit).to_dict()
 
 
+class ReadoutMitigationRequest(BaseModel):
+    counts: dict[str, int] = Field(min_length=1)
+    p_read1_given_0: float = Field(ge=0, le=1)
+    p_read0_given_1: float = Field(ge=0, le=1)
+
+
+@app.post("/api/mitigation/readout")
+def readout_mitigation_endpoint(req: ReadoutMitigationRequest):
+    """Mitigate readout confusion on an empirical histogram (§12).
+
+    MODEL: tensor-product classical confusion channel inversion; negative
+    quasi-probabilities clipped and reported.
+    """
+    from ..mitigation import mitigate_readout_error
+
+    try:
+        res = mitigate_readout_error(
+            req.counts,
+            p_read1_given_0=req.p_read1_given_0,
+            p_read0_given_1=req.p_read0_given_1,
+        )
+    except QuantumCoreError as e:
+        raise http_error(400, "MITIGATION_ERROR", str(e))
+    return {
+        "mitigated_probabilities": res.mitigated_probabilities,
+        "raw_probabilities": res.raw_probabilities,
+        "condition_number": res.condition_number,
+        "clipped_negative_mass": res.clipped_negative_mass,
+        "notes": res.notes,
+    }
+
+
+class ZNERequest(BaseModel):
+    scale_factors: list[int] = Field(min_length=2)
+    estimates: list[float] = Field(min_length=2)
+    model: str = "linear"
+
+
+@app.post("/api/mitigation/zne")
+def zne_endpoint(req: ZNERequest):
+    """Extrapolate noisy estimates to the zero-noise limit (§12).
+
+    Raw samples are echoed unchanged; implausible extrapolations carry
+    warnings rather than being clipped.
+    """
+    from ..mitigation import zero_noise_extrapolate
+
+    try:
+        res = zero_noise_extrapolate(req.scale_factors, req.estimates, model=req.model)
+    except ValueError as e:
+        raise http_error(400, "VALIDATION_ERROR", str(e))
+    return {
+        "scale_factors": res.scale_factors,
+        "raw_estimates": res.raw_estimates,
+        "extrapolated_value": res.extrapolated_value,
+        "fitted_model": res.fitted_model,
+        "fit_coefficients": res.fit_coefficients,
+        "residuals": res.residuals,
+        "warnings": res.warnings,
+    }
+
+
 class QuantumInfoRequest(BaseModel):
     circuit: dict = Field(..., description="quantumlab.circuit v1 document (unitary part defines the state)")
     split_qubits: list[int] | None = None

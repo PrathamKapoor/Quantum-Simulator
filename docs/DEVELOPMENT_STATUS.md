@@ -1,87 +1,89 @@
 # QuantumLab — Development Status
 
-> **Purpose:** Persistent checkpoint file for autonomous development. Any session (human or agent)
-> resuming work MUST read this file first, then ROADMAP.md, ARCHITECTURE.md, SCIENTIFIC_MODELS.md,
-> LIMITATIONS.md (directive §320).
+> **Purpose:** Persistent checkpoint for autonomous development. Any session resuming
+> work MUST read this file first, then ROADMAP.md, ARCHITECTURE.md,
+> SCIENTIFIC_MODELS.md, LIMITATIONS.md (directive §320).
 >
-> Last updated: 2026-08-25 (session 1, checkpoint 2)
+> Last updated: 2026-08-25 (session 1, checkpoint 3)
 
 ## Current phase
 
-Phase 3 — Quantum core + circuit engine COMPLETE and validated (115 tests green).
-Next: QEC subsystem → Network engine (flagship) → protocols → experiments → API → frontend.
+Phase 7 — Full stack operational: quantum core, circuit engine, algorithms, noise,
+QEC, network engine, protocols, optimization/QML, experiments+persistence+workers,
+FastAPI layer, React frontend. Extended idle-time validation running.
 
-## Completed tasks
+**The application is runnable end-to-end**: start the API (`dev.bat backend`) and
+frontend (`dev.bat frontend`), open http://localhost:5173.
 
-| Task ID | Module | Description | State |
-|---------|--------|-------------|-------|
-| ENV-001 | infra | Python 3.13 venv; numpy/scipy/fastapi/pydantic/pytest installed | VALIDATED |
-| DOC-001 | docs | Documentation system initialized | COMPLETE |
-| CORE-001 | quantum | StateVector: norm/normalize policy explicit, tensor, marginals (vectorized), basis states | VALIDATED |
-| CORE-002 | quantum | Gate library: 25+ gates, unitarity validation, custom-gate path | VALIDATED |
-| CORE-003 | quantum | DensityMatrix: partial trace, Uhlmann fidelity, purity, entropy, Bloch, trace distance | VALIDATED |
-| CORE-004 | quantum | Kraus channels: TP validation, bit/phase flip, depolarizing, amplitude/phase damping, T1/T2 thermal, composite | VALIDATED |
-| CORE-005 | quantum | Measurement: exact marginals, collapse, seeded sampling, asymmetric readout error | VALIDATED |
-| CIRC-001..005 | circuits | Circuit model, structured validation, versioned serialization (v1), statevector + density engines, mid-circuit measurement, classical conditions, reset semantics, shot fast-path with exact multinomial sampling | VALIDATED |
-| ALGO-QFT | algorithms | QFT/iQFT verified against explicit DFT matrix; approximate QFT flags itself | VALIDATED |
-| ALGO-DJ/BV/Simon/Grover/Superdense | algorithms | All verified against expected outputs | VALIDATED |
-| ALGO-QPE/Shor-bounded | algorithms | Phase estimation (local controlled-U matrices); bounded order finding for N≤32 via dense permutation oracles + continued fractions | TESTING (order finding test pending re-run) |
-| ALGO-WALK | algorithms | Coined walk cross-checked against independent reference implementation | VALIDATED |
+## Completed modules (all tested)
 
-## Active task
-
-QEC-001: error correction subsystem.
-
-## Key architectural decisions recorded
-
-1. **Little-endian qubit ordering** (qubit 0 = LSB) everywhere; documented in app.quantum docstring.
-2. **Gate-local basis convention**: first operand = most-significant local bit.
-   `app/algorithms/conventions.local_reorder` converts full-register-indexed
-   matrices to gate-local matrices — REQUIRED when building oracle gates from
-   truth tables (this caused + was fixed by regression-prone bugs; see below).
-3. **shots=None statevector mode** returns the full pre-measurement state unless
-   measurement results are used downstream (then one collapsed trajectory runs).
-4. Fast shot path: single evolution + exact multinomial sampling over the
-   classical-register distribution (scientifically equivalent; documented).
-5. Noise in statevector mode = per-shot Kraus trajectory sampling; density mode =
-   exact CPTP application. Both documented in simulate.py module docstring.
-
-## Bugs found and fixed during this session (regression-covered)
-
-| Bug | Root cause | Test coverage |
-|-----|-----------|---------------|
-| DJ oracle flipped wrong register bit | matrix built in full-register indexing without local-basis conversion | conventions + DJ verdict tests |
-| Simon measured first register before final H | missing mid-circuit second-register measurement | run_simon correctness test |
-| QPE used len(system) as precision bits | t miscomputed after refactor | QPE estimate tests |
-| operand_bit_mapping shifted by qubit offset | used `(f >> q)` instead of `(f >> pos)` for subsystem indexing | order-finding + QPE tests |
-| Fast path sampled over all qubits not measured subset | design flaw | bell counts + DJ counts tests |
-| shots=None never executed operations | loop bound bug | teleportation conditional test |
-| Reset discarded population instead of forcing \|0⟩ | projection misuse | reset semantics test |
+| Module | Contents | Tests |
+|--------|----------|-------|
+| app.quantum | states, gates, density matrices, channels, observables, measurement | test_quantum_core |
+| app.circuits | model, validation, serialization v1, statevector + density executors | test_circuits |
+| app.noise | NoiseModel configs/presets, readout error | (via circuits) |
+| app.algorithms | DJ/BV/Simon/Grover/QFT±/QPE/order-finding/superdense/walk | test_algorithms |
+| app.qec | stabilizer algebra, 5 codes + toric code, lookup decoders, MC benchmarks | test_qec |
+| app.network | event engine, topology/routing/explanations, memory, scheduler, chaos | test_network |
+| app.protocols | BB84/E91/QRNG/CHSH/info-theory | test_protocols |
+| app.optimization | Hamiltonians, VQE(+polish), QAOA, H2 curve, QML classifier/kernel | test_optimization |
+| app.experiments | specs, runners registry, sweeps, service lifecycle | test_experiments |
+| app.persistence | SQLite migrations v1-v2, audit trail | test_experiments |
+| app.workers | threaded job queue, cooperative cancellation | test_experiments |
+| app.api | validated endpoints, health/diagnostics, WebSocket progress | test_api |
+| frontend | Dashboard/Circuit/Algorithms/Network/QEC/Crypto/Optimize/Experiments/Docs | manual + build |
 
 ## Test status
 
-- Fast suite: **115 passed, 0 failed** (`python -m pytest backend/tests`).
+- Fast suite: **230 passed** (~75 s): `dev.bat test` or
+  `cd backend && ..\.venv\Scripts\python -m pytest tests --timeout=300`
+- Endpoint smoke: **26/26 passed** across every UI-critical route.
+- Extended validation (`-m extended`): running during idle time — Shor-9 trend
+  over 20k trials/point, BB84 Eve-linearity, CHSH-vs-fidelity line, repeater
+  success vs time budget.
 
-## Build/runtime status
+## Runtime status
 
-- Backend: pure Python, no build step. API server not yet implemented.
+- API: uvicorn :8000 — healthy; docs proxy `/repo-docs` verified via Vite.
+- Frontend: Vite dev server :5173 — serves; production build clean (`tsc -b` +
+  `vite build`).
 
-## Scientific validation status
+## Key architectural decisions (binding)
 
-- Gate application cross-checked against explicit Kronecker embedding (§151).
-- QFT cross-checked against DFT matrix; Grover peak vs analytic optimum;
-  teleportation fidelity check; BB84/QEC pending.
+1. Little-endian qubit ordering platform-wide.
+2. Gate-local basis = first operand MSB; `app/algorithms/conventions.py`
+   converts truth-table-indexed matrices (REQUIRED when building oracles).
+3. shots=None statevector mode: pre-measurement state unless results are used.
+4. Shot fast path: single evolution + exact multinomial sampling.
+5. Statevector noise = per-shot Kraus trajectories; density mode = exact CPTP.
+6. Network requests track segment coverage; swaps merge coverage spans;
+   at most one in-flight attempt chain per segment.
+7. Engine-level exception guard records errors into `result.engine_errors`
+   (never silent).
 
-## Known limitations (see LIMITATIONS.md for detail)
+## Bugs found & fixed this session (regression-covered)
 
-- Grover MCZ oracle: dense diagonal, capped at 10 qubits.
-- Bounded Shor: N ≤ 32 (dense permutation oracle), total ≤ 16 qubits.
-- Density-matrix engine: ≤ 12 qubits.
+(see previous checkpoint list, plus:)
+| Bug | Fix |
+|-----|-----|
+| `swap_classical_latency_ns` missing import silently swallowed by run-loop guard | import added; guard now surfaces errors in `engine_errors` |
+| duplicate parallel attempt chains per segment | `pending_segments` bookkeeping |
+| toric star operators used wrong incident edges | corrected incidence (verified commutation + distance) |
+| phase-flip-3 logicals misassigned | derived from encoding; structural checks enforce |
+| CSV header-skip inverted | fixed + actionable-error ordering |
 
 ## Next recommended tasks
 
-1. QEC-001..005 (codes, pipeline, decoder interface, Monte Carlo benchmark).
-2. NET-001..012 network discrete-event engine (flagship).
-3. PROTO-* (BB84, E91, CHSH, QRNG) on top of quantum core.
-4. EXP-* experiment engine + SQLite persistence + worker queue.
-5. API layer, then frontend shell.
+1. Check extended-validation output when it finishes; investigate any trend failures.
+2. UI E2E automation (Playwright) — currently manual inspection only.
+3. Process-isolated workers; run checkpoint/resume for long jobs (§100).
+4. Planar rotated surface-code layout + MWPM decoder interface.
+5. Entanglement purification protocol implementation (interface refuses to fake).
+6. Experiment templates gallery wired into frontend creation dialog.
+7. Performance: statevector gate batching; network engine priority-queue profiling.
+
+## Known limitations
+
+See LIMITATIONS.md. Highlights: statevector ≤ ~24q practical / density ≤ 12 /
+Grover ≤ 10q dense oracle / bounded Shor N ≤ 32 / surface code weight-1 decoder /
+idealized-channel QKD sims / no physical entropy from QRNG.

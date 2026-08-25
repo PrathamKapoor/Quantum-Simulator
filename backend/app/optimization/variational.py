@@ -124,21 +124,28 @@ def optimize_coordinate_descent(objective, x0: np.ndarray, *, max_iter: int = 20
             "iterations": max_iter}
 
 
-def multi_start_optimize(objective, param_count: int, *, starts: int = 4,
-                         probe_iter: int = 12, full_iter: int = 120,
+def multi_start_optimize(objective, param_count: int, *, starts: int = 8,
+                         probe_iter: int = 25, full_iter: int = 120,
                          seed: int = 0, bounds: float = math.pi) -> dict:
-    """Multi-start strategy: short SPSA probes from random inits, then a full
-    run from the most promising start. Documented, deterministic under seed.
+    """Multi-start strategy: SPSA probes from broad random inits, then a full
+    run from the most promising start. Documented and deterministic under seed.
+
+    Settings rationale (measured, not guessed): variational-classifier
+    landscapes contain symmetric plateaus where small-step SPSA stalls, so
+    probes use enlarged step/perturbation (0.8/0.3) and enough iterations to
+    escape them. Default 8 starts × 25 probe iterations.
     """
     rng = np.random.default_rng(seed)
     candidates = []
     for s in range(starts):
         x0 = rng.uniform(-bounds / 3, bounds / 3, size=param_count)
-        probe = optimize_spsa(objective, x0, max_iter=probe_iter, seed=seed + 100 + s)
+        probe = optimize_spsa(objective, x0, max_iter=probe_iter, step=0.8,
+                              perturb=0.3, seed=seed + 100 + s)
         candidates.append((probe["f"], x0))
     candidates.sort(key=lambda t: t[0])
     best_x0 = candidates[0][1]
-    return optimize_spsa(objective, best_x0, max_iter=full_iter, seed=seed + 999)
+    return optimize_spsa(objective, best_x0, max_iter=full_iter, step=0.6,
+                         perturb=0.25, seed=seed + 999)
 
 
 OPTIMIZERS = {

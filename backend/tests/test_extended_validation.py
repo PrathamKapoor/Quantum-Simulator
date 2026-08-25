@@ -38,13 +38,15 @@ def test_bb84_eve_fraction_linearity():
 
 
 def test_chsh_s_linear_in_fidelity():
+    """Isotropic source model: fraction F perfect singlets + remainder maximally
+    mixed ⇒ E = F·(−cosΔ) ⇒ |S| = 2√2·F exactly (verified within noise)."""
     fs = np.linspace(0.55, 0.95, 5)
     ss = []
     for f in fs:
         vals = [abs(run_chsh(float(f), shots_per_setting=20000, seed=s)["chsh_S"])
                 for s in range(3)]
         ss.append(float(np.mean(vals)))
-    expected = 2 * np.sqrt(2) * (2 * fs - 1)
+    expected = 2 * np.sqrt(2) * fs
     assert all(abs(ss[i] - expected[i]) < 0.05 for i in range(len(fs))), list(zip(ss, expected))
 
 

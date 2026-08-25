@@ -252,3 +252,20 @@ class TestEdgeCases:
         from app.quantum.states import QuantumCoreError as _QCE
         with pytest.raises((ValueError, TypeError)):
             simulate(bell_circuit(), shots=-5)
+
+
+class TestNoiseArity:
+    def test_single_qubit_default_error_on_cx(self):
+        """Regression: default 1-qubit channel on a 2-qubit gate must apply
+        per-operand instead of crashing (found via API smoke test)."""
+        noise = NoiseModel.from_config(
+            {"default_gate_error": {"type": "depolarizing", "probability": 0.05}})
+        c = Circuit(2, 2)
+        c.add_gate("H", [0])
+        c.add_gate("CX", [0, 1])
+        c.add_measure([0, 1], [0, 1])
+        res = simulate(c, seed=4, shots=500, noise_model=noise)
+        total = sum(res.counts.values())
+        assert total == 500
+        # Depolarizing noise lets wrong outcomes leak in.
+        assert res.counts.get("01", 0) + res.counts.get("10", 0) > 0

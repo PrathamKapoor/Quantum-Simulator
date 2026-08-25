@@ -225,8 +225,8 @@ class StatevectorEngine:
                 amps = apply_gate_statevector(state.amplitudes, circuit.num_qubits, list(op.qubits), spec.matrix)
                 state = StateVector(amps, circuit.num_qubits)
                 channel = noise.error_for(spec.name, len(op.qubits))
-                if channel is not None and not channel.is_unitary_channel():
-                    state = self._apply_channel_trajectory(state, channel, list(op.qubits), rng)
+                if channel is not None:
+                    state = apply_noise_statevector(state, channel, list(op.qubits), rng)
             elif op.kind == "measure":
                 outcome_bits = []
                 for q_idx, qubit in enumerate(op.qubits):
@@ -261,37 +261,7 @@ class StatevectorEngine:
                 continue
         return state, register
 
-    def _apply_channel_trajectory(
-        self, state: StateVector, channel: KrausChannel, qubits: list[int], rng: np.random.Generator
-    ) -> StateVector:
-        """Sample one Kraus operator (quantum trajectory method).
 
-        P(K_i) = ||K_i ψ||²; resulting state K_i ψ / ||K_i ψ||. This ensemble
-        equals exact channel action averaged over shots — documented method.
-        """
-        weights = []
-        candidates = []
-        from ..quantum.apply import embed_operator
-
-        for k in channel.kraus_operators:
-            full_k = (
-                k
-                if len(qubits) == state.n_qubits and qubits == list(range(state.n_qubits))
-                else embed_operator(k, state.n_qubits, qubits)
-            )
-            out = full_k @ state.amplitudes
-            w = float(np.real(np.vdot(out, out)))
-            if w > 1e-18:
-                candidates.append((out, full_k))
-                weights.append(w)
-        if not candidates:
-            return state
-        total = sum(weights)
-        probs = np.array(weights) / total
-        choice = int(rng.choice(len(candidates), p=probs))
-        out, _full = candidates[choice]
-        norm = np.linalg.norm(out)
-        return StateVector(out / norm, state.n_qubits)
 
 
 class DensityMatrixEngine:
@@ -329,7 +299,8 @@ class DensityMatrixEngine:
                 rho = rho.apply_unitary(spec.matrix, list(op.qubits))
                 channel = noise.error_for(spec.name, len(op.qubits))
                 if channel is not None:
-                    rho = channel.apply_to_qubits(rho, list(op.qubits))
+                    for target in _match_channel_arity(channel, list(op.qubits)):
+                        rho = channel.apply_to_qubits(rho, target)
             elif op.kind == "measure":
                 for cbit, qubit in zip(op.clbits, op.qubits):
                     p1 = float(rho.partial_trace([qubit]).probabilities()[1])
@@ -456,6 +427,58 @@ def resolve_gate(circuit: Circuit, gate_name: str, params: list[float]):
 
 
 _NO_READOUT = NoiseModel.ideal().readout_error
+
+
+def _match_channel_arity(
+    channel: KrausChannel, qubits: list[int]
+) -> list[list[int]]:
+    """Resolve how a channel maps onto gate operand qubits.
+
+    A channel sized to all operands applies once. A single-qubit channel on a
+    multi-qubit gate (e.g. default depolarizing error on CX) applies to EACH
+    operand independently. Larger mismatches are rejected loudly.
+    """
+    if channel.n_qubits == len(qubits):
+        return [list(qubits)]
+    if channel.n_qubits == 1:
+        return [[q] for q in qubits]
+    raise QuantumCoreError(
+        f"Channel acts on {channel.n_qubits} qubit(s) but gate has {len(qubits)} "
+        "operands; define a matching error channel."
+    )
+
+
+def apply_noise_statevector(
+    state: StateVector, channel: KrausChannel, qubits: list[int], rng: np.random.Generator
+) -> StateVector:
+    """Apply a channel to gate operands via quantum trajectories.
+
+    P(K_i) = ||K_i ψ||²; resulting state K_i ψ / ‖K_i ψ‖. Averaged over shots
+    this reproduces exact channel action (documented method, §259).
+    """
+    for target in _match_channel_arity(channel, qubits):
+        weights = []
+        candidates = []
+        from ..quantum.apply import embed_operator
+
+        for k in channel.kraus_operators:
+            full_k = (
+                k
+                if target == list(range(state.n_qubits))
+                else embed_operator(k, state.n_qubits, target)
+            )
+            out = full_k @ state.amplitudes
+            w = float(np.real(np.vdot(out, out)))
+            if w > 1e-18:
+                candidates.append(out)
+                weights.append(w)
+        if not candidates:
+            continue
+        probs = np.array(weights) / sum(weights)
+        choice = int(rng.choice(len(candidates), p=probs))
+        out = candidates[choice]
+        state = StateVector(out / np.linalg.norm(out), state.n_qubits)
+    return state
 
 
 def _uses_mid_circuit_results(circuit: Circuit) -> bool:

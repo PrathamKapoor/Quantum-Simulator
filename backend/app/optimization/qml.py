@@ -325,7 +325,7 @@ def run_qml_experiment(dataset: str = "blobs", *, seed: int = 0, max_iter: int =
         return loss / len(ytr)
 
     opt_ideal = multi_start_optimize(
-        objective_ideal, param_count, starts=4, probe_iter=10,
+        objective_ideal, param_count, starts=8, probe_iter=25,
         full_iter=max_iter, seed=seed + 11,
     )
 
@@ -351,7 +351,7 @@ def run_qml_experiment(dataset: str = "blobs", *, seed: int = 0, max_iter: int =
     }
     if noise_label:
         opt_noisy = multi_start_optimize(
-            objective_noisy, param_count, starts=3, probe_iter=8,
+            objective_noisy, param_count, starts=6, probe_iter=20,
             full_iter=max_iter, seed=seed + 13,
         )
 

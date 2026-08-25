@@ -1,0 +1,26 @@
+[project]
+name = "quantumlab-backend"
+version = "0.1.0"
+description = "QuantumLab - quantum computing, information, and networking research laboratory (backend engine)"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.13",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "pydantic>=2.6",
+    "websockets>=12",
+    "aiosqlite>=0.20",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-timeout", "httpx"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+    "extended: long-running validation tests, not part of fast suite",
+    "integration: cross-module integration tests",
+]
+timeout = 300

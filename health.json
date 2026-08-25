@@ -1,1 +1,0 @@
-{"status":"ok","checks":{"database":{"status":"ok","detail":"1 project(s)"},"quantum_engine":{"status":"ok","detail":"X gate truth table check"},"network_engine":{"status":"ok","detail":"two-node entanglement request executed"},"worker":{"status":"ok","queued":0,"running":0,"workers":2}}}

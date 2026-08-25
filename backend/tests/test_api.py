@@ -224,3 +224,31 @@ class TestExperimentFlow:
             "name": "bad", "module": "cold_fusion", "config": {}, "seed": 1,
         })
         assert r.status_code == 400
+
+
+class TestQuantumInfoEndpoint:
+    def test_bell_state_report(self, client):
+        doc = bell_document()  # H + CX -> Bell state (measure ops ignored for pure evolution? they are terminal)
+        r = client.post("/api/quantum-info/state-report", json={"circuit": doc})
+        assert r.status_code == 200
+        rep = r.json()["report"]
+        # Terminal measurements don't collapse in no-shot mode: Bell state.
+        assert rep["concurrence"] == pytest.approx(1.0, abs=1e-6)
+        assert rep["negativity"] == pytest.approx(0.5, abs=1e-6)
+        assert rep["mutual_information_bits"] == pytest.approx(2.0, abs=1e-6)
+        assert rep["conditional_entropy_bits"] == pytest.approx(-1.0, abs=1e-6)
+
+    def test_product_state_report(self, client):
+        doc = {"schema": "quantumlab.circuit", "version": 1, "name": "prod",
+               "num_qubits": 2, "num_clbits": 0, "metadata": {},
+               "operations": [
+                   {"kind": "gate", "gate": "X", "params": [], "qubits": [0], "clbits": [], "condition": None}]}
+        rep = client.post("/api/quantum-info/state-report", json={"circuit": doc}).json()["report"]
+        assert rep["concurrence"] == pytest.approx(0.0, abs=1e-9)
+        assert rep["separability"]["verdict"] == "separable"
+
+    def test_rejects_too_large(self, client):
+        doc = {"schema": "quantumlab.circuit", "version": 1, "name": "big",
+               "num_qubits": 12, "num_clbits": 0, "metadata": {}, "operations": []}
+        r = client.post("/api/quantum-info/state-report", json={"circuit": doc})
+        assert r.status_code == 400

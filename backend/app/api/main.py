@@ -28,6 +28,8 @@ from ..persistence.db import Database, ensure_default_project
 from ..experiments.service import ExperimentService
 from ..experiments.runner import ExperimentSpec, RUNNER_REGISTRY
 from ..workers.jobs import JobQueue
+from pydantic import BaseModel, Field, field_validator
+
 from . import schemas
 
 
@@ -727,6 +729,61 @@ def cancel_job(job_id: int):
         raise http_error(409, "NOT_CANCELLABLE",
                          f"Job {job_id} cannot be cancelled in its current state.")
     return {"cancelled": True}
+
+
+class QuantumInfoRequest(BaseModel):
+    circuit: dict = Field(..., description="quantumlab.circuit v1 document (unitary part defines the state)")
+    split_qubits: list[int] | None = None
+
+    @field_validator("circuit")
+    @classmethod
+    def _check_schema(cls, v: dict) -> dict:
+        if not isinstance(v, dict) or v.get("schema") != "quantumlab.circuit":
+            raise ValueError('circuit document must declare schema "quantumlab.circuit"')
+        return v
+
+
+@app.post("/api/quantum-info/state-report")
+def quantum_info_state_report(req: QuantumInfoRequest):
+    """Information measures of the state prepared by a unitary circuit.
+
+    MODEL: exact statevector -> density matrix; all measures computed by
+    Hermitian eigendecomposition (see docs/QUANTUM_INFORMATION.md).
+    """
+    from ..quantum.info_theory import state_report
+    from ..quantum.density import DensityMatrix
+
+    try:
+        circuit = circuit_from_dict(req.circuit)
+        if circuit.num_qubits > 10:
+            raise http_error(
+                400, "LIMIT_EXCEEDED",
+                f"Quantum-information reports are bounded at 10 qubits "
+                f"(requested {circuit.num_qubits}) to keep dense-matrix analysis fast.",
+                suggestion="Trace out subsystems first or use fewer qubits.",
+            )
+        res = simulate(circuit)
+        rho = DensityMatrix.pure(res.final_state)
+    except ValueError as e:
+        raise http_error(400, "VALIDATION_ERROR", str(e))
+    try:
+        rep = state_report(rho, req.split_qubits)
+    except QuantumCoreError as e:
+        raise http_error(400, "NUMERICAL_ERROR", str(e))
+    return {
+        "n_qubits": rho.n_qubits,
+        "report": rep,
+        "model_labels": {
+            "computation": "EXACT (statevector eigendecomposition)",
+            "separability_test": rep["separability"]["basis"],
+        },
+        "notes": [
+            "Entropies in bits; conditional entropy may be negative for "
+            "entangled states — that is physically meaningful.",
+            "PPT sufficiency applies only to 2x2 and 2x3 bipartitions; other "
+            "dimensions are labeled inconclusive when PPT passes.",
+        ],
+    }
 
 
 @app.post("/api/benchmarks/run")

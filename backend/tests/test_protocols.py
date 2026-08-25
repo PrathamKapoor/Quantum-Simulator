@@ -136,3 +136,51 @@ class TestInformationTheory:
         psi = StateVector.from_amplitudes(np.array([1, 0, 0, 1]) / math.sqrt(2))
         rho = DensityMatrix.pure(psi)
         assert quantum_mutual_information(rho, [0]) == pytest.approx(2.0)
+
+
+class TestNetworkBB84:
+    def test_fiber_model_limiting_cases(self):
+        from app.protocols import fiber_survival
+
+        assert fiber_survival(0, 0.2, 1.0) == pytest.approx(1.0)
+        # 100 km at 0.2 dB/km -> 20 dB -> 1%
+        assert fiber_survival(100, 0.2, 1.0) == pytest.approx(0.01)
+        assert fiber_survival(100, 0.2, 0.5) == pytest.approx(0.005)
+
+    def test_loss_reduces_sifted_key(self):
+        from app.protocols import run_network_bb84
+
+        near = run_network_bb84(2048, distance_km=10, seed=3)
+        far = run_network_bb84(2048, distance_km=150, seed=3)
+        assert far.sifted_bits < near.sifted_bits
+
+    def test_qber_low_without_eve_even_with_loss(self):
+        """Loss removes signals but should NOT by itself corrupt surviving bits."""
+        from app.protocols import run_network_bb84
+
+        r = run_network_bb84(4096, distance_km=80, seed=5)
+        if r.qber is not None and r.sample_size >= 50:
+            assert r.qber < 0.06
+
+    def test_eve_raises_qber_over_network(self):
+        from app.protocols import run_network_bb84
+
+        r = run_network_bb84(4096, distance_km=20,
+                             eve_intercept_probability=1.0, seed=7)
+        assert 0.15 < r.qber < 0.35
+
+    def test_dark_counts_add_errors(self):
+        from app.protocols import run_network_bb84
+
+        clean = run_network_bb84(4096, distance_km=200, dark_count_probability=0.0, seed=9)
+        dark = run_network_bb84(4096, distance_km=200, dark_count_probability=0.4, seed=9)
+        q_clean = clean.qber if clean.qber is not None else 0.0
+        q_dark = dark.qber if dark.qber is not None else 0.0
+        assert q_dark > q_clean - 1e-9  # dark counts never help
+
+    def test_distance_sweep_monotone_detection(self):
+        from app.protocols import run_bb84_distance_sweep
+
+        sweep = run_bb84_distance_sweep([10, 60, 120], n_signals=1024, seed=11)
+        det = [row["detected"] for row in sweep["table"]]
+        assert det[0] >= det[1] >= det[2]

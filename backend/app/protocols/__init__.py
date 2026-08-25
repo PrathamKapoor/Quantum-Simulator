@@ -19,3 +19,14 @@ __all__ = [
     "shannon_entropy", "mutual_information_from_joint",
     "quantum_mutual_information", "bell_state_metrics",
 ]
+
+from .network_bb84 import (
+    run_network_bb84,
+    NetworkBB84Result,
+    run_bb84_distance_sweep,
+    fiber_survival,
+)
+
+__all__ += [
+    "run_network_bb84", "NetworkBB84Result", "run_bb84_distance_sweep", "fiber_survival",
+]

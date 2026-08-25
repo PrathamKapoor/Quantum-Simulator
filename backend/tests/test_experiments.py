@@ -228,3 +228,43 @@ class TestJobQueue:
             time.sleep(0.05)
         assert job.status == "CANCELLED"
         jq.shutdown()
+
+
+class TestNewRunners:
+    def test_purification_study_runner(self, db):
+        svc = ExperimentService(db)
+        spec = ExperimentSpec(name="purify", module="purification_study",
+                              config={"initial_fidelity": 0.85, "max_rounds": 3,
+                                      "target_fidelity": 0.95}, seed=2)
+        exp = svc.create_experiment(spec)
+        rid = svc.create_runs_for_experiment(exp)[0]
+        doc = svc.execute_run_now(rid)
+        assert doc["metrics"]["bbpsw_achieved"] in (True, False)
+        assert "analytic_trajectories" in doc["artifacts"]
+
+    def test_repeater_study_runner(self, db):
+        svc = ExperimentService(db)
+        spec = ExperimentSpec(name="rep", module="repeater_study",
+                              config={"distances_km": [60, 240],
+                                      "levels": ["L0_direct", "L1_swapping"],
+                                      "requests_per_point": 8}, seed=5)
+        exp = svc.create_experiment(spec)
+        rid = svc.create_runs_for_experiment(exp)[0]
+        doc = svc.execute_run_now(rid)
+        rows = doc["artifacts"]["table"]
+        assert len(rows) == 4
+        for row in rows:
+            assert row["ci95_low"] <= row["success_probability"] <= row["ci95_high"]
+
+    def test_network_bb84_runner_with_sweep(self, db):
+        svc = ExperimentService(db)
+        spec = ExperimentSpec(name="netqkd", module="network_bb84",
+                              config={"mode": "distance_sweep",
+                                      "distances_km": [10, 80, 160],
+                                      "n_signals": 512}, seed=7)
+        exp = svc.create_experiment(spec)
+        rid = svc.create_runs_for_experiment(exp)[0]
+        doc = svc.execute_run_now(rid)
+        table = doc["artifacts"]["table"]
+        det = [r["detected"] for r in table]
+        assert det[0] >= det[-1]  # loss model reduces detections with distance

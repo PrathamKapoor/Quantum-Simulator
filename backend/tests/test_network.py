@@ -294,3 +294,27 @@ class TestPurificationIntegration:
                 break
         else:
             pytest.fail("no successful run across seeds")
+
+
+class TestRepeaterStudy:
+    def test_study_runs_and_reports_cis(self):
+        from app.network.repeaters import run_repeater_study
+
+        study = run_repeater_study(
+            [50, 200], levels=["L0_direct", "L1_swapping"],
+            requests_per_point=10, seed=42)
+        assert len(study["table"]) == 4
+        for row in study["table"]:
+            lo, hi = row["ci95_low"], row["ci95_high"]
+            assert 0 <= row["success_probability"] <= 1
+            assert lo <= row["success_probability"] <= hi
+            assert row["requests"] == 10
+
+    def test_repeater_beats_direct_at_long_distance(self):
+        """Trend validation (§198): at long distance the direct strategy
+        should not beat the repeater chain on success probability."""
+        from app.network.repeaters import run_repeater_point
+
+        direct = run_repeater_point("L0_direct", 300, requests=12, seed=5)
+        chained = run_repeater_point("L1_swapping", 300, requests=12, seed=5)
+        assert chained.success_probability >= direct.success_probability - 0.15

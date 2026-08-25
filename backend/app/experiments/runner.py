@@ -15,6 +15,8 @@ identical outputs bit-for-bit.
 """
 from __future__ import annotations
 
+import numpy as np
+
 from dataclasses import dataclass, field
 
 RESULT_SCHEMA = "quantumlab.run-result"
@@ -339,6 +341,107 @@ def run_grover_study(config: dict, seed: int) -> dict:
     return make_result_document("grover_study", metrics, artifacts={"counts": artifacts.get("counts_ideal", {})}, notes=notes)
 
 
+def run_purification_study(config: dict, seed: int) -> dict:
+    """Purification protocol comparison across input fidelities/rounds."""
+    from ..network.purification import compare_protocols, purify_to_target
+
+    initial = float(config.get("initial_fidelity", 0.8))
+    if not (0.5 <= initial <= 1.0):
+        raise ValueError("initial_fidelity must be within [0.5, 1].")
+    max_rounds = int(config.get("max_rounds", 4))
+    target = float(config.get("target_fidelity", 0.95))
+    rng = np.random.default_rng(seed)
+    schedules = {}
+    for proto in ("BBPSSW", "DEJMPS"):
+        res = purify_to_target(proto, initial, target, max_rounds=max_rounds, rng=rng)
+        schedules[proto] = {
+            "achieved": res.achieved,
+            "final_fidelity": round(res.final_fidelity, 6) if res.final_fidelity else None,
+            "rounds_succeeded": res.rounds_succeeded,
+            "pairs_consumed": res.pairs_consumed,
+        }
+    metrics = {
+        "initial_fidelity": initial,
+        "target_fidelity": target,
+        "max_rounds": max_rounds,
+        "bbpsw_achieved": schedules["BBPSSW"]["achieved"],
+        "dejmps_achieved": schedules["DEJMPS"]["achieved"],
+    }
+    return make_result_document(
+        "purification_study", metrics,
+        artifacts={"schedules": schedules,
+                   "analytic_trajectories": compare_protocols(initial, max_rounds=max_rounds)},
+        notes=[
+            "BBPSSW/DEJMPS exact recurrences on Werner-form inputs; success "
+            "sampled per round with the run seed; failures consume both pairs.",
+        ],
+    )
+
+
+def run_repeater_study_exp(config: dict, seed: int) -> dict:
+    from ..network.repeaters import run_repeater_study
+
+    distances = [float(d) for d in config.get("distances_km", [50, 150, 300])]
+    if not distances or len(distances) > 8:
+        raise ValueError("Provide 1..8 distances.")
+    levels = config.get("levels", ["L0_direct", "L1_swapping", "L2_swap_purify"])
+    study = run_repeater_study(
+        distances, levels=[str(x) for x in levels],
+        requests_per_point=int(config.get("requests_per_point", 12)),
+        seed=seed)
+    metrics = {
+        "points": len(study["table"]),
+        "levels": study["levels"],
+        "distances_km": study["distances_km"],
+    }
+    return make_result_document(
+        "repeater_study", metrics,
+        artifacts={"table": study["table"]}, notes=study["notes"],
+    )
+
+
+def run_network_bb84_exp(config: dict, seed: int) -> dict:
+    from ..protocols.network_bb84 import run_bb84_distance_sweep, run_network_bb84
+
+    if config.get("mode") == "distance_sweep":
+        sweep = run_bb84_distance_sweep(
+            [float(d) for d in config.get("distances_km", [10, 50, 100, 200])],
+            n_signals=int(config.get("n_signals", 2048)),
+            eve_intercept_probability=float(config.get("eve_intercept_probability", 0.0)),
+            seed=seed)
+        qbers = [r["qber"] for r in sweep["table"] if r["qber"] is not None]
+        metrics = {
+            "mode": "distance_sweep",
+            "qber_no_eve_max": max(qbers) if qbers else None,
+            "rows": len(sweep["table"]),
+        }
+        return make_result_document("network_bb84", metrics,
+                                    artifacts={"table": sweep["table"]},
+                                    notes=sweep["notes"])
+    from ..protocols.network_bb84 import run_network_bb84
+
+    r = run_network_bb84(
+        int(config.get("n_signals", 4096)),
+        distance_km=float(config.get("distance_km", 25)),
+        attenuation_db_per_km=float(config.get("attenuation_db_per_km", 0.2)),
+        detector_efficiency=float(config.get("detector_efficiency", 0.9)),
+        dark_count_probability=float(config.get("dark_count_probability", 0.0)),
+        eve_intercept_probability=float(config.get("eve_intercept_probability", 0.0)),
+        sample_fraction=float(config.get("sample_fraction", 0.5)),
+        seed=seed)
+    metrics = {
+        "distance_km": r.distance_km,
+        "detected": r.detected,
+        "lost": r.lost,
+        "sifted_bits": r.sifted_bits,
+        "qber": r.qber,
+        "errors_in_sampled": r.errors_in_sampled,
+        "sample_size": r.sample_size,
+        "key_rate_fraction_estimate": r.key_rate_fraction_estimate,
+    }
+    return make_result_document("network_bb84", metrics, notes=r.notes)
+
+
 RUNNER_REGISTRY = {
     "circuit_shots": run_circuit_shots,
     "qec_sweep": run_qec_sweep,
@@ -346,6 +449,9 @@ RUNNER_REGISTRY = {
     "network_study": run_network_study,
     "vqe": run_vqe_experiment,
     "grover_study": run_grover_study,
+    "purification_study": run_purification_study,
+    "repeater_study": run_repeater_study_exp,
+    "network_bb84": run_network_bb84_exp,
 }
 
 

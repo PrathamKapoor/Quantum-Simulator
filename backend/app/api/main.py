@@ -729,6 +729,17 @@ def cancel_job(job_id: int):
     return {"cancelled": True}
 
 
+@app.post("/api/benchmarks/run")
+def run_benchmarks(max_qubits: int = 18, repeats: int = 3):
+    """Wall-clock performance measurements of this machine (§112, §199)."""
+    from ..experiments.benchmarks import run_all_benchmarks
+
+    if not (4 <= max_qubits <= 24) or not (1 <= repeats <= 5):
+        raise http_error(400, "INVALID_INPUT",
+                         "max_qubits must be within [4,24] and repeats within [1,5].")
+    return run_all_benchmarks(repeats=repeats)
+
+
 @app.websocket("/ws/jobs")
 async def ws_jobs(ws: WebSocket):
     await ws.accept()

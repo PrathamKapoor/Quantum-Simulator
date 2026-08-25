@@ -286,9 +286,7 @@ def run_order_finding(a: int, N: int, *, seed: int = 23, shots: int = 128) -> Or
     circuit.add_measure(list(range(t)), list(range(t)))
 
     # Initial system state |1> on the modular register.
-    prep_ops = []
-    from ..circuits.model import Operation
-
+    prep_ops: list[Operation] = []
     prep_ops.append(Operation(kind="gate", gate="X", params=(), qubits=(t,)))
     full = Circuit(
         num_qubits=total_qubits, num_clbits=t,

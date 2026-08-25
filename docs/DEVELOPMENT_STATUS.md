@@ -35,12 +35,26 @@ frontend (`dev.bat frontend`), open http://localhost:5173.
 
 ## Test status
 
-- Fast suite: **230 passed** (~75 s): `dev.bat test` or
+- Fast suite: **239 passed** (~2.6 min): `dev.bat test` or
   `cd backend && ..\.venv\Scripts\python -m pytest tests --timeout=300`
 - Endpoint smoke: **26/26 passed** across every UI-critical route.
-- Extended validation (`-m extended`): running during idle time — Shor-9 trend
-  over 20k trials/point, BB84 Eve-linearity, CHSH-vs-fidelity line, repeater
-  success vs time budget.
+- Extended validation (`-m extended`): **4/4 passed** — Shor-9 trend over
+  20k trials/point, BB84 Eve-linearity, CHSH |S| = 2√2·F verified within 0.05,
+  repeater success grows with attempt budget.
+- Flagship demo sweep (§316): **10/10 OK** — teleportation trajectory, repeater
+  chains (1–2 swaps, fidelity ≈ 0.97), BB84 QBER 0%→28.9% under Eve, Shor-9 QEC
+  curve trend, QAOA square ratio 1.0, Grover P=0.964 at analytic optimum,
+  chaos failure resolution, QML ideal-vs-noisy, VQE H2 error 1.4e-09,
+  noise-aware circuit execution (noisy error rate 6.7% vs ideal 0%).
+
+## Measured performance (this machine, session 1)
+
+| Workload | Result |
+|----------|--------|
+| Shot sampling (fast path) | ~6.8M shots/s |
+| Slowest statevector workload measured (QFT-18q) | ~3.1 s |
+| Density-matrix GHZ-8 evolution | ~22 ms |
+| Network event throughput | ~80k events/s |
 
 ## Runtime status
 

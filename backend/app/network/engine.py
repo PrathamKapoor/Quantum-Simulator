@@ -29,6 +29,7 @@ from .entanglement import (
     generation_success_probability,
     attempt_duration_ns,
     swap_fidelity,
+    swap_classical_latency_ns,
 )
 
 
@@ -117,6 +118,7 @@ class NetworkResult:
     avg_fidelity: float | None = None
     success_count: int = 0
     failure_count: int = 0
+    engine_errors: list[str] = field(default_factory=list)
 
 
 class _ActiveRequest:
@@ -129,6 +131,8 @@ class _ActiveRequest:
         self.attempts = 0
         # pair_id -> (seg_start_idx, seg_end_idx) inclusive span over the route
         self.coverage: dict[int, tuple[int, int]] = {}
+        # segments with an in-flight attempt chain (prevents duplicate chains)
+        self.pending_segments: set[int] = set()
 
 
 class NetworkEngine:
@@ -150,6 +154,7 @@ class NetworkEngine:
             mem.coherence_ns = self.config.memory_coherence_ns
         self.stats = NetworkStats()
         self.outcomes: list[RequestOutcome] = []
+        self.engine_errors: list[str] = []
         self._active: dict[int, _ActiveRequest] = {}
         self._route_cache: dict[tuple, tuple] = {}
 
@@ -210,9 +215,13 @@ class NetworkEngine:
             try:
                 self.clock.advance_to(ev.time_ns)
                 self._handle_event(ev)
-            except Exception:
-                # Engine-level guard: skip a bad event and continue processing
-                # so one malformed event cannot corrupt the whole run (§289).
+            except Exception as exc:
+                # Engine-level guard: a bad event must not corrupt the whole
+                # run, but failures are NEVER silent (§289) — they are recorded
+                # and surfaced in the result.
+                self.engine_errors.append(
+                    f"t={ev.time_ns:.0f}ns {ev.type}: {type(exc).__name__}: {exc}"
+                )
                 processed += 1
                 continue
             self.trace.record(ev)  # single recording point (directive §85, §205)
@@ -264,14 +273,18 @@ class NetworkEngine:
         self._schedule_segment_attempts(req.request_id)
 
     def _schedule_segment_attempts(self, request_id: int) -> None:
-        """Kick off link attempts for every uncovered single segment."""
+        """Kick off link attempts for every uncovered segment.
+
+        A segment has at most ONE in-flight attempt chain: `pending_segments`
+        prevents duplicate parallel chains (a real defect found by tracing).
+        """
         active = self._active.get(request_id)
         if active is None or active.route is None:
             return
         covered = self._covered_segments(active)
         launched = False
         for i in range(len(active.route) - 1):
-            if i in covered:
+            if i in covered or i in active.pending_segments:
                 continue
             a, b = active.route[i], active.route[i + 1]
             link = self.topology.get_link(a, b)
@@ -279,6 +292,7 @@ class NetworkEngine:
                 self._fail_request(request_id, "segment_link_down")
                 return
             delay = max(attempt_duration_ns(link.distance_km), 1.0)
+            active.pending_segments.add(i)
             self.queue.push(
                 self.clock.now_ns + delay, "link_attempt_started",
                 source=a, destination=b, request_id=request_id, segment=i,
@@ -339,6 +353,7 @@ class NetworkEngine:
         active = self._active.get(request_id)
         if active is None or active.route is None:
             return
+        active.pending_segments.discard(segment)
         req = active.request
         if req.deadline_ns is not None and self.clock.now_ns > req.deadline_ns:
             self._fail_request(request_id, "deadline_exceeded")
@@ -370,6 +385,7 @@ class NetworkEngine:
                 reason="photon_loss",
             )
             delay = max(attempt_duration_ns(link.distance_km), 1.0)
+            active.pending_segments.add(segment)
             self.queue.push(
                 self.clock.now_ns + delay, "link_attempt_started",
                 source=a, destination=b, request_id=request_id, segment=segment,
@@ -565,6 +581,7 @@ class NetworkEngine:
         backoff_ns = 1000.0 * active.retry_count
         delay = backoff_ns + max(attempt_duration_ns(
             self.topology.get_link(a, b).distance_km), 1.0)
+        active.pending_segments.add(segment)
         self.queue.push(
             self.clock.now_ns + delay, "link_attempt_started",
             source=a, destination=b, request_id=request_id, segment=segment,
@@ -656,4 +673,5 @@ class NetworkEngine:
             avg_fidelity=sum(fids) / len(fids) if fids else None,
             success_count=len(successful),
             failure_count=len(failed),
+            engine_errors=list(self.engine_errors),
         )

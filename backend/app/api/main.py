@@ -12,6 +12,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path as _Path
 
 from ..circuits import (
     Circuit,
@@ -738,3 +740,9 @@ async def ws_jobs(ws: WebSocket):
         pass
     finally:
         WS_CLIENTS.discard(ws)
+
+
+# Serve repository documentation for the frontend docs viewer (read-only).
+_DOCS_DIR = _Path(__file__).resolve().parents[3] / "docs"
+if _DOCS_DIR.exists():
+    app.mount("/repo-docs", StaticFiles(directory=str(_DOCS_DIR)), name="repo-docs")

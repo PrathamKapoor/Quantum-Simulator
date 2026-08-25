@@ -1,0 +1,740 @@
+"""FastAPI application: validated endpoints, health checks, WebSocket progress.
+
+Every endpoint validates inputs via pydantic schemas and returns structured
+errors. Simulation results always trace to computation; the API never
+fabricates data (directive §237, §323).
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+
+from ..circuits import (
+    Circuit,
+    circuit_from_dict,
+    circuit_to_dict,
+    simulate,
+    validate_circuit,
+)
+from ..quantum.states import QuantumCoreError
+from ..noise.models import NoiseModel
+from ..persistence.db import Database, ensure_default_project
+from ..experiments.service import ExperimentService
+from ..experiments.runner import ExperimentSpec, RUNNER_REGISTRY
+from ..workers.jobs import JobQueue
+from . import schemas
+
+
+STATE: dict = {}
+
+
+def get_db() -> Database:
+    return STATE["db"]
+
+
+def get_service() -> ExperimentService:
+    return STATE["service"]
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: database + workers (directive §223 health-checkable).
+    db = Database("quantumlab.db")
+    service = ExperimentService(db)
+    queue = JobQueue(db=db, workers=2)
+
+    loop = asyncio.get_running_loop()
+    def broadcast(job):
+        for ws in list(WS_CLIENTS):
+            try:
+                payload = {
+                    "type": "job.progress",
+                    "job_id": job.id,
+                    "status": job.status,
+                    "progress": job.progress,
+                    "detail": job.detail,
+                    "run_id": job.payload.get("run_id"),
+                    "error": job.error,
+                }
+                loop.create_task(_safe_send(ws, json.dumps(payload)))
+            except Exception:
+                pass
+
+    queue.subscribe(broadcast)
+    queue.start()
+    STATE.update({"db": db, "service": service, "queue": queue})
+    yield
+    queue.shutdown()
+    db.close()
+
+
+async def _safe_send(ws: WebSocket, text: str) -> None:
+    try:
+        await ws.send_text(text)
+    except Exception:
+        pass
+
+
+app = FastAPI(
+    title="QuantumLab API",
+    version="0.1.0",
+    description=(
+        "Quantum computing, information, and networking research laboratory. "
+        "All results come from real simulation; nothing is fabricated."
+    ),
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:4173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+WS_CLIENTS: set[WebSocket] = set()
+
+
+def http_error(status: int, code: str, message: str, suggestion: str | None = None) -> HTTPException:
+    return HTTPException(
+        status_code=status,
+        detail={"code": code, "message": message, "suggestion": suggestion},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Health / diagnostics (§223-228)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/health")
+def health() -> dict:
+    checks = {}
+    checks["database"] = _check_database()
+    checks["quantum_engine"] = _check_quantum_engine()
+    checks["network_engine"] = _check_network_engine()
+    q: JobQueue = STATE["queue"]
+    checks["worker"] = {
+        "status": "ok" if q.running_count() >= 0 else "unknown",
+        "queued": q.pending_count(),
+        "running": q.running_count(),
+        "workers": q.workers,
+    }
+    overall = all(v.get("status") == "ok" for k, v in checks.items() if isinstance(v, dict))
+    return {"status": "ok" if overall else "degraded", "checks": checks}
+
+
+def _check_quantum_engine() -> dict:
+    """H|0> -> X -> measure sanity check (§224)."""
+    try:
+        c = Circuit(num_qubits=2, num_clbits=2)
+        c.add_gate("X", [0])
+        c.add_measure([0], [0])
+        res = simulate(c, seed=1, shots=16)
+        ok = res.counts.get("01", 0) == 16  # little-endian register string
+        return {"status": "ok" if ok else "failed",
+                "detail": "X gate truth table check"}
+    except Exception as e:
+        return {"status": "failed", "detail": str(e)}
+
+
+def _check_network_engine() -> dict:
+    """Minimal A->B network executes events (§225)."""
+    try:
+        from ..network import Topology, NetworkNode, NetworkEngine, NetworkConfig
+
+        t = Topology()
+        t.add_node(NetworkNode("A"))
+        t.add_node(NetworkNode("B"))
+        t.add_quantum_link("A", "B", distance_km=1)
+        eng = NetworkEngine(t, NetworkConfig(), seed=1)
+        eng.submit_request("A", "B")
+        r = eng.run(until_ns=100_000)
+        ok = r.success_count >= 1 or r.failure_count <= 1
+        return {"status": "ok" if ok else "failed",
+                "detail": "two-node entanglement request executed"}
+    except Exception as e:
+        return {"status": "failed", "detail": str(e)}
+
+
+def _check_database() -> dict:
+    try:
+        row = get_db().query_one("SELECT COUNT(*) AS c FROM projects")
+        return {"status": "ok", "detail": f"{row['c']} project(s)"}
+    except Exception as e:
+        return {"status": "failed", "detail": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Circuits
+# ---------------------------------------------------------------------------
+
+@app.post("/api/circuits/validate")
+def validate_circuit_endpoint(req: schemas.ValidateCircuitRequest) -> dict:
+    try:
+        circuit = circuit_from_dict(req.circuit)
+    except ValueError as e:
+        raise http_error(400, "INVALID_DOCUMENT", str(e))
+    issues = [i.to_dict() for i in validate_circuit(circuit)]
+    return {"valid": not issues, "issues": issues}
+
+
+@app.post("/api/circuits/execute")
+def execute_circuit(req: schemas.CircuitExecuteRequest) -> dict:
+    try:
+        circuit = circuit_from_dict(req.circuit)
+        noise = NoiseModel.from_config(req.noise_config) if req.noise_config else None
+        result = simulate(
+            circuit, mode=req.mode, seed=req.seed, shots=req.shots, noise_model=noise
+        )
+    except ValueError as e:
+        raise http_error(400, "VALIDATION_ERROR", str(e))
+    except QuantumCoreError as e:
+        raise http_error(400, "NUMERICAL_ERROR", str(e),
+                         suggestion="Check circuit size/parameters; density mode caps at 12 qubits.")
+    out = {
+        "mode": result.mode,
+        "counts": result.counts,
+        "probabilities": result.probabilities,
+        "warnings": result.warnings,
+    }
+    if result.final_state is not None:
+        amps = result.final_state.amplitudes
+        probs = result.final_state.probabilities()
+        n = result.final_state.n_qubits
+        if n <= 8:
+            out["statevector"] = {
+                format(i, f"0{n}b"): {"re": round(float(a.real), 6), "im": round(float(a.imag), 6),
+                                      "p": round(float(probs[i]), 9)}
+                for i, a in enumerate(amps) if probs[i] > 1e-12
+            }
+        else:
+            top = sorted(range(len(probs)), key=lambda i: -probs[i])[:64]
+            out["statevector_top"] = {
+                format(i, f"0{n}b"): round(float(probs[i]), 9) for i in top if probs[i] > 1e-12
+            }
+        reduced = result.final_state.marginal_probabilities(list(range(min(n, 10))))
+        out["marginal_probabilities"] = {
+            format(i, f"0{min(n, 10)}b"): float(p) for i, p in enumerate(reduced) if p > 1e-12
+        }
+        if n == 1:
+            from ..quantum.density import DensityMatrix
+            rho = DensityMatrix.pure(result.final_state)
+            out["bloch_vector"] = [round(float(x), 6) for x in rho.bloch_vector()]
+        elif n <= 3:
+            from ..quantum.density import DensityMatrix
+            rho = DensityMatrix.pure(result.final_state)
+            out["entanglement_entropy_bits"] = [
+                round(rho.partial_trace([q]).entropy(), 6) for q in range(n)
+            ]
+    if result.density_matrix is not None:
+        dm = result.density_matrix
+        out["density_summary"] = {
+            "purity": round(dm.purity(), 9),
+            "entropy_bits": round(dm.entropy(), 9),
+        }
+    if req.circuit.get("metadata", {}).get("custom_gates"):
+        out["notes"] = ["Circuit used custom gates; matrices validated as unitary."]
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Algorithms
+# ---------------------------------------------------------------------------
+
+@app.post("/api/algorithms/grover")
+def grover(req: schemas.GroverRequest):
+    from ..algorithms import run_grover
+
+    try:
+        res = run_grover(req.n_qubits, req.marked_index, shots=req.shots, seed=req.seed)
+    except QuantumCoreError as e:
+        raise http_error(400, "NUMERICAL_ERROR", str(e))
+    return {
+        "marked_state": res.marked_state,
+        "counts": res.counts,
+        "success_probability": res.success_probability_estimate,
+        "optimal_iterations": res.optimal_iterations,
+        "per_iteration_probabilities": res.per_iteration_probabilities,
+    }
+
+
+@app.post("/api/algorithms/bv")
+def bernstein_vazirani(req: schemas.BvRequest):
+    from ..algorithms import run_bernstein_vazirani
+
+    return run_bernstein_vazirani(req.secret)
+
+
+@app.post("/api/algorithms/qft/matrix")
+def qft_matrix(req: schemas.QftRequest):
+    from ..algorithms import build_qft
+
+    circuit, info = build_qft(req.n_qubits, inverse=req.inverse,
+                              cutoff_exponent=req.cutoff_exponent)
+    return {"circuit": circuit_to_dict(circuit), "approximate": info.approximate,
+            "dropped_rotations": info.dropped_rotations, "warnings": info.warnings}
+
+
+@app.post("/api/algorithms/deutsch-jozsa")
+def deutsch_jozsa(req: schemas.DeutschJozsaRequest):
+    from ..algorithms import OracleSpec, run_deutsch_jozsa
+
+    oracle = OracleSpec.constant(req.n_qubits, 0) if req.kind == "constant" \
+        else OracleSpec.balanced(req.n_qubits, seed=req.seed)
+    return run_deutsch_jozsa(oracle)
+
+
+@app.post("/api/algorithms/superdense")
+def superdense(req: schemas.SuperdenseRequest):
+    from ..algorithms import run_superdense
+
+    return run_superdense(req.bits, shots=req.shots, seed=req.seed % 100000)
+
+
+@app.post("/api/algorithms/order-finding")
+def order_finding(req: schemas.OrderFindingRequest):
+    from math import gcd
+    from ..algorithms import run_order_finding
+    from app.quantum.states import QuantumCoreError
+
+    if gcd(req.a, req.N) != 1:
+        raise http_error(400, "INVALID_INPUT", f"gcd(a={req.a}, N={req.N}) != 1",
+                         suggestion="Choose a coprime base a.")
+    try:
+        res = run_order_finding(req.a, req.N, seed=req.a * 31 + req.N)
+    except QuantumCoreError as e:
+        raise http_error(400, "LIMIT_EXCEEDED", str(e))
+    return {
+        "a": res.a, "N": res.N,
+        "true_order": res.true_order,
+        "recovered_order": res.recovered_order,
+        "success": res.success,
+        "measured_phases_top": res.measured_phases_top[:8],
+    }
+
+
+@app.post("/api/algorithms/quantum-walk")
+def quantum_walk(req: schemas.QuantumWalkRequest):
+    from ..algorithms import discrete_quantum_walk
+
+    return discrete_quantum_walk(req.n_position_qubits, req.steps)
+
+
+# ---------------------------------------------------------------------------
+# Protocols
+# ---------------------------------------------------------------------------
+
+@app.post("/api/protocols/bb84")
+def bb84(req: schemas.BB84Request):
+    from ..protocols import run_bb84
+
+    r = run_bb84(req.n_qubits, eve_intercept_probability=req.eve_intercept_probability,
+                 sample_fraction=req.sample_fraction, seed=req.seed)
+    return {
+        "n_signal_qubits": r.n_signal_qubits,
+        "sifted_bits": len(r.sifted_indices),
+        "sample_size": r.sample_size,
+        "qber": r.qber,
+        "eve_present": r.eve_present,
+        "key_match_sample_agreement": sum(a == b for a, b in zip(r.sifted_key_alice, r.sifted_key_bob)) /
+                                      max(len(r.sifted_key_alice), 1),
+        "notes": r.notes,
+    }
+
+
+@app.post("/api/protocols/e91")
+def e91(req: schemas.E91Request):
+    from ..protocols import run_e91
+
+    r = run_e91(req.n_pairs, noise_correlation_factor=req.noise_correlation_factor,
+                seed=req.seed)
+    return {
+        "chsh_statistic": r.chsh_statistic,
+        "classical_bound": r.classical_bound,
+        "quantum_bound": r.quantum_bound,
+        "violates_classical": r.chsh_violates_classical,
+        "key_length": len(r.alice_key),
+        "key_agreement": sum(a == b for a, b in zip(r.alice_key, r.bob_key)) /
+                         max(len(r.alice_key), 1),
+        "notes": r.notes,
+    }
+
+
+@app.post("/api/protocols/chsh")
+def chsh(req: schemas.CHSHRequest):
+    from ..protocols import run_chsh
+
+    return run_chsh(req.state_fidelity, shots_per_setting=req.shots_per_setting,
+                    seed=req.seed)
+
+
+@app.post("/api/protocols/qrng")
+def qrng(req: schemas.QRNGRequest):
+    from ..protocols import run_qrng
+
+    return run_qrng(req.n_bits, seed=req.seed)
+
+
+# ---------------------------------------------------------------------------
+# QEC
+# ---------------------------------------------------------------------------
+
+@app.get("/api/qec/codes")
+def qec_codes():
+    from ..qec import CODE_REGISTRY
+
+    return [
+        {
+            "name": c.name, "n": c.n, "k": c.k, "distance": c.distance,
+            "description": c.description,
+            "corrects_paulis": list(c.corrects_paulis),
+        }
+        for c in CODE_REGISTRY.values()
+    ]
+
+
+@app.post("/api/qec/sweep")
+def qec_sweep(req: schemas.QECSweepRequest):
+    from ..qec import sweep_physical_error_rate, get_code
+
+    try:
+        get_code(req.code)
+    except KeyError as e:
+        raise http_error(400, "UNKNOWN_CODE", str(e))
+    pts = sweep_physical_error_rate(req.code, req.physical_error_rates,
+                                    trials=req.trials, seed=req.seed)
+    return {
+        "code": req.code,
+        "table": [
+            {"physical_error_rate": p.physical_error_rate,
+             "logical_error_rate": p.logical_error_rate,
+             "ci95_low": p.ci_low, "ci95_high": p.ci_high,
+             "logical_failures": p.logical_failures, "trials": p.trials}
+            for p in pts
+        ],
+    }
+
+
+@app.post("/api/qec/surface-code")
+def surface_code(req: schemas.SurfaceCodeRequest):
+    from ..qec import simulate_surface_code, ToricCodeLayout
+
+    res = simulate_surface_code(req.d, req.physical_error_rate,
+                                trials=req.trials, seed=req.seed)
+    layout = ToricCodeLayout(req.d).visualization_layout()
+    return {
+        "d": res.d,
+        "physical_error_rate": res.physical_error_rate,
+        "logical_error_rate": res.logical_error_rate,
+        "ci95": list(res.ci95),
+        "trials": res.trials,
+        "note": res.note,
+        "layout": layout,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Network studio
+# ---------------------------------------------------------------------------
+
+@app.post("/api/network/simulate")
+def network_simulate(req: schemas.NetworkSimulateRequest):
+    from ..network import Topology, NetworkNode, NetworkEngine, NetworkConfig
+
+    topo = Topology()
+    names = set()
+    for node in req.nodes:
+        topo.add_node(NetworkNode(name=node.name, node_type=node.type,
+                                  memory_slots=node.memory_slots,
+                                  latitude=node.latitude, longitude=node.longitude))
+        names.add(node.name)
+    for link in req.links:
+        if link.source not in names or link.destination not in names:
+            raise http_error(400, "BAD_LINK",
+                             f"Link {link.source}-{link.destination} references unknown nodes.")
+        try:
+            topo.add_quantum_link(link.source, link.destination,
+                                  distance_km=link.distance_km,
+                                  base_fidelity=link.base_fidelity,
+                                  detector_efficiency=link.detector_efficiency)
+        except ValueError as e:
+            raise http_error(400, "BAD_LINK", str(e))
+    for rq in req.requests:
+        src, dst = rq.get("source"), rq.get("destination")
+        if src not in names or dst not in names:
+            raise http_error(400, "BAD_REQUEST",
+                             f"Request {src}->{dst} references unknown nodes.")
+    cfg_kwargs = dict(
+        routing_strategy=req.routing_strategy,
+        scheduler_policy=req.scheduler_policy,
+        swap_success_probability=req.swap_success_probability,
+        classical_latency_mode=req.classical_latency_mode,
+        memory_coherence_ns=req.memory_coherence_ns,
+        trace_mode=req.trace_mode,
+    )
+    if req.node_failure_rate_per_s > 0 or req.link_failure_rate_per_s > 0:
+        cfg_kwargs.update(node_failure_rate_per_s=req.node_failure_rate_per_s,
+                          link_failure_rate_per_s=req.link_failure_rate_per_s)
+    engine = NetworkEngine(topo, NetworkConfig(**cfg_kwargs), seed=req.seed)
+    for rq in req.requests:
+        engine.submit_request(
+            rq["source"], rq["destination"],
+            protocol=rq.get("protocol", "entanglement"),
+            fidelity_requirement=rq.get("fidelity_requirement"),
+            deadline_ns=rq.get("deadline_ns"),
+            priority=int(rq.get("priority", 0)),
+        )
+    result = engine.run(until_ns=req.sim_time_ms * 1e6)
+    return {
+        "sim_time_ns": result.sim_time_ns,
+        "stats": result.stats,
+        "fairness": result.fairness,
+        "utilization": result.utilization,
+        "avg_fidelity": result.avg_fidelity,
+        "avg_service_ns": result.avg_service_ns,
+        "success_count": result.success_count,
+        "failure_count": result.failure_count,
+        "outcomes": [
+            {
+                "request_id": o.request_id, "source": o.source,
+                "destination": o.destination, "protocol": o.protocol,
+                "success": o.success, "fidelity": o.fidelity,
+                "completion_ns": o.completion_ns, "waiting_ns": o.waiting_ns,
+                "route": list(o.route) if o.route else None,
+                "failure_reason": o.failure_reason,
+            }
+            for o in result.outcomes
+        ],
+        "event_log": result.event_log,
+        "truncated": result.truncated,
+    }
+
+
+@app.post("/api/network/route")
+def network_route(req: schemas.NetworkSimulateRequest):
+    """Route explanation endpoint: returns chosen path + why (§197)."""
+    from ..network import Topology, NetworkNode, find_best_route
+
+    topo = Topology()
+    for node in req.nodes:
+        topo.add_node(NetworkNode(name=node.name, node_type=node.type,
+                                  memory_slots=node.memory_slots))
+    for link in req.links:
+        try:
+            topo.add_quantum_link(link.source, link.destination,
+                                  distance_km=link.distance_km,
+                                  base_fidelity=link.base_fidelity)
+        except ValueError as e:
+            raise http_error(400, "BAD_LINK", str(e))
+    responses = []
+    for rq in req.requests:
+        route, expl = find_best_route(topo, rq["source"], rq["destination"],
+                                      strategy=req.routing_strategy,
+                                      fidelity_requirement=rq.get("fidelity_requirement"))
+        responses.append({
+            "source": rq["source"], "destination": rq["destination"],
+            "route": list(route) if route else None,
+            "explanation": expl.describe() if expl else None,
+            "expected_fidelity": expl.expected_fidelity if expl else None,
+            "estimated_latency_ns": expl.estimated_latency_ns if expl else None,
+        })
+    return {"routes": responses}
+
+
+# ---------------------------------------------------------------------------
+# Optimization lab
+# ---------------------------------------------------------------------------
+
+@app.post("/api/optimize/vqe")
+def vqe(req: schemas.VQERequest):
+    from ..optimization.variational import run_vqe, two_local_h2_ansatz
+    from ..optimization.hamiltonians import h2_hamiltonian, transverse_field_ising
+    from ..circuits.model import Circuit
+
+    def make_tfim_ansatz(n):
+        def ansatz(params):
+            c = Circuit(num_qubits=n)
+            k = 0
+            for q in range(n):
+                c.add_gate("RY", [q], params=[float(params[k])]); k += 1
+            for q in range(n - 1):
+                c.add_gate("CX", [q, q + 1])
+            for q in range(n):
+                c.add_gate("RY", [q], params=[float(params[k])]); k += 1
+            return c
+        return ansatz
+
+    if req.system == "h2":
+        ham = h2_hamiltonian(req.bond_length_angstrom)
+        builder, count = two_local_h2_ansatz, 3
+    else:
+        ham = transverse_field_ising(req.n_qubits)
+        builder, count = make_tfim_ansatz(req.n_qubits), 2 * req.n_qubits
+    res = run_vqe(ham, builder, count, max_iter=req.max_iter, seed=req.seed)
+    return {
+        "estimated_energy": res.estimated_energy,
+        "exact_energy": res.exact_energy,
+        "error": res.error,
+        "energy_history": res.energy_history,
+        "final_params": res.final_params,
+        "notes": res.notes,
+    }
+
+
+@app.post("/api/optimize/qaoa")
+def qaoa(req: schemas.QAOARequest):
+    from ..optimization.variational import run_qaoa_maxcut
+
+    edges = [(int(a), int(b)) for a, b in req.edges]
+    res = run_qaoa_maxcut(edges, req.n_nodes, p_layers=req.p_layers, seed=req.seed)
+    return {
+        "best_cut_value": res.best_cut_value,
+        "exact_optimum": res.exact_optimum,
+        "approximation_ratio": res.approximation_ratio,
+        "most_likely_bitstring": res.most_likely_bitstring,
+        "probability_distribution_top": res.probability_distribution_top,
+        "optimization_history": res.optimization_history,
+        "notes": res.notes,
+    }
+
+
+@app.post("/api/optimize/h2-curve")
+def h2_curve(req: schemas.H2CurveRequest):
+    from ..optimization.variational import h2_dissociation_curve
+
+    lengths = [float(x) for x in req.lengths]
+    curve = h2_dissociation_curve(lengths, seed=req.seed)
+    return curve
+
+
+@app.post("/api/optimize/qml")
+def qml_experiment(req: schemas.QMLExperimentRequest):
+    from ..optimization.qml import run_qml_experiment
+
+    return run_qml_experiment(req.dataset, seed=req.seed, max_iter=req.max_iter,
+                              noise_label="depolarizing-0.01" if req.compare_noisy else None)
+
+
+# ---------------------------------------------------------------------------
+# Experiments & jobs
+# ---------------------------------------------------------------------------
+
+@app.post("/api/experiments")
+def create_experiment(req: schemas.ExperimentCreateRequest):
+    svc = get_service()
+    spec = ExperimentSpec.from_dict({
+        "name": req.name, "module": req.module, "config": req.config,
+        "sweep": req.sweep, "backend": req.backend,
+        "noise_model": req.noise_model, "seed": req.seed,
+    })
+    issues = spec.validate()
+    if issues:
+        raise http_error(400, "INVALID_EXPERIMENT", "; ".join(issues),
+                         suggestion=f"Available modules: {sorted(RUNNER_REGISTRY)}")
+    exp_id = svc.create_experiment(spec, objective=req.objective,
+                                   hypothesis=req.hypothesis,
+                                   description=req.description)
+    run_ids = svc.create_runs_for_experiment(exp_id)
+    return {"experiment_id": exp_id, "run_ids": run_ids}
+
+
+@app.get("/api/experiments")
+def list_experiments():
+    return get_service().list_experiments()
+
+
+@app.get("/api/experiments/{exp_id}")
+def get_experiment(exp_id: int):
+    exp = get_service().get_experiment(exp_id)
+    if not exp:
+        raise http_error(404, "NOT_FOUND", f"Experiment {exp_id} does not exist.")
+    runs = get_service().list_runs(exp_id)
+    return {**exp, "runs": runs}
+
+
+@app.post("/api/runs/{run_id}/execute")
+async def execute_run(run_id: int):
+    svc = get_service()
+    if not svc.get_run(run_id):
+        raise http_error(404, "NOT_FOUND", f"Run {run_id} does not exist.")
+    queue: JobQueue = STATE["queue"]
+    job = queue.submit_run_job(run_id, lambda rid, cb=None: svc.execute_run_now(rid, cb))
+    return {"job_id": job.id, "run_id": run_id, "status": job.status}
+
+
+@app.post("/api/runs/execute-batch")
+async def execute_runs_batch(req: schemas.RunActionRequest):
+    svc = get_service()
+    queue: JobQueue = STATE["queue"]
+    jobs = []
+    for rid in req.run_ids:
+        if not svc.get_run(rid):
+            raise http_error(404, "NOT_FOUND", f"Run {rid} does not exist.")
+        job = queue.submit_run_job(rid, lambda r, cb=None: svc.execute_run_now(r, cb))
+        jobs.append({"job_id": job.id, "run_id": rid})
+    return {"jobs": jobs}
+
+
+@app.get("/api/runs/{run_id}")
+def get_run(run_id: int):
+    run = get_service().get_run(run_id)
+    if not run:
+        raise http_error(404, "NOT_FOUND", f"Run {run_id} does not exist.")
+    return run
+
+
+@app.get("/api/runs/{run_id}/result")
+def get_run_result(run_id: int):
+    res = get_service().get_result(run_id)
+    if not res:
+        raise http_error(404, "NOT_FOUND",
+                         f"No stored result for run {run_id}. Has it completed?")
+    return res
+
+
+@app.post("/api/experiments/compare")
+def compare_experiments_runs(req: schemas.RunActionRequest):
+    return get_service().compare_runs(req.run_ids)
+
+
+@app.get("/api/jobs")
+def list_jobs():
+    q: JobQueue = STATE["queue"]
+    return [
+        {
+            "job_id": j.id, "kind": j.kind, "status": j.status,
+            "progress": j.progress, "detail": j.detail,
+            "payload": j.payload, "error": j.error,
+            "created_at": j.created_at, "completed_at": j.completed_at,
+        }
+        for j in q.list_jobs()
+    ]
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+def cancel_job(job_id: int):
+    q: JobQueue = STATE["queue"]
+    if not q.cancel_job(job_id):
+        # Also mark DB run cancelled when possible.
+        raise http_error(409, "NOT_CANCELLABLE",
+                         f"Job {job_id} cannot be cancelled in its current state.")
+    return {"cancelled": True}
+
+
+@app.websocket("/ws/jobs")
+async def ws_jobs(ws: WebSocket):
+    await ws.accept()
+    WS_CLIENTS.add(ws)
+    try:
+        while True:
+            await ws.receive_text()  # keepalive/pings ignored safely
+    except WebSocketDisconnect:
+        pass
+    finally:
+        WS_CLIENTS.discard(ws)

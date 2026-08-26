@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { post, emptyCircuit } from "../lib/api";
 import type { ExecutedCircuit } from "../lib/api";
 import { BarChart } from "../lib/charts";
+import DistributedPanel from "../components/DistributedPanel";
 
 const GATES: Record<string, { arity: number; params: string[] }> = {
   H: { arity: 1, params: [] },
@@ -217,8 +218,7 @@ export default function CircuitStudio() {
                 ))}
               </tbody>
             </table>
-          </div>
-          <div className="panel">
+          </div>          <div className="panel">
             <h3>State inspection</h3>
             {result.statevector && (
               <table className="data-table">
@@ -254,6 +254,8 @@ export default function CircuitStudio() {
           </div>
         </div>
       )}
+
+      <DistributedPanel buildCircuit={buildDocument} nQubits={nQubits} seed={seed} />
     </div>
   );
 }

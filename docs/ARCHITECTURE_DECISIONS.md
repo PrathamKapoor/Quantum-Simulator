@@ -65,3 +65,27 @@ Significant decisions with reasons, alternatives, and consequences (§176).
 - **Decision:** all Phase A–H capabilities implemented on numpy/scipy/stdlib.
 - **Consequence:** Student-t quantiles replaced by normal approximation with
   documented CLT assumption; bootstrap provided as robust alternative.
+
+## AD-009 — Distributed subsystem expands remote gates into genuine protocol circuits
+- **Decision:** cross-node CNOTs are compiled in-place into their full
+  protocol expansion (entanglement distribution, Bell measurement, classical
+  bits, X-before-Z corrections, local CNOT) on the ordinary simulator, with an
+  explicit logical→physical carrier map (`physical_of`) rewritten after each
+  remote gate so later operations act on the migrated wire.
+- **Alternatives rejected:** (a) executing a centralized CNOT and labelling it
+  "remote" — prohibited fake distribution; (b) simulating each node
+  independently and stitching — incorrect once carriers migrate and states
+  entangle across nodes.
+- **Consequence:** distributed execution is physically the protocol; every
+  ebit/classical-bit cost is a real circuit operation count, not a label.
+- **Related policy:** failures stay failures. An unavailable ebit fails the
+  result (`status=failed`) unless the caller explicitly requested
+  `fallback="centralized"`; degradation is then recorded in warnings.
+
+## AD-010 — Explicit partition mappings are honoured verbatim
+- **Decision:** when a user supplies `qubit_to_node`, no local search may move
+  those qubits; search only refines auto-seeded assignments, and can never
+  empty a node (otherwise minimising cross-node gates collapses everything to
+  one node).
+- **Reason:** explicit mapping is user intent; silently re-assigning would make
+  the reported partition unrelated to the request.

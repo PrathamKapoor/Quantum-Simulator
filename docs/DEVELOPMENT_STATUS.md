@@ -4,26 +4,31 @@
 > work MUST read this file first, then ROADMAP.md, ARCHITECTURE.md,
 > SCIENTIFIC_MODELS.md, LIMITATIONS.md (directive §320).
 >
-> Last updated: 2026-08-25 (session 2 final checkpoint)
+> Last updated: 2026-08-26 (session 3 final checkpoint)
 
 ## Current state
 
-**Integrated research platform, fully operational.**
-Session 1 delivered the validated foundations. Session 2 added the quantum
-information suite, channel algebra (Choi/composition/fidelity), hardware
-profiles + transpiler + circuit analysis, error mitigation (readout/ZNE/
-symmetry), entanglement purification (BBPSSW/DEJMPS) with network integration,
-repeater strategy studies, loss-aware network BB84, distributed remote CNOT,
-and the reproducibility/statistics/export layer of the experiment framework.
+**Integrated research platform with a genuine distributed-computing subsystem.**
+Session 1: validated foundations. Session 2: quantum information suite, channel
+algebra, hardware/transpiler, error mitigation, purification + network
+integration, repeater studies, loss-aware BB84, distributed double-teleportation
+remote CNOT, reproducibility/statistics/export, frontend labs.
+Session 3: distributed subsystem — single-ebit remote CNOT (1 ebit + 2 cbits)
+executed as genuine protocol circuits, multi-node circuit partitioner with
+deterministic heuristic assignment, real network-engine ebit accounting,
+distributed result schema, API endpoints, Circuit Studio distributed workflow.
 
 Run it: `dev.bat backend` + `dev.bat frontend` → http://localhost:5173
 
 ## Tests & validation
 
-- Fast suite: **369 passed** (~3.7 min)
-- Final API scientific sweep: **14/14 passed** against the running service
-- Extended validation: 4/4 (`-m extended`)
-- Frontend build clean; undefined-name lint count 0
+- Fast suite: **419 passed** (~4 min) — 369 prior + 30 distributed + 20 earlier
+  distributed/partition tests retained.
+- Distributed equivalence: Uhlmann fidelity = 1.0 vs centralized on basis,
+  superposition, Bell/GHZ inputs; both gate directions; 2/3/4 nodes; seeded
+  randomized circuits ≤1e−8 per-outcome probability agreement.
+- Frontend build clean (`tsc -b` + `npm run build`, 31 modules).
+- Browser inspection NOT performed (no browser tooling available).
 
 ## Recently completed (session 2)
 
@@ -70,8 +75,11 @@ surfacing, no-dependency policy).
 
 ## Next priorities
 
-1. Frontend labs for info-theory / hardware / mitigation endpoints.
-2. Single-ebit remote CNOT; circuit partitioner.
+1. Experiment-engine integration for distributed runs (runner registration +
+   persistence of distributed-result documents; reproducibility hooks exist in
+   the result schema already).
+2. Noisy-ebit injection: map network grant fidelity into the protocol circuit
+   (Werner-form ebit preparation) instead of reporting it separately.
 3. MWPM decoder + planar surface-code layout.
 4. Process-isolated workers with checkpoint/resume.
-5. Playwright UI smoke tests.
+5. Playwright UI smoke tests (would also close the visual-inspection gap).

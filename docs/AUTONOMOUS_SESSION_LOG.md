@@ -82,3 +82,57 @@ green before proceeding.
 - Undefined-name lint: 0
 - Frontend build: clean (tsc -b + vite build)
 - Services verified: API health ok, frontend serving
+
+---
+
+# Session 3 — Distributed computing subsystem (single-ebit remote CNOT + partitioner)
+
+Objective (user-selected roadmap item): establish a proper distributed
+quantum-computing subsystem on the existing architecture — not a demo.
+
+## Delivered
+
+- **Data model** (`app/distributed/model.py`): NodeSpec, LocalOp, RemoteOp,
+  EbitGrant, ClassicalMessage, PartitionMetrics, and a coherent
+  `quantumlab.distributed-result` v1 schema with partition, resources,
+  messages, equivalence, errors, reproducibility.
+- **Partitioner** (`partition.py`): backwards-compatible analysis API plus a
+  rich `PartitionPlan` and deterministic heuristic assignment
+  (explicit mapping honoured → balanced seed → constrained local search;
+  AD-010).
+- **Remote-CNOT protocols** (`remote_cnot.py`): single-ebit gate teleportation
+  (1 ebit + 2 cbits) and double teleportation (2 ebits + 4 cbits), expanded as
+  genuine protocol circuits with X-before-Z corrections (AD-009).
+- **Execution engine** (`engine.py`): validate → assign → partition → expand →
+  request ebits → simulate expanded circuit → compare to centralized reference
+  (Uhlmann fidelity ≤1e−8 tolerance) → full accounting. Carrier remapping
+  supports multiple remote CNOTs and remote+local sequences.
+- **Network integration** (`network_bridge.py`): ebit grants served by the
+  existing NetworkEngine when a topology is supplied (fidelity / modelled
+  latency / attempts / route); `ideal` grants labelled otherwise. No second
+  network simulator; no fabricated numbers.
+- **API** (`/api/distributed/{partition,simulate,remote-cnot}`) with pydantic
+  schemas, validation, structured errors, tests.
+- **Frontend** (`DistributedPanel` in Circuit Studio): node definition +
+  per-qubit mapping or auto-assign, LOCAL/REMOTE visual distinction,
+  entanglement-resource and classical-message tables from backend documents,
+  centralized-vs-distributed probability comparison with max |Δ|.
+- **Docs**: SCIENTIFIC_MODELS.md (protocol math + resource model),
+  LIMITATIONS.md, ARCHITECTURE_DECISIONS.md (AD-009/AD-010).
+
+## Validation
+
+- New tests: `test_distributed_full.py` (30: basis truth table, superposition,
+  Bell/GHZ, both directions, same-node, multi-remote, multi-node 2/3/4,
+  networked grant, disconnected/unknown-node/cap failures, accounting,
+  partition metrics, seeded randomized property equivalence),
+  `test_api_distributed.py` (6 endpoint tests).
+- Full backend suite green; frontend `tsc -b` + `npm run build` clean.
+- Browser inspection NOT performed (no browser tooling); frontend verified by
+  TypeScript build + live endpoint contract only.
+
+## Known limitations
+
+See LIMITATIONS.md "Distributed computing". Notably: protocol assumes ideal
+local operations (NoiseModel layering is the supported noise path); ebit grant
+cached per node pair; partition objective is local-search.

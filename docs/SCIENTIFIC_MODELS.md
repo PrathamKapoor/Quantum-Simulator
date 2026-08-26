@@ -215,3 +215,84 @@ Wilson CIs; pairs-generated-per-success reported as resource consumption.
 Per-signal survival η=10^(−αd/10)·det_eff; lost signals excluded from sifting;
 optional uniform-random dark counts; secret fraction r≥1−2h₂(QBER) labeled an
 ASYMPTOTIC ESTIMATE under the documented model, not a finite-key proof.
+
+# Session-3 additions
+
+## Distributed quantum computing (single-ebit remote CNOT + partitioner)
+
+### Remote-CNOT protocol (gate teleportation, 1 ebit)
+
+Alice hosts control `c`, Bob hosts target `t`; they share one ebit
+`|Φ⁺⟩_{a,b} = (|00⟩+|11⟩)/√2`. The distributed circuit executes, in order:
+
+1. **Entanglement distribution** — `H(a); CX(a,b)` creates the shared ebit.
+2. **Bell measurement** on `(c, a)`: `CX(c,a); H(c)`, then
+   `measure c → m_z`, `measure a → m_x`.
+3. **Classical communication** — Alice sends the 2 bits `(m_x, m_z)` to Bob.
+4. **Pauli corrections** on Bob's half: `X^{m_x}` FIRST, then `Z^{m_z}`
+   (AD-004: pre-correction state is `Z^{m_z} X^{m_x} |ψ⟩`; order is observable
+   once the teleported wire enters entangling operations).
+5. **Local gate** — Bob applies `CNOT(b → t)`.
+
+Circuit identity (validated): the protocol implements exactly
+
+    CNOT(c → t) ⊗ (consumed ebit)
+
+for arbitrary inputs, including non-trivial target states. After the gate the
+logical control co-locates with the target at Bob; this carrier migration is
+tracked by the engine (`physical_of` remapping) so subsequent operations act on
+the correct physical wire.
+
+The double-teleportation variant (`protocol="double_teleport"`) consumes
+2 ebits + 4 classical bits and returns the control to Alice on a fresh
+carrier.
+
+### Resource accounting (exact counts)
+
+| Protocol | Ebits | Classical bits | Transient carriers |
+|----------|-------|----------------|--------------------|
+| single_ebit | 1 | 2 | 2 ancillas |
+| double_teleport | 2 | 4 | 4 ancillas |
+
+Ebit requests are served by the existing discrete-event network engine when a
+topology is supplied: the reported fidelity, modelled latency, attempt count,
+and route come from a real entanglement-generation run over that topology.
+Without a topology grants are labelled `ideal` (fidelity 1, zero modelled
+latency). Modelled network latency and wall-clock simulation runtime are
+reported separately and never conflated.
+
+### Partitioner
+
+Deterministic heuristic (§PARTITIONING STRATEGY):
+
+1. explicit user mapping wins verbatim (no search touches it),
+2. otherwise balanced round-robin seed across the requested nodes,
+3. then coordinate-descent local search minimising cross-node gate count.
+
+Constraint: every requested node keeps at least one hosted qubit — otherwise
+the search would collapse the whole circuit onto one node and report zero
+remote operations, defeating the purpose of distribution. The objective is
+*minimise cross-node gates subject to using all requested nodes*; it is NOT
+claimed globally optimal (local search, reported as such).
+
+Gates spanning >2 nodes or acting on ≠2 qubits are classified
+`requires_decomposition` and are excluded from remote execution honestly
+(they fail rather than silently degrade).
+
+### Equivalence validation
+
+Distributed output equals the centralized reference up to global phase:
+Uhlmann fidelity of both states reduced to the logical qubits must reach
+1 − 1e−8. Both reductions use the same partial-trace convention so ordering
+cancels. Validated on basis states, superpositions, Bell/GHZ inputs, both
+gate directions (A→B, B→A), 2/3/4-node partitions, mixed local+remote
+sequences, and seeded randomized circuits (probability-vector agreement
+≤1e−8 per basis outcome).
+
+### Failure semantics
+
+No silent fallback. If an ebit cannot be established (disconnected nodes,
+unknown node, network failure) the result is `status=failed` with the reason,
+unless the caller explicitly set `fallback="centralized"` — in which case the
+degradation is recorded in warnings. Resource caps (max remote operations /
+ancilla budget) fail loudly.

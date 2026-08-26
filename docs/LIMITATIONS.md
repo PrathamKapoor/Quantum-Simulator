@@ -81,9 +81,23 @@ layout, process-isolated workers.
   is roadmap work.
 
 ## Distributed computing
-- Implemented subset: double-teleportation remote CNOT (2 ebits + 4 cbits).
-  Single-ebit remote gates and multi-node partitioners are NOT implemented.
-- Ideal local operations assumed for the distributed protocol.
+- Remote-CNOT protocols implemented: single-ebit gate teleportation (1 ebit +
+  2 cbits) and double teleportation (2 ebits + 4 cbits). Only CNOT-class
+  2-qubit gates between exactly two nodes are executable remotely; gates
+  spanning >2 nodes or acting on ≠2 qubits are flagged
+  `requires_decomposition` and fail rather than degrade.
+- Ideal local operations assumed inside the protocol. The network grant's
+  fidelity is REPORTED but not injected into the statevector execution;
+  layering a NoiseModel on the expanded circuit is the supported way to add
+  noise (documented in SCIENTIFIC_MODELS.md).
+- Partitioner objective is local-search (not globally optimal); explicit user
+  mappings are honoured verbatim and never searched.
+- Ebit grants are cached per node pair per request: repeated remote CNOTs on
+  the same pair reuse one modelled generation run rather than re-simulating
+  per gate.
+- No hardware claims: this models distributed *protocols* over the existing
+  simulator; modelled latency/loss come from the network engine's documented
+  phenomenological models, not measurements.
 
 ## QKD over loss
 - Dark counts modeled as uniform random registrations (no time windows).

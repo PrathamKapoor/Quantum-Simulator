@@ -28,6 +28,12 @@ from ..persistence.db import Database, ensure_default_project
 from ..experiments.service import ExperimentService
 from ..experiments.runner import ExperimentSpec, RUNNER_REGISTRY
 from ..workers.jobs import JobQueue
+from ..distributed import (
+    DistributedExecutor,
+    DistributedConfig,
+    topology_from_nodes_links,
+)
+from ..network import NetworkConfig
 from pydantic import BaseModel, Field, field_validator
 
 from . import schemas
@@ -520,6 +526,89 @@ def network_simulate(req: schemas.NetworkSimulateRequest):
         "event_log": result.event_log,
         "truncated": result.truncated,
     }
+
+
+# ---------------------------------------------------------------------------
+# Distributed quantum computing
+# ---------------------------------------------------------------------------
+
+def _distributed_topology(req_topo):
+    """Build a Topology from a request payload, or None."""
+    if req_topo is None:
+        return None
+    nodes = [{"name": n.name, "type": n.type, "memory_slots": n.memory_slots} for n in req_topo.nodes]
+    links = [
+        {"source": l.source, "destination": l.destination, "distance_km": l.distance_km,
+         "base_fidelity": l.base_fidelity, "detector_efficiency": l.detector_efficiency}
+        for l in req_topo.links
+    ]
+    return topology_from_nodes_links(nodes, links)
+
+
+def _distributed_config(req, *, for_plan: bool = False) -> DistributedConfig:
+    q2n = {int(k): v for k, v in (req.qubit_to_node or {}).items()} if req.qubit_to_node else None
+    topo = _distributed_topology(getattr(req, "topology", None))
+    kwargs = dict(
+        protocol=getattr(req, "protocol", "single_ebit"),
+        seed=getattr(req, "seed", None),
+        qubit_to_node=q2n,
+        num_nodes=getattr(req, "num_nodes", 2),
+        node_names=getattr(req, "node_names", None),
+        objective=getattr(req, "objective", "minimize_cross_node"),
+        topology=topo,
+    )
+    if not for_plan:
+        ncfg = getattr(req, "network_config", None)
+        kwargs["network_config"] = NetworkConfig(**ncfg) if ncfg else None
+        kwargs["fallback"] = getattr(req, "fallback", "error")
+    return DistributedConfig(**kwargs)
+
+
+@app.post("/api/distributed/partition")
+def distributed_partition(req: schemas.DistributedPartitionRequest):
+    """Partition a circuit across nodes and report local/remote operations."""
+    try:
+        circuit = circuit_from_dict(req.circuit)
+        cfg = _distributed_config(req, for_plan=True)
+        plan = DistributedExecutor(cfg).plan(circuit)
+    except ValueError as e:
+        raise http_error(400, "VALIDATION_ERROR", str(e))
+    except QuantumCoreError as e:
+        raise http_error(400, "NUMERICAL_ERROR", str(e),
+                         suggestion="Check qubit counts and gate operands.")
+    return plan.to_dict()
+
+
+@app.post("/api/distributed/simulate")
+def distributed_simulate(req: schemas.DistributedSimulateRequest):
+    """Execute a distributed circuit through the genuine remote-CNOT protocol."""
+    try:
+        circuit = circuit_from_dict(req.circuit)
+        cfg = _distributed_config(req)
+        result = DistributedExecutor(cfg).execute(circuit)
+    except ValueError as e:
+        raise http_error(400, "VALIDATION_ERROR", str(e))
+    except QuantumCoreError as e:
+        raise http_error(400, "NUMERICAL_ERROR", str(e))
+    return result.to_dict()
+
+
+@app.post("/api/distributed/remote-cnot")
+def distributed_remote_cnot(req: schemas.RemoteCNOTRequest):
+    """Analyze a single remote CNOT between two nodes (resources + equivalence)."""
+    try:
+        assignment = {int(k): v for k, v in (req.qubit_to_node or {}).items()}
+        if not assignment:
+            assignment = {req.control_qubit: "node_0", req.target_qubit: "node_1"}
+        cfg = _distributed_config(req)
+        result = DistributedExecutor(cfg).analyze_single_remote_cnot(
+            req.control_qubit, req.target_qubit, assignment
+        )
+    except ValueError as e:
+        raise http_error(400, "VALIDATION_ERROR", str(e))
+    except QuantumCoreError as e:
+        raise http_error(400, "NUMERICAL_ERROR", str(e))
+    return result.to_dict()
 
 
 @app.post("/api/network/route")

@@ -241,3 +241,55 @@ class ExperimentCreateRequest(BaseModel):
 
 class RunActionRequest(BaseModel):
     run_ids: list[int] = Field(min_length=1, max_length=64)
+
+
+# ---------------- distributed quantum computing ----------------
+
+class DistributedTopologyIn(BaseModel):
+    nodes: list[NetworkNodeIn] = Field(min_length=1, max_length=64)
+    links: list[NetworkLinkIn] = Field(max_length=256)
+
+
+class DistributedPartitionRequest(BaseModel):
+    circuit: dict = Field(..., description="quantumlab.circuit v1 document")
+    qubit_to_node: dict[int, str] | None = None
+    num_nodes: int = Field(default=2, ge=2, le=16)
+    node_names: list[str] | None = None
+    objective: str = "minimize_cross_node"
+
+    @field_validator("circuit")
+    @classmethod
+    def _check_schema(cls, v: dict) -> dict:
+        if not isinstance(v, dict) or v.get("schema") != "quantumlab.circuit":
+            raise ValueError('circuit document must declare schema "quantumlab.circuit"')
+        return v
+
+
+class DistributedSimulateRequest(BaseModel):
+    circuit: dict = Field(..., description="quantumlab.circuit v1 document")
+    protocol: Literal["single_ebit", "double_teleport"] = "single_ebit"
+    seed: int | None = None
+    qubit_to_node: dict[int, str] | None = None
+    num_nodes: int = Field(default=2, ge=2, le=16)
+    node_names: list[str] | None = None
+    objective: str = "minimize_cross_node"
+    topology: DistributedTopologyIn | None = None
+    network_config: dict | None = None
+    fallback: Literal["error", "centralized"] = "error"
+
+    @field_validator("circuit")
+    @classmethod
+    def _check_schema(cls, v: dict) -> dict:
+        if not isinstance(v, dict) or v.get("schema") != "quantumlab.circuit":
+            raise ValueError('circuit document must declare schema "quantumlab.circuit"')
+        return v
+
+
+class RemoteCNOTRequest(BaseModel):
+    control_qubit: int = Field(ge=0, le=63)
+    target_qubit: int = Field(ge=0, le=63)
+    qubit_to_node: dict[int, str] | None = None
+    protocol: Literal["single_ebit", "double_teleport"] = "single_ebit"
+    seed: int | None = None
+    topology: DistributedTopologyIn | None = None
+    network_config: dict | None = None

@@ -22,13 +22,30 @@ Run it: `dev.bat backend` + `dev.bat frontend` → http://localhost:5173
 
 ## Tests & validation
 
-- Fast suite: **419 passed** (~4 min) — 369 prior + 30 distributed + 20 earlier
-  distributed/partition tests retained.
+- Fast suite: **420 passed** (~4 min) — 369 prior + distributed subsystem
+  suites (partitioner, protocols/engine incl. a memory-safety regression for
+  large expanded registers, API endpoints).
 - Distributed equivalence: Uhlmann fidelity = 1.0 vs centralized on basis,
-  superposition, Bell/GHZ inputs; both gate directions; 2/3/4 nodes; seeded
-  randomized circuits ≤1e−8 per-outcome probability agreement.
+  superposition, Bell/GHZ inputs; both gate directions; 2/3/4 nodes;
+  seeded randomized circuits ≤1e−8 per-outcome probability agreement.
 - Frontend build clean (`tsc -b` + `npm run build`, 31 modules).
 - Browser inspection NOT performed (no browser tooling available).
+
+## Measured performance (session 3, this machine — simulation wall-clock)
+
+Wall-clock runtime of the SIMULATION only. It is not modelled network latency
+(reported separately per grant) and not hardware performance.
+
+| Workload | Partition | Distributed exec | Centralized ref |
+|----------|-----------|------------------|-----------------|
+| 4q chain, 3 remote CNOTs (16-qubit expanded) | 0.05 ms | ~18 ms | ~1.1 ms |
+| 6q chain, 5 remote CNOTs (16-qubit expanded) | 0.05 ms | ~380 ms | ~1.4 ms |
+| 8q chain, 7 remote CNOTs (22-qubit expanded) | 0.06 ms | ~34 s | ~1.8 ms |
+
+Overhead grows steeply with the expanded register because every protocol step
+is executed with mid-circuit-measurement trajectory semantics (no fast path);
+each single-ebit gate adds 2 carriers. This is simulator cost of genuine
+protocol execution — the honest price of not faking distribution.
 
 ## Recently completed (session 2)
 

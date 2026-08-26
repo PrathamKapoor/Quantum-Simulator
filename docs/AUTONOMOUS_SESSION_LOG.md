@@ -136,3 +136,17 @@ quantum-computing subsystem on the existing architecture — not a demo.
 See LIMITATIONS.md "Distributed computing". Notably: protocol assumes ideal
 local operations (NoiseModel layering is the supported noise path); ebit grant
 cached per node pair; partition objective is local-search.
+
+## Session 3 addendum — memory-safety fix + performance measurement
+
+- Found via 8q/7-remote benchmark: the equivalence check built
+  `DensityMatrix.pure` on the FULL expanded register (16 qubits -> 64 GiB).
+- Fix: reduced logical states are now computed directly from amplitudes by
+  axis permutation (`reduced()` in engine.py) — no full-space density matrix
+  is ever materialised. Regression test added: six-qubit chain, five remote
+  CNOTs across two alternating nodes (10 ancillas -> 22-qubit registers at 8q).
+- Measured simulation wall-clock recorded in DEVELOPMENT_STATUS.md; overhead
+  vs centralized grows with expanded-register size because protocol steps run
+  under mid-circuit-measurement trajectory semantics. Documented as simulator
+  cost — not modelled latency, not hardware performance.
+- Final counts: suite **420 passed**; frontend build clean.

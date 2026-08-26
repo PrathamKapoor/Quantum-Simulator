@@ -136,6 +136,22 @@ def test_multiple_remote_cnots():
     assert res.equivalence["passed"], res.equivalence
 
 
+def test_six_qubit_chain_alternating_nodes():
+    """Regression: the equivalence reduction must stay memory-safe on larger
+    expanded registers (5 remote CNOTs -> 10 ancillas -> 16-qubit statevector);
+    a full 4^16 density matrix must never be materialised."""
+    c = Circuit(num_qubits=6)
+    c.add_gate("H", [0])
+    for i in range(5):
+        c.add_gate("CX", [i, i + 1])
+    mapping = {i: ("A" if i % 2 == 0 else "B") for i in range(6)}
+    res = _run(c, qubit_to_node=mapping)
+    assert res.status == "success", res.errors
+    assert res.remote_cnot_count == 5
+    assert res.ebit_consumption == 5
+    assert res.equivalence is not None and res.equivalence["passed"], res.equivalence
+
+
 def test_remote_then_local_then_remote():
     # control 0 on A, target 1 on B; after first remote CNOT the control's
     # carrier moves; a later local H(0) and a second remote CNOT must still

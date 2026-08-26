@@ -28,6 +28,7 @@ from ..circuits.model import Circuit, Operation
 from ..circuits.validate import validate_circuit
 from ..circuits.simulate import simulate
 from ..quantum.density import DensityMatrix
+from ..quantum.states import QuantumCoreError
 from .partition import partition_circuit_full, heuristic_assignment
 from .remote_cnot import expand_remote_cnot
 from .network_bridge import NetworkBridge
@@ -266,11 +267,31 @@ class DistributedExecutor:
         result.communication_cost = result.classical_message_count
 
         # Equivalence: reduce both states to the logical qubits and compare.
+        # The reduction is computed directly from the amplitudes via axis
+        # permutation, so no full 4^N density matrix of the expanded register
+        # is ever materialised (that would explode for large remote circuits).
         n = circuit.num_qubits
-        keep_d = list(reversed([physical_of[q] for q in range(n)]))
-        keep_c = list(reversed(list(range(n))))
-        rho_d = DensityMatrix.pure(sim.final_state).partial_trace(keep_d)
-        rho_c = DensityMatrix.pure(central.final_state).partial_trace(keep_c)
+
+        def reduced(amps: np.ndarray, phys_positions: list[int]) -> DensityMatrix:
+            N = int(round(np.log2(amps.size)))
+            tensor = amps.reshape([2] * N)
+            # C-order reshape puts the most-significant index bit on axis 0,
+            # i.e. axis p corresponds to physical qubit N-1-p.
+            logical_axes = [N - 1 - q for q in phys_positions]
+            remaining = [p for p in range(N) if p not in set(logical_axes)]
+            moved = np.transpose(tensor, logical_axes + remaining)
+            m = moved.reshape(1 << len(phys_positions), -1)
+            rho = m @ m.conj().T
+            tr = float(np.real(np.trace(rho)))
+            if tr <= 0 or abs(tr - 1.0) > 1e-6:
+                raise QuantumCoreError(
+                    f"Reduced-state trace {tr:.6f}; numerical failure."
+                )
+            return DensityMatrix(rho / tr, len(phys_positions))
+
+        rho_d = reduced(sim.final_state.amplitudes,
+                        [physical_of[q] for q in range(n)])
+        rho_c = reduced(central.final_state.amplitudes, list(range(n)))
         fid = float(rho_d.fidelity_with(rho_c))
         equiv_passed = bool(fid >= 1 - 1e-8)
         result.equivalence = {

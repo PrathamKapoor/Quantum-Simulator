@@ -202,6 +202,48 @@ class DistributedExecutor:
                 grant = bridge.request_ebit(rop.source_node, rop.target_node,
                                             protocol=self.config.protocol)
                 result.entanglement_operations.append(grant)
+                if not grant.success:
+                    if self.config.fallback == "centralized":
+                        result.warnings.append(
+                            f"Remote CNOT {idx} ebit unavailable; falling back to "
+                            f"centralized execution (explicit fallback requested)."
+                        )
+                        # EXPLICIT centralized fallback: emit a single local CNOT
+                        # on the current carriers and do NOT run the distributed
+                        # protocol (no ebit is consumed, carriers stay put).
+                        remapped = Operation(
+                            kind="gate", gate="CX",
+                            qubits=(physical_of[rop.control_qubit],
+                                    physical_of[rop.target_qubit]),
+                        )
+                        expanded_ops.append(remapped)
+                        rop.executed = False
+                        rop.ebits_required = 0
+                        rop.classical_messages = 0
+                        rop.failure_reason = grant.failure_reason or "ebit unavailable"
+                        continue
+                    result.status = "failed"
+                    result.errors.append(
+                        f"Remote CNOT at op {idx} ({rop.source_node}->{rop.target_node}) "
+                        f"requires entanglement but none could be established: "
+                        f"{grant.failure_reason}"
+                    )
+                    rop.executed = False
+                    rop.failure_reason = grant.failure_reason
+                    rop.ebit_fidelity = grant.fidelity
+                    rop.ebit_latency_ns = grant.latency_ns
+                    rop.ebit_attempts = grant.attempts
+                    return result
+                # Grant succeeded: run the genuine protocol expansion and record
+                # ACTUAL resource consumption (protocol-dependent, e.g. double
+                # teleportation consumes 2 ebits + 4 cbits, not the partition
+                # plan's single-ebit estimate).
+                rop.executed = True
+                rop.ebits_required = expansion.ebits
+                rop.classical_messages = expansion.classical_bits
+                rop.ebit_fidelity = grant.fidelity
+                rop.ebit_latency_ns = grant.latency_ns
+                rop.ebit_attempts = grant.attempts
                 order = 0
                 for (sender, receiver, bits) in expansion.classical_messages:
                     result.classical_messages.append(
@@ -209,34 +251,6 @@ class DistributedExecutor:
                                          bits=bits, remote_op_index=idx, order=order)
                     )
                     order += 1
-                if not grant.success:
-                    if self.config.fallback == "centralized":
-                        result.warnings.append(
-                            f"Remote CNOT {idx} ebit unavailable; falling back to "
-                            f"centralized execution (explicit fallback requested)."
-                        )
-                        # Emit a plain local CNOT on the physical carriers.
-                        expanded_ops.append(Operation(
-                            kind="gate", gate="CX",
-                            qubits=(c_phys, t_phys)))
-                    else:
-                        result.status = "failed"
-                        result.errors.append(
-                            f"Remote CNOT at op {idx} ({rop.source_node}->{rop.target_node}) "
-                            f"requires entanglement but none could be established: "
-                            f"{grant.failure_reason}"
-                        )
-                        rop.executed = False
-                        rop.failure_reason = grant.failure_reason
-                        rop.ebit_fidelity = grant.fidelity
-                        rop.ebit_latency_ns = grant.latency_ns
-                        rop.ebit_attempts = grant.attempts
-                        return result
-                else:
-                    rop.executed = True
-                    rop.ebit_fidelity = grant.fidelity
-                    rop.ebit_latency_ns = grant.latency_ns
-                    rop.ebit_attempts = grant.attempts
                 expanded_ops.extend(expansion.operations)
                 physical_of[rop.control_qubit] = expansion.control_output_qubit
                 physical_of[rop.target_qubit] = expansion.target_output_qubit

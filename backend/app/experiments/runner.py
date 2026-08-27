@@ -442,6 +442,145 @@ def run_network_bb84_exp(config: dict, seed: int) -> dict:
     return make_result_document("network_bb84", metrics, notes=r.notes)
 
 
+# ---------------------------------------------------------------------------
+# Distributed circuit execution
+# ---------------------------------------------------------------------------
+
+def run_distributed_circuit(config: dict, seed: int) -> dict:
+    """Execute a distributed quantum circuit using the genuine remote-CNOT protocol.
+
+    The configuration should contain:
+    - circuit: quantumlab.circuit v1 document
+    - protocol: "single_ebit" | "double_teleport"
+    - qubit_to_node: optional explicit dict mapping logical qubit index to node
+      name. If omitted, qubits are auto-assigned across ``num_nodes`` using the
+      deterministic minimise-cross-node heuristic (the effective assignment is
+      recorded in reproducibility.assignment).
+    - num_nodes: number of compute nodes (used when no explicit mapping given)
+    - topology: optional network topology (nodes + links) for real network modeling
+    - network_config: optional network simulation config
+    - fallback: "error" | "centralized" (default "error")
+    """
+    from ..distributed import DistributedExecutor, DistributedConfig, topology_from_nodes_links
+    from ..network import NetworkConfig
+    from ..circuits import circuit_from_dict
+
+    circuit = circuit_from_dict(config["circuit"])
+
+    q2n = {int(k): v for k, v in (config.get("qubit_to_node") or {}).items()}
+    if not q2n and not config.get("num_nodes"):
+        raise ValueError(
+            "Either an explicit qubit_to_node mapping or num_nodes (>=2) is "
+            "required for a distributed circuit."
+        )
+    num_nodes = int(config.get("num_nodes", 2))
+    if num_nodes < 2:
+        raise ValueError("num_nodes must be >= 2 for a distributed circuit.")
+
+    protocol = config.get("protocol", "single_ebit")
+    fallback = config.get("fallback", "error")
+
+    # Build topology if provided
+    topology = None
+    if config.get("topology"):
+        topo_nodes = [{"name": n["name"], "type": n.get("type", "end"),
+                       "memory_slots": n.get("memory_slots", 4)} for n in config["topology"]["nodes"]]
+        topo_links = [
+            {"source": l["source"], "destination": l["destination"],
+             "distance_km": l.get("distance_km", 10),
+             "base_fidelity": l.get("base_fidelity", 0.95),
+             "detector_efficiency": l.get("detector_efficiency", 1.0)}
+            for l in config["topology"]["links"]
+        ]
+        topology = topology_from_nodes_links(topo_nodes, topo_links)
+
+    # Build network config if provided
+    network_config = None
+    if config.get("network_config"):
+        network_config = NetworkConfig(**config["network_config"])
+
+    cfg = DistributedConfig(
+        protocol=protocol,
+        seed=seed,
+        qubit_to_node=q2n or None,
+        num_nodes=num_nodes,
+        topology=topology,
+        network_config=network_config,
+        fallback=fallback,
+    )
+
+    executor = DistributedExecutor(cfg)
+    dresult = executor.execute(circuit)
+    dist = dresult.to_dict()
+
+    # A distributed failure is a FAILED run, never a fabricated success.
+    if dist["status"] != "success":
+        raise ValueError(
+            "Distributed execution failed: " + ("; ".join(dist.get("errors") or ["unknown error"]))
+        )
+
+    metrics = {
+        "status": dist["status"],
+        "protocol": dist["protocol"],
+        "qubit_count": dist["qubit_count"],
+        "node_count": dist["node_count"],
+        "local_gate_count": dist["local_gate_count"],
+        "remote_gate_count": dist["remote_gate_count"],
+        "remote_cnot_count": dist["remote_cnot_count"],
+        "ebit_consumption": dist["ebit_consumption"],
+        "classical_message_count": dist["classical_message_count"],
+        "communication_cost": dist["communication_cost"],
+    }
+    eq = dist.get("equivalence")
+    if eq:
+        metrics["equivalence_fidelity"] = eq["fidelity"]
+        metrics["equivalence_passed"] = eq["passed"]
+    if dist.get("partition_metrics"):
+        metrics.update({
+            "partition_objective": dist["partition_metrics"]["objective"],
+            "cross_node_gate_count": dist["partition_metrics"]["cross_node_gate_count"],
+        })
+    seeded = dist.get("reproducibility", {}).get("seed")
+    if seeded is not None:
+        metrics["effective_seed"] = seeded
+
+    modeled_latency_ms = None
+    for g in dist.get("entanglement_operations", []):
+        if g.get("latency_ns") is not None:
+            modeled_latency_ms = max(modeled_latency_ms or 0.0, g["latency_ns"] / 1e6)
+    if modeled_latency_ms is not None:
+        metrics["modeled_network_latency_ms"] = round(modeled_latency_ms, 6)
+
+    notes = list(dist.get("notes", []))
+    notes.append(
+        "Full distributed result document (quantumlab.distributed-result v1) is "
+        "available in artifacts.distributed_result."
+    )
+    notes.append(
+        "Simulator wall-clock runtime is NOT physical hardware performance; modelled "
+        "network latency is reported separately in metrics.modeled_network_latency_ms."
+    )
+    for w in dist.get("warnings", []):
+        notes.append(f"warning: {w}")
+
+    return make_result_document(
+        "distributed_circuit", metrics,
+        summary={
+            "equivalence": eq,
+            "partition_metrics": dist.get("partition_metrics"),
+            "reproducibility": dist.get("reproducibility"),
+        },
+        artifacts={
+            "distributed_result": dist,
+            "remote_operations": dist.get("remote_operations", []),
+            "entanglement_operations": dist.get("entanglement_operations", []),
+            "classical_messages": dist.get("classical_messages", []),
+            "output_probabilities": (dist.get("output_state") or {}).get("probabilities", {}),
+        },
+        notes=notes,
+    )
+
+
 RUNNER_REGISTRY = {
     "circuit_shots": run_circuit_shots,
     "qec_sweep": run_qec_sweep,
@@ -452,6 +591,7 @@ RUNNER_REGISTRY = {
     "purification_study": run_purification_study,
     "repeater_study": run_repeater_study_exp,
     "network_bb84": run_network_bb84_exp,
+    "distributed_circuit": run_distributed_circuit,
 }
 
 
@@ -491,5 +631,8 @@ def expand_sweep(spec: ExperimentSpec) -> list[tuple[str, dict]]:
             acc2 = dict(acc)
             acc2[sp.name] = v
             rec(idx + 1, acc2, labels + [f"{sp.name}={v:g}"])
-    rec(0, {}, [])
+    # The base configuration is the seed for every combo; each sweep value is
+    # layered on top of it (swept keys override). Without this, sweep runs
+    # would silently lose the experiment's base configuration.
+    rec(0, dict(spec.config), [])
     return combos

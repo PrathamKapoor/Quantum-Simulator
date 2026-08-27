@@ -150,3 +150,54 @@ cached per node pair; partition objective is local-search.
   under mid-circuit-measurement trajectory semantics. Documented as simulator
   cost — not modelled latency, not hardware performance.
 - Final counts: suite **420 passed**; frontend build clean.
+
+---
+
+# Session 4 — Distributed experiment-runner integration
+
+User-selected roadmap priority #1: promote the distributed subsystem into a
+first-class experiment type.
+
+## Delivered
+
+- **Runner module** (`RUNNER_REGISTRY["distributed_circuit"]`): adapter that
+  builds `DistributedConfig` (circuit, mapping or auto-assign via `num_nodes`,
+  topology, network config, protocol, explicit fallback) and wraps the
+  distributed-result v1 document in the standard run-result v1 document with an
+  engine-faithful metrics summary. Distributed failures raise → run recorded
+  FAILED with error; explicit centralized fallback is surfaced as a warning.
+- **Engine fixes surfaced by the integration** (both regression-covered):
+  (a) resource accounting now uses ACTUAL protocol cost (double teleportation =
+  2 ebits + 4 cbits) instead of the partition-plan single-ebit estimate;
+  (b) explicit centralized fallback emits ONE local CNOT and skips the protocol
+  expansion (previously it appended both, double-applying the gate and corrupting
+  carrier remapping); classical-message records are only attached to executed
+  protocol expansions.
+- **Sweep correctness fix** (`expand_sweep`): each combo now layers the swept
+  key onto the base config; previously the base config was silently dropped
+  (circuit-based sweeps were impossible).
+- **Lifecycle**: create → runs (seed `spec.seed + 7919*i`) → queue → execute →
+  persist → reproduce (new run, EXACT_MATCH, original immutable) → compare →
+  cancel (cooperative). All via existing infra; no migration needed.
+- **API**: existing `/api/experiments`, `/api/runs/*` endpoints work with the
+  new module; two end-to-end API tests added.
+- **Frontend** (Experiments UI): "Distributed GHZ study" template; a dedicated
+  `DistributedResultView` (status/protocol/resource cards, modelled-latency
+  disclaimer, equivalence verdict, entanglement grants, remote ops, classical
+  messages, output probabilities, raw document); "Reproduce" button per
+  completed run with report display.
+
+## Validation
+
+- `test_distributed_experiment_runner.py` — 16 tests: config validation,
+  topology, double-teleport accounting, auto-assign + num_nodes >= 2 guard,
+  failure modes (invalid circuit, CX control==target, disconnected → FAILED,
+  no-length monitoring), fallback-centralized, lifecycle via ExperimentService
+  (CREATE/RUNNING/COMPLETED, failed semantics with no fake result, reproduction
+  EXACT_MATCH + immutability, sweep materialization + source-config immutability,
+  comparison across protocols, queued cancellation).
+- `test_api_distributed.py` — 8 tests incl. end-to-end create→execute→result
+  and reproduce-immutable through the live app (lifespan client + async worker
+  polling).
+- Full backend suite **437 passed**. Frontend `tsc -b` + build clean.
+- Browser inspection NOT performed (no browser tooling) — recorded, not claimed.

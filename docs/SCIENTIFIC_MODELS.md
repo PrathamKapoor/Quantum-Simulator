@@ -296,3 +296,43 @@ unknown node, network failure) the result is `status=failed` with the reason,
 unless the caller explicitly set `fallback="centralized"` — in which case the
 degradation is recorded in warnings. Resource caps (max remote operations /
 ancilla budget) fail loudly.
+
+## Session-4 additions
+
+### Distributed resources in experiment records
+
+A `distributed_circuit` experiment run produces a `quantumlab.run-result` v1
+document whose `metrics` report the engine-computed counts directly (no
+re-calculation in the adapter):
+
+- `remote_cnot_count`, `local_gate_count`, `remote_gate_count`
+- `ebit_consumption` — ACTUAL protocol consumption (1/gate single-ebit, 2/gate
+  double-teleport), not the partition-plan estimate
+- `classical_message_count`, `communication_cost`
+- `node_count`, `qubit_count`, `modeled_network_latency_ms` (max modelled grant
+  latency, network model only)
+- `equivalence_fidelity` / `equivalence_passed`
+
+The full distributed-result v1 document is preserved verbatim under
+`artifacts.distributed_result`; remote operations, entanglement grants,
+classical messages, and output probabilities are also surfaced as artifacts for
+the detail view.
+
+### Reproducibility contract
+
+A run is reproducible if `(base_config, resolved_config, run seed)` are
+persisted — they are. `reproduce_run` copies the stored resolved_config + seed
+into a NEW run row and executes it; deterministic distributed runs reproduce
+EXACT_MATCH (statevector, fixed seed). Completed runs are immutable; the
+effective assignment (even for auto-assigned `num_nodes`) is recorded in
+`reproducibility.assignment`, so there are no hidden defaults.
+
+### Sweep semantics
+
+Sweeps use the existing float-typed engine. Each combo now inherits the
+experiment's base configuration (e.g. the circuit) with the swept key layered
+on top — a correctness fix to `expand_sweep`, which previously produced combos
+containing ONLY the swept keys. The engine-supported numeric dimension exposed
+here is `num_nodes` (auto-assigned partition); iterating it changes the
+cross-node resource profile of the same circuit while preserving per-run
+evidence in resolved_config and metrics.

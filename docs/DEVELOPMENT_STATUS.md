@@ -4,32 +4,61 @@
 > work MUST read this file first, then ROADMAP.md, ARCHITECTURE.md,
 > SCIENTIFIC_MODELS.md, LIMITATIONS.md (directive §320).
 >
-> Last updated: 2026-08-26 (session 3 final checkpoint)
+> Last updated: 2026-08-26 (session 4 final checkpoint)
 
 ## Current state
 
-**Integrated research platform with a genuine distributed-computing subsystem.**
+**Integrated research platform with a first-class distributed experiment type.**
 Session 1: validated foundations. Session 2: quantum information suite, channel
 algebra, hardware/transpiler, error mitigation, purification + network
 integration, repeater studies, loss-aware BB84, distributed double-teleportation
 remote CNOT, reproducibility/statistics/export, frontend labs.
 Session 3: distributed subsystem — single-ebit remote CNOT (1 ebit + 2 cbits)
-executed as genuine protocol circuits, multi-node circuit partitioner with
-deterministic heuristic assignment, real network-engine ebit accounting,
-distributed result schema, API endpoints, Circuit Studio distributed workflow.
+executed as genuine protocol circuits, multi-node circuit partitioner,
+real network-engine ebit accounting, distributed result schema, API endpoints,
+Circuit Studio distributed workflow.
+Session 4: **distributed experiment-runner integration** — `distributed_circuit`
+is a first-class experiment module using the existing runner/lifecycle
+(CREATED→QUEUED→RUNNING→COMPLETED, FAILED/CANCELLED), standard run-result
+document wrapping the distributed-result v1 payload, seed handling /
+reproduction / comparison / sweeps through the existing framework, and an
+Experiments-UI workflow (template, distributed result view, reproduction).
 
 Run it: `dev.bat backend` + `dev.bat frontend` → http://localhost:5173
 
 ## Tests & validation
 
-- Fast suite: **420 passed** (~4 min) — 369 prior + distributed subsystem
-  suites (partitioner, protocols/engine incl. a memory-safety regression for
-  large expanded registers, API endpoints).
-- Distributed equivalence: Uhlmann fidelity = 1.0 vs centralized on basis,
-  superposition, Bell/GHZ inputs; both gate directions; 2/3/4 nodes;
-  seeded randomized circuits ≤1e−8 per-outcome probability agreement.
+- Fast suite: **437 passed** (~4 min).
+  This session added: `test_distributed_experiment_runner.py` (16: unit config /
+  topology / protocols / failure / fallback / lifecycle / failed semantics /
+  reproduction immutability / sweep / comparison / cancellation) and extended
+  `test_api_distributed.py` (create→execute→result and reproduce-immutable
+  end-to-end via the experiment API).
+- Distributed equivalence: Uhlmann fidelity = 1.0 vs centralized (reported in
+  every experiment summary). Sweep machinery fixed: `expand_sweep` now seeds
+  each combo from the base configuration (previously it silently dropped it).
+- Resource accounting corrected: reported ebits/cbits now reflect the ACTUAL
+  protocol (double teleportation reports 2 ebits + 4 cbits, not the partition
+  estimate of 1); explicit centralized fallback emits a single local CNOT and
+  records a warning instead of double-applying the protocol.
 - Frontend build clean (`tsc -b` + `npm run build`, 31 modules).
 - Browser inspection NOT performed (no browser tooling available).
+
+## Session 4 — distributed experiment-runner integration
+
+Lifecycle (existing infra, AD-011): create → runs (one per sweep combo, seed
+`spec.seed + 7919*run_index`) → queue on the existing threaded JobQueue →
+execute via `RUNNER_REGISTRY["distributed_circuit"]` → the standard
+`quantumlab.run-result` v1 document stores resource metrics, an equivalence
+summary, and the full `quantumlab.distributed-result` v1 payload under
+`artifacts.distributed_result`. Distributed failures raise → run recorded
+FAILED with error_code/error_message (never fabricated COMPLETED). Reproduction
+creates a NEW run and compares documents (EXACT_MATCH); originals are
+immutable. Comparison via existing `compare_runs` surfaces differing params and
+per-run resource metrics. Sweeps use the existing float-based engine; the
+engine-supported `num_nodes` (auto-assign) dimension is exposed, and the
+base-config seeding bug was fixed. Cancellation follows the existing cooperative
+model (queued jobs cancellable; in-process engine execution is atomic).
 
 ## Measured performance (session 3, this machine — simulation wall-clock)
 
@@ -92,11 +121,12 @@ surfacing, no-dependency policy).
 
 ## Next priorities
 
-1. Experiment-engine integration for distributed runs (runner registration +
-   persistence of distributed-result documents; reproducibility hooks exist in
-   the result schema already).
-2. Noisy-ebit injection: map network grant fidelity into the protocol circuit
-   (Werner-form ebit preparation) instead of reporting it separately.
-3. MWPM decoder + planar surface-code layout.
-4. Process-isolated workers with checkpoint/resume.
-5. Playwright UI smoke tests (would also close the visual-inspection gap).
+1. **Noisy ebit / Werner-entanglement injection**: map each network grant's
+   fidelity into the protocol circuit (Werner-form ebit preparation) instead of
+   reporting fidelity separately — the next intended scientific milestone.
+2. MWPM decoder + planar surface-code layout.
+3. Process-isolated workers with checkpoint/resume (would also make RUNNING
+   cancellation interruptible rather than cooperative-at-queue).
+4. Playwright UI smoke tests (would also close the visual-inspection gap).
+5. Distribution-aware experiments in the Experiments UI: circuit editor inside
+   the distributed template (currently a fixed GHZ template + generic config).

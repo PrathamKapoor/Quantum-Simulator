@@ -102,3 +102,20 @@ layout, process-isolated workers.
 ## QKD over loss
 - Dark counts modeled as uniform random registrations (no time windows).
 - Secret-fraction figure is an asymptotic estimate, not finite-key security.
+
+## Distributed experiment-runner integration
+- Distributed runs execute in-process on the existing threaded worker; the
+  engine executes atomically, so cancellation is guaranteed for QUEUED jobs,
+  and RUNNING jobs finish unless they observe a progress-boundary cancel flag.
+  Process isolation with checkpoint/resume is a separate roadmap item.
+- Sweep values are floats by design of the existing framework; string-valued
+  dimensions (e.g. protocol) cannot be swept without a framework change and are
+  intentionally not engineered here.
+- `distributed_circuit` runs use statevector mode with ideal local operations
+  (the engine's documented model); network grant fidelity is reported but not
+  yet injected into execution (next milestone).
+- The Experiments UI exposes a fixed "Distributed GHZ study" template plus full
+  result inspection; a circuit editor inside the template is a listed next
+  step.
+- Empty nodes: an auto-assigned partition may leave a requested node unused
+  (reported node_count reflects nodes actually hosting qubits).

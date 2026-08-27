@@ -1,6 +1,6 @@
 # QuantumLab — Handoff to Next Agent
 
-Generated: 2026-08-26, end of autonomous session 3.
+Generated: 2026-08-26, end of autonomous session 4.
 Read together with `docs/DEVELOPMENT_STATUS.md` (checkpoint) and
 `docs/AUTONOMOUS_SESSION_LOG.md` (per-phase log). This file documents what
 actually happened.
@@ -12,142 +12,127 @@ actually happened.
 - **Project:** QuantumLab — integrated quantum computing / information /
   networking research platform. Python+FastAPI backend, React+TS frontend,
   SQLite persistence.
-- **Session 3 of autonomous development** under directive v2.0.
-- **Objective of this subphase:** establish a proper distributed quantum-
-  computing subsystem — single-ebit remote CNOT executed as a genuine protocol,
-  multi-node circuit partitioner, real network-engine resource accounting,
-  API, Circuit Studio workflow, documentation.
-- **Status: COMPLETE and validated.** Backend suite green at 419 tests;
+- **Session 4 of autonomous development.** Objective (roadmap priority #1):
+  promote distributed quantum computation from a standalone subsystem into a
+  first-class experiment type — full lifecycle, persistence, reproducibility,
+  sweeps, comparison, cancellation, API, and Experiments-UI workflow.
+- **Status: COMPLETE and validated.** Backend suite green at **437 tests**;
   frontend build clean. All work committed on `main`.
 
-## 2. Work Completed (session 3)
+## 2. Work Completed (session 4)
 
-- **Distributed data model** (`backend/app/distributed/model.py`):
-  NodeSpec / LocalOp / RemoteOp / EbitGrant / ClassicalMessage /
-  PartitionMetrics and the consolidated `quantumlab.distributed-result`
-  v1 document (partition, resources, messages, equivalence, errors,
-  reproducibility metadata).
-- **Partitioner** (`backend/app/distributed/partition.py`):
-  - backwards-compatible analysis API (`partition_circuit`, `remote_gate_cost`,
-    `PartitionResult`);
-  - rich `PartitionPlan` via `partition_circuit_full` (local ops per node,
-    remote ops with control/target nodes, inter-node dependencies,
-    `requires_decomposition` for gates that are not single remote-CNOT
-    primitives);
-  - deterministic `heuristic_assignment`: explicit mapping honoured verbatim →
-    balanced round-robin seed → coordinate-descent minimising cross-node gate
-    count, constrained so no requested node is emptied (AD-010).
-- **Remote-CNOT protocols** (`remote_cnot.py`): `expand_remote_cnot` returns
-  genuine protocol operations — entanglement distribution, Bell measurement,
-  classical bits, conditioned X-then-Z corrections (AD-004), local CNOT.
-  Protocols: `single_ebit` (1 ebit, 2 cbits), `double_teleport` (2 ebits,
-  4 cbits).
-- **Execution engine** (`engine.py`): validate → assign → partition → expand
-  remote CNOTs in-place while rewriting a logical→physical carrier map →
-  request ebits from the network bridge → simulate the expanded circuit →
-  compare to centralized reference (Uhlmann fidelity, tolerance 1e−8) →
-  accounting + result document. Supports multiple remote CNOTs, remote+local
-  sequences, 2/3/4+ nodes. Failure semantics: no silent centralized fallback
-  (`fallback="centralized"` must be requested explicitly; degradation then
-  recorded in warnings). Resource caps enforced loudly.
-- **Network integration** (`network_bridge.py`): ebit grants come from the
-  existing discrete-event `NetworkEngine` when a topology is supplied
-  (fidelity, modelled latency, attempts, route); otherwise labelled `ideal`.
-  No second network simulator was written.
-- **API** (`backend/app/api/main.py` + `schemas.py`):
-  `POST /api/distributed/partition`, `/api/distributed/simulate`,
-  `/api/distributed/remote-cnot`. Pydantic schemas with circuit-schema
-  validation, topology payloads, structured errors.
-- **Frontend** (`frontend/src/components/DistributedPanel.tsx`, wired into
-  Circuit Studio): node count + per-qubit mapping or auto-assign; Partition /
-  Run distributed / Compare buttons; LOCAL vs REMOTE visual distinction;
-  metric cards; per-node local op lists; remote-op table with edge, ebits,
-  cbits, status; entanglement-resource table (fidelity/model/latency/attempts);
-  classical-message table; equivalence verdict; centralized-vs-distributed
-  probability comparison with max |Δ|. All values come from backend documents.
-- **Docs**: SCIENTIFIC_MODELS.md (protocol math, resource model, partitioner,
-  equivalence method, failure semantics); LIMITATIONS.md (distributed section
-  rewritten); ARCHITECTURE_DECISIONS.md (AD-009, AD-010);
-  AUTONOMOUS_SESSION_LOG.md (session 3 entry).
+- **Runner adapter** (`backend/app/experiments/runner.py`):
+  `RUNNER_REGISTRY["distributed_circuit"] = run_distributed_circuit`. Wraps the
+  existing `DistributedExecutor` output (`quantumlab.distributed-result` v1)
+  in the standard `quantumlab.run-result` v1 document. Config: `circuit`
+  (document), `protocol`, `qubit_to_node` (explicit) OR `num_nodes`
+  (auto-assign), `topology`, `network_config`, `fallback`.
+- **Engine correctness fixes** (`backend/app/distributed/engine.py`), all
+  regression-covered:
+  1. `ebit_consumption` now reflects actual protocol cost (double_teleport = 2
+     ebits / 4 cbits) rather than the single-ebit partition estimate.
+  2. Explicit `fallback="centralized"` now emits a single local CNOT and skips
+     protocol expansion + carrier remapping (previously double-applied the gate
+     and corrupted remapping).
+  3. Classical-message records only attach to executed protocol expansions.
+- **Sweep fix** (`expand_sweep` in runner.py): each combo now seeds from the
+  base configuration (`rec(0, dict(spec.config), [])`). Sweeps over
+  `num_nodes` (auto-assign) are supported, engine-backed, and recorded.
+- **Lifecycle** (existing infra, no migration): create → runs (seed
+  `spec.seed + 7919*i`) → threaded JobQueue → execute → persist `results`
+  row → reproduce (new run, EXACT_MATCH, original immutable) → compare →
+  cancel (cooperative; queued guaranteed, running is atomic — documented).
+- **API**: no new routes required — the existing `/api/experiments` and
+  `/api/runs/{id}/*` endpoints accept the new module. Two end-to-end API tests.
+- **Frontend** (`frontend/src/pages/Experiments.tsx`): `DistributedResultView`
+  component (resource cards, modelled-latency disclaimer, equivalence verdict,
+  entanglement/remote-op/classical-message/probability tables, raw document
+  `<details>`), "Distributed GHZ study" template, and a "Reproduce" button per
+  completed run.
+- **Docs**: DEVELOPMENT_STATUS (session 4 checkpoint), SCIENTIFIC_MODELS
+  (experiment records + reproducibility + sweep semantics),
+  LIMITATIONS (integration-specific), ARCHITECTURE_DECISIONS AD-011
+  (adapter/orchestration rationale, ownership, persistence, seed, cancellation,
+  large-result, sweep strategies), AUTONOMOUS_SESSION_LOG.
 
 ## 3. Files Changed
 
-New: `backend/app/distributed/{model,partition,remote_cnot,network_bridge,engine}.py`,
-`backend/tests/{test_distributed_full,test_api_distributed,test_distributed_single_ebit,
-test_partition}.py`, `frontend/src/components/DistributedPanel.tsx`.
-
-Modified: `backend/app/distributed/__init__.py` (package exports),
-`backend/app/api/{main,schemas}.py`, `frontend/src/pages/CircuitStudio.tsx`,
-docs set above.
+Backend: `app/experiments/runner.py`, `app/distributed/engine.py`,
+`app/api/schemas.py` (removed transient unused experiment schema classes),
+`tests/test_distributed_experiment_runner.py` (new, 16 tests),
+`tests/test_api_distributed.py` (extended to 8 tests).
+Frontend: `src/pages/Experiments.tsx`.
+Docs: DEVELOPMENT_STATUS / SCIENTIFIC_MODELS / LIMITATIONS /
+ARCHITECTURE_DECISIONS / AUTONOMOUS_SESSION_LOG / handoff.
 
 ## 4. Testing and Verification
 
-- Command: `.venv/Scripts/python.exe -m pytest backend/tests --timeout=300`
-  from repo root → **419 passed**.
-- New coverage: basis truth table (|00⟩…|11⟩), |+⟩/|−⟩ superpositions, Bell/GHZ
-  inputs, A→B and B→A directions, same-node (local) CNOT, multiple remote
-  CNOTs, remote→local→remote sequences, remote inside entangled circuits,
-  2/3/4-node partitions, networked grant assertions, disconnected-topology
-  failure, unknown-node failure, control==target, resource-cap failure,
-  detailed resource accounting, partition metrics, heuristic properties
-  (explicit mapping preserved; auto-assign keeps all nodes occupied), and
-  seeded randomized property equivalence (probability vectors ≤1e−8).
+- `.venv/Scripts/python.exe -m pytest backend/tests --timeout=300` → **437
+  passed** (exit 0). Note: the tool/shell drops pytest's final "N passed" line;
+  confirm via `--collect-only` count and exit code / FAILED counts.
+- New coverage: config validation, topology, protocol accounting, auto-assign,
+  failure→FAILED semantics, fallback-centralized, lifecycle
+  (CREATE→RUNNING→COMPLETED), reproduction immutability (EXACT_MATCH),
+  sweep materialization + source-config immutability, comparison, queued
+  cancellation, and end-to-end API create→execute→result + reproduce.
 - Frontend: `npx tsc -b && npm run build` clean (31 modules).
-- Browser inspection NOT performed (no browser tooling in this environment);
-  the UI was verified by TypeScript build + live endpoint contracts only.
-  Do not claim visual validation.
+- Browser inspection NOT performed (no browser tooling); UI verified via
+  TypeScript build + endpoint contracts only. Do not claim visual validation.
 
 ## 5. Decisions Made (new)
 
-See ARCHITECTURE_DECISIONS.md AD-009/AD-010:
-- AD-009: remote gates are expanded into genuine protocol circuits with an
-  explicit carrier remap; failures stay failures unless fallback explicitly
-  requested.
-- AD-010: explicit partition mappings are honoured verbatim; search never
-  empties a node.
+`docs/ARCHITECTURE_DECISIONS.md` → AD-011 (adapter over the engine, result
+ownership = distributed-result v1, existing-tables persistence, existing seed
+convention, cooperative cancellation with atomic-engine limitation, large-result
+summary-in-runs/full-doc-in-results, float-only sweep with base-config fix).
+Standing AD-001..AD-010 remain binding (ordering conventions AD-003/AD-004,
+explicit-mapping honouring AD-010, no-silent-fallback AD-009).
 
-Standing decisions AD-001..AD-008 remain binding (little-endian ordering,
-gate-local operand convention, partial-trace output ordering, teleportation
-correction order X-before-Z, engine-error surfacing, purification asymmetry
-refusal, ZNE density-mode, no new dependencies).
+## 6. Known Limitations
 
-## 6. Known Limitations (distributed)
-
-In `docs/LIMITATIONS.md` ("Distributed computing"): ideal local operations in
-the protocol (grant fidelity reported, not injected into execution; NoiseModel
-layering is the noise path); ebit grants cached per node pair; local-search
-partition objective (not globally optimal); only CNOT-class 2-qubit gates
-between exactly two nodes are remotely executable.
+- RUNNING cancellation is cooperative and the in-process engine is atomic:
+  queued jobs cancel cleanly; running distributed jobs finish unless the runner
+  checks the cancel flag (it doesn't — same as other registry runners).
+- Sweep values are float-typed by the existing framework; string dimensions
+  (e.g. `protocol`) cannot be swept without a framework change.
+- `distributed_circuit` runs use statevector mode, ideal local operations;
+  grant fidelity is reported, not yet injected (next milestone).
+- Experiments UI template is a fixed GHZ study; circuit editing inside the
+  template is a listed next step.
+- Auto-assigned partitions may leave a requested node empty; `node_count`
+  reflects nodes actually hosting qubits.
 
 ## 7. Unfinished Work / Next Priorities
 
-1. Experiment-engine integration: register a distributed runner so
-   distributed-result documents persist through the existing runs/results
-   tables, reproduce, CSV export.
-2. Noisy-ebit injection: prepare the shared pair as a Werner state parameterised
-   by the grant fidelity instead of reporting fidelity separately.
-3. MWPM decoder interface + planar rotated surface-code layout (roadmap P9).
-4. Process-isolated workers with checkpoint/resume.
-5. Playwright smoke tests (would also close the visual-inspection gap).
+1. **NOISY EBITS / WERNER MODEL** — the intended next scientific milestone:
+   map each network grant's fidelity into the protocol circuit (Werner-form
+   ebit preparation) instead of reporting it separately. The engine's ebit
+   admission path (`NetworkBridge` → `expand_remote_cnot`) is the integration
+   point; `EbitGrant.fidelity` is already available.
+2. MWPM decoder + planar rotated surface-code layout.
+3. Process-isolated workers with checkpoint/resume (also enables interruptible
+   RUNNING cancellation).
+4. Playwright smoke tests (close the visual-inspection gap).
+5. Template circuit editor in the distributed experiment UI.
 
 ## 8. Critical Context
 
-- Run pytest from repo root; suite ~4 min with `--timeout=300`.
-- Windows/Git-Bash: invoke the venv python as
-  `C:/Projects/Quantum_Simulator/.venv/Scripts/python.exe`; `taskkill //F //IM
-  python.exe` clears port 8000.
-- The distributed engine reduces both distributed and centralized states with
-  the SAME reversed keep-list convention, so the documented partial-trace
-  ordering quirk cancels; do not "fix" one side only (see test comments).
+- The experiment runner gets `(config, seed)` — no progress callback (matches
+  every other runner). Progress is the generic 0.05→1.0 in `execute_run`.
+- `run_distributed_circuit` requires either `qubit_to_node` or `num_nodes`
+  (>=2) and raises on both missing and on distributed failure (so runs record
+  FAILED, never fabricated COMPLETED).
+- The `results` table stores the full document payload; list endpoints
+  (`list_experiments`) use run_count only and never decompress result blobs.
+- Do not reintroduce the partition-plan ebit estimate or the double-application
+  fallback bug (both regression-covered in `test_distributed_experiment_runner.py`
+  and `test_distributed_full.py`).
 - `quantumlab.db` is gitignored; never commit it.
-- Docs proxy: frontend fetches `/docs-files/<NAME>.md`, Vite proxies to
-  backend `/repo-docs/`.
 
 ## 9. Agent Instructions
 
-- Do NOT rewrite working subsystems — extend them (this session added a
-  package; it modified only API wiring, CircuitStudio, and docs elsewhere).
 - Keep the standing loop: inspect → implement → test → validate science →
-  integrate → document → benchmark → continue. Update DEVELOPMENT_STATUS.md at
-  every meaningful milestone; append AUTONOMOUS_SESSION_LOG.md per phase.
-- Before implementing anything, re-run the full suite to confirm 419 green.
+  integrate → document → benchmark → continue.
+- Before implementing, re-run the full suite to confirm 437 green.
+- Use `--collect-only` for the test count (the summary line is unreliable in
+  this shell); trust exit code + FAILED/ERROR counts.

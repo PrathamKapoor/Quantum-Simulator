@@ -89,3 +89,33 @@ Significant decisions with reasons, alternatives, and consequences (§176).
   one node).
 - **Reason:** explicit mapping is user intent; silently re-assigning would make
   the reported partition unrelated to the request.
+
+## AD-011 — Distributed experiments are an adapter over the existing engine
+- **Decision:** `distributed_circuit` is a run-registry module whose runner is
+  a thin adapter: parse config → construct `DistributedConfig` → call the
+  existing `DistributedExecutor` → wrap the `quantumlab.distributed-result` v1
+  document inside the standard `quantumlab.run-result` v1 document
+  (`artifacts.distributed_result`). No distributed logic lives in the generic
+  experiment runner.
+- **Result ownership:** the scientific output is, and remains, the
+  distributed-result v1 document; the run-result document is the wrapper record
+  (metrics summary + equivalence summary + full payload reference).
+- **Persistence strategy:** existing `results` table (schema_name/version/
+  payload JSON), existing `runs` row (resolved_config / seed / status /
+  metrics). No new tables, no migration required.
+- **Seed strategy:** existing convention — per-run seed `spec.seed + 7919*i`;
+  the effective seed is echoed into metrics/reproducibility. No second RNG
+  system.
+- **Cancellation strategy:** existing cooperative job cancellation. Within the
+  in-process worker the engine executes atomically; queued jobs cancel cleanly,
+  running jobs finish unless the runner checks the cancel flag at progress
+  boundaries (documented limitation, not hidden).
+- **Large-result strategy:** the run row stores only the metrics summary; the
+  full distributed document (including output probabilities, remote ops,
+  entanglement grants) is stored once in the `results` payload and only loaded
+  by detail endpoints. List endpoints never decompress result blobs.
+- **Sweeps:** reuse the existing float-based sweep engine; base configuration is
+  now correctly seeded into every combo (bug fix). Only engine-supported
+  numeric dimensions are exposed (`num_nodes` with auto-assignment); sweeps over
+  strings (e.g. protocol) were deliberately NOT engineered because the existing
+  framework types sweep values as floats.

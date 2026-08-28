@@ -287,6 +287,36 @@ class DistributedSimulateRequest(BaseModel):
         return v
 
 
+class RotatedSurfaceCodeDecodeRequest(BaseModel):
+    d: int = Field(default=3, ge=3, le=7)
+    error: str | None = Field(
+        default=None,
+        description="Explicit Pauli string over d*d data qubits (project "
+                    "convention: leftmost char = highest qubit). If omitted, "
+                    "an error is sampled from (error_model, physical_error_rate, seed).")
+    error_model: Literal["depolarizing", "x_only", "z_only"] = "depolarizing"
+    physical_error_rate: float = Field(default=0.05, ge=0, le=1)
+    seed: int = 5
+    include_layout: bool = True
+
+    @field_validator("error")
+    @classmethod
+    def _check_error(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if not v or any(ch not in "IXYZ" for ch in v.upper()):
+            raise ValueError("error must be a Pauli string over I/X/Y/Z.")
+        return v.upper()
+
+
+class RotatedSurfaceCodeSimulateRequest(BaseModel):
+    d: int = Field(default=3, ge=3, le=7)
+    physical_error_rate: float = Field(default=0.01, ge=0, le=1)
+    trials: int = Field(default=3000, ge=100, le=1_000_000)
+    seed: int = 5
+    error_model: Literal["depolarizing", "x_only", "z_only"] = "depolarizing"
+
+
 class RemoteCNOTRequest(BaseModel):
     control_qubit: int = Field(ge=0, le=63)
     target_qubit: int = Field(ge=0, le=63)

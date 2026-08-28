@@ -613,6 +613,50 @@ def distributed_remote_cnot(req: schemas.RemoteCNOTRequest):
     return result.to_dict()
 
 
+@app.post("/api/qec/rotated-surface-code/decode")
+def rotated_surface_code_decode(req: schemas.RotatedSurfaceCodeDecodeRequest):
+    """Decode one error on the rotated planar surface code with exact MWPM."""
+    from ..qec import RotatedSurfaceCode, RotatedSurfaceCodeDecoder, error_from_string
+    from ..qec.rotated_surface_code import sample_single_error
+
+    try:
+        code = RotatedSurfaceCode.build(req.d)
+        if req.error is not None:
+            if len(req.error) != code.d * code.d:
+                raise ValueError(
+                    f"error string must have exactly {code.d * code.d} characters "
+                    f"for d={req.d}."
+                )
+            ex, ez = error_from_string(code, req.error)
+            seed = req.seed
+        else:
+            ex, ez = sample_single_error(code, req.error_model,
+                                         req.physical_error_rate, req.seed)
+            seed = req.seed
+        result = RotatedSurfaceCodeDecoder(code).decode(
+            ex, ez, seed=seed, error_model=req.error_model)
+    except ValueError as e:
+        raise http_error(400, "VALIDATION_ERROR", str(e))
+    body = result.to_dict()
+    if req.include_layout:
+        body["layout"] = code.layout()
+    return body
+
+
+@app.post("/api/qec/rotated-surface-code/simulate")
+def rotated_surface_code_simulate(req: schemas.RotatedSurfaceCodeSimulateRequest):
+    """Monte Carlo logical-error estimate for one (d, p) point (MWPM)."""
+    from ..qec import simulate_rotated_surface_code
+
+    try:
+        res = simulate_rotated_surface_code(
+            req.d, req.physical_error_rate, trials=req.trials,
+            seed=req.seed, error_model=req.error_model)
+    except ValueError as e:
+        raise http_error(400, "VALIDATION_ERROR", str(e))
+    return res.to_dict()
+
+
 @app.post("/api/network/route")
 def network_route(req: schemas.NetworkSimulateRequest):
     """Route explanation endpoint: returns chosen path + why (§197)."""

@@ -598,6 +598,70 @@ def run_distributed_circuit(config: dict, seed: int) -> dict:
     )
 
 
+def run_surface_code_mwpm(config: dict, seed: int) -> dict:
+    """Monte Carlo threshold-style study: rotated planar surface code decoded
+    by exact MWPM (code capacity, perfect syndrome).
+
+    Configuration:
+    - distances: list of odd distances, e.g. [3, 5, 7]
+    - physical_error_permille: physical error rates in permille (e.g. [10, 30, 50])
+    - trials_per_point: Monte Carlo trials per (d, p) point
+    - error_model: "depolarizing" | "x_only" | "z_only"
+    """
+    from ..qec import sweep_rotated_surface_code
+
+    distances = [int(d) for d in config.get("distances", [3, 5])]
+    if not distances:
+        raise ValueError("distances must be a non-empty list.")
+    rates = [float(pm) / 1000.0
+             for pm in config.get("physical_error_permille", [10, 30, 50])]
+    if not rates:
+        raise ValueError("physical_error_permille must be a non-empty list.")
+    trials = int(config.get("trials_per_point", 2000))
+    if trials <= 0:
+        raise ValueError("trials_per_point must be positive.")
+    error_model = config.get("error_model", "depolarizing")
+
+    points = sweep_rotated_surface_code(
+        distances, rates, trials=trials, seed=seed, error_model=error_model)
+    table = [
+        {
+            "d": pt["d"],
+            "physical_error_rate": pt["physical_error_rate"],
+            "logical_error_rate": pt["logical_error_rate"],
+            "logical_failures": pt["logical_failures"],
+            "ci95_low": pt["ci95"][0],
+            "ci95_high": pt["ci95"][1],
+            "trials": pt["trials"],
+            "seed": pt["seed"],
+        }
+        for pt in points
+    ]
+    metrics = {
+        "distances": distances,
+        "error_model": error_model,
+        "physical_error_rates": rates,
+        "points": len(table),
+        "trials_per_point": trials,
+        "trials_total": sum(t["trials"] for t in table),
+        "lowest_logical_error_rate": min(
+            (t["logical_error_rate"] for t in table), default=None),
+    }
+    notes = [
+        "Rotated planar surface code, exact MWPM decoder, code-capacity "
+        "model with PERFECT syndrome measurement (single round).",
+        "p_L is the logical error rate (failures/trials, Wilson 95% "
+        "interval); it is distinct from the physical error rate p.",
+        "This bounded sweep is evidence of behaviour, not a threshold "
+        "determination; no threshold value is claimed.",
+    ]
+    return make_result_document(
+        "surface_code_mwpm", metrics,
+        artifacts={"table": table},
+        notes=notes,
+    )
+
+
 RUNNER_REGISTRY = {
     "circuit_shots": run_circuit_shots,
     "qec_sweep": run_qec_sweep,
@@ -609,6 +673,7 @@ RUNNER_REGISTRY = {
     "repeater_study": run_repeater_study_exp,
     "network_bb84": run_network_bb84_exp,
     "distributed_circuit": run_distributed_circuit,
+    "surface_code_mwpm": run_surface_code_mwpm,
 }
 
 

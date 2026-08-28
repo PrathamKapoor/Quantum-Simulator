@@ -21,6 +21,8 @@ interface RemoteOp {
   ebit_fidelity: number | null;
   ebit_latency_ns: number | null;
   ebit_attempts: number | null;
+  ebit_fidelity_applied: number | null;
+  ebit_noise: string[] | null;
   executed: boolean;
   failure_reason: string | null;
 }
@@ -88,7 +90,7 @@ interface DistributedResultDoc {
   remote_operations: RemoteOp[];
   entanglement_operations: EbitGrant[];
   classical_messages: ClassicalMessage[];
-  equivalence: { fidelity: number; passed: boolean; method: string } | null;
+  equivalence: { fidelity: number; passed: boolean; method: string; note?: string } | null;
   output_state: { probabilities: Record<string, number> } | null;
   errors: string[];
   warnings: string[];
@@ -112,6 +114,8 @@ export default function DistributedPanel({
   const [numNodes, setNumNodes] = useState(2);
   const [autoAssign, setAutoAssign] = useState(false);
   const [mapping, setMapping] = useState<Record<number, string>>({});
+  const [ebitNoise, setEbitNoise] = useState<"ideal" | "network_fidelity" | "fixed">("ideal");
+  const [ebitNoiseFidelity, setEbitNoiseFidelity] = useState(0.9);
   const [plan, setPlan] = useState<PartitionPlanDoc | null>(null);
   const [result, setResult] = useState<DistributedResultDoc | null>(null);
   const [central, setCentral] = useState<CentralizedResult | null>(null);
@@ -144,6 +148,8 @@ export default function DistributedPanel({
     try {
       const body = payload();
       body.protocol = "single_ebit";
+      body.ebit_noise = ebitNoise;
+      if (ebitNoise === "fixed") body.ebit_noise_fidelity = ebitNoiseFidelity;
       setResult(await post<DistributedResultDoc>("/api/distributed/simulate", body));
     } catch (e: any) { setError(e.message); } finally { setBusy(null); }
   };
@@ -156,6 +162,8 @@ export default function DistributedPanel({
       }));
       const body = payload();
       body.protocol = "single_ebit";
+      body.ebit_noise = ebitNoise;
+      if (ebitNoise === "fixed") body.ebit_noise_fidelity = ebitNoiseFidelity;
       setResult(await post<DistributedResultDoc>("/api/distributed/simulate", body));
     } catch (e: any) { setError(e.message); } finally { setBusy(null); }
   };
@@ -189,6 +197,22 @@ export default function DistributedPanel({
                  onChange={(e) => setAutoAssign(e.target.checked)} />
           Auto-assign qubits (minimize cross-node gates)
         </label>
+      </div>
+
+      <div className="row" style={{ flexWrap: "wrap", gap: 10, marginTop: 8 }}>
+        <label className="field">Ebit noise
+          <select value={ebitNoise} onChange={(e) => setEbitNoise(e.target.value as typeof ebitNoise)}>
+            <option value="ideal">Ideal entanglement (F = 1)</option>
+            <option value="network_fidelity">Network-modeled (Werner, grant fidelity)</option>
+            <option value="fixed">Fixed Werner fidelity</option>
+          </select>
+        </label>
+        {ebitNoise === "fixed" && (
+          <label className="field">Werner ebit fidelity F
+            <input type="number" min={0} max={1} step={0.01} value={ebitNoiseFidelity}
+                   onChange={(e) => setEbitNoiseFidelity(Math.max(0, Math.min(1, +e.target.value || 0)))} />
+          </label>
+        )}
       </div>
 
       {!autoAssign && (
@@ -268,7 +292,8 @@ export default function DistributedPanel({
               ) : (
                 <table className="data-table">
                   <thead>
-                    <tr><th>#</th><th>Gate</th><th>Edge</th><th>Ebits</th><th>Cbits</th><th>Status</th></tr>
+                    <tr><th>#</th><th>Gate</th><th>Edge</th><th>Ebits</th><th>Cbits</th>
+                        {result !== null && <><th>Ebit F</th><th>Werner sample</th></>}<th>Status</th></tr>
                   </thead>
                   <tbody>
                     {(result ? result.remote_operations : plan!.remote_operations).map((r) => (
@@ -278,6 +303,16 @@ export default function DistributedPanel({
                         <td>{r.source_node} → {r.target_node}</td>
                         <td>{r.ebits_required}</td>
                         <td>{r.classical_messages}</td>
+                        {result !== null && (
+                          <>
+                            <td>{r.ebit_fidelity_applied === null || r.ebit_fidelity_applied === undefined
+                              ? "—"
+                              : `F = ${r.ebit_fidelity_applied.toFixed(4)}`}</td>
+                            <td>{r.ebit_noise === null || r.ebit_noise === undefined
+                              ? "—"
+                              : r.ebit_noise.join(", ")}</td>
+                          </>
+                        )}
                         <td>
                           {result === null
                             ? <span className="badge">planned</span>
@@ -346,6 +381,9 @@ export default function DistributedPanel({
             · fidelity {result.equivalence.fidelity.toFixed(9)}
           </p>
           <p style={{ fontSize: 12, color: "var(--text-dim)" }}>{result.equivalence.method}</p>
+          {result.equivalence.note && (
+            <p style={{ fontSize: 12, color: "var(--text-dim)" }}>{result.equivalence.note}</p>
+          )}
         </div>
       )}
 

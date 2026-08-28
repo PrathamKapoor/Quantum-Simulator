@@ -54,6 +54,34 @@ const TEMPLATES: Record<string, any> = {
     objective: "Does distributed GHZ preparation via remote CNOTs match the centralized reference?",
     hypothesis: "Equivalence fidelity reaches 1.0; ebit cost scales with cross-node edges.",
   },
+  "Noisy distributed GHZ study": {
+    module: "distributed_circuit",
+    config: {
+      circuit: {
+        schema: "quantumlab.circuit", version: 1, name: "ghz-noisy",
+        num_qubits: 3, num_clbits: 0, metadata: {},
+        operations: [
+          { kind: "gate", gate: "H", params: [], qubits: [0], clbits: [], condition: null },
+          { kind: "gate", gate: "CX", params: [], qubits: [0, 1], clbits: [], condition: null },
+          { kind: "gate", gate: "CX", params: [], qubits: [1, 2], clbits: [], condition: null },
+        ],
+      },
+      qubit_to_node: { 0: "A", 1: "B", 2: "B" },
+      protocol: "single_ebit",
+      topology: {
+        nodes: [
+          { name: "A", type: "end", memory_slots: 4 },
+          { name: "B", type: "end", memory_slots: 4 },
+        ],
+        links: [
+          { source: "A", destination: "B", distance_km: 20, base_fidelity: 0.85 },
+        ],
+      },
+      ebit_noise: "network_fidelity",
+    },
+    objective: "Does network-degraded entanglement fidelity propagate into the distributed computation?",
+    hypothesis: "Equivalence fidelity tracks the granted ebit fidelity (Werner model); ebit cost is unchanged.",
+  },
 };
 
 export default function Experiments() {
@@ -319,6 +347,10 @@ function DistributedResultView({ doc }: { doc: any }) {
         <Metric label="Classical bits" value={String(doc.metrics.classical_message_count)} />
         <Metric label="Nodes" value={String(doc.metrics.node_count)} />
         <Metric label="Qubits" value={String(doc.metrics.qubit_count)} />
+        {doc.metrics.ebit_noise && <Metric label="Ebit noise" value={doc.metrics.ebit_noise} />}
+        {doc.metrics.mean_ebit_fidelity !== undefined && (
+          <Metric label="Mean ebit fidelity" value={String(doc.metrics.mean_ebit_fidelity)} />
+        )}
       </div>
 
       {doc.metrics.modeled_network_latency_ms !== undefined && (
@@ -340,6 +372,9 @@ function DistributedResultView({ doc }: { doc: any }) {
           </p>
         ) : (
           <p className="kv" style={{ color: "var(--text-dim)" }}>Not computed for this run.</p>
+        )}
+        {eq?.note && (
+          <p className="kv" style={{ color: "var(--text-dim)" }}>{eq.note}</p>
         )}
       </div>
 
@@ -368,7 +403,7 @@ function DistributedResultView({ doc }: { doc: any }) {
         <>
           <h3 style={{ marginTop: 14 }}>Remote operations</h3>
           <table className="data-table">
-            <thead><tr><th>Gate</th><th>Edge</th><th>Protocol</th><th>Ebits</th><th>Status</th></tr></thead>
+            <thead><tr><th>Gate</th><th>Edge</th><th>Protocol</th><th>Ebits</th><th>Ebit F</th><th>Werner sample</th><th>Status</th></tr></thead>
             <tbody>
               {remoteOps.map((r: any, i: number) => (
                 <tr key={i}>
@@ -376,6 +411,8 @@ function DistributedResultView({ doc }: { doc: any }) {
                   <td>{r.source_node} → {r.target_node}</td>
                   <td>{r.protocol}</td>
                   <td>{r.ebits_required}</td>
+                  <td>{r.ebit_fidelity_applied == null ? "—" : `F = ${Number(r.ebit_fidelity_applied).toFixed(4)}`}</td>
+                  <td>{r.ebit_noise == null ? "—" : r.ebit_noise.join(", ")}</td>
                   <td>{r.executed ? <span className="badge ok">executed</span> : <span className="badge err">{r.failure_reason ?? "failed"}</span>}</td>
                 </tr>
               ))}

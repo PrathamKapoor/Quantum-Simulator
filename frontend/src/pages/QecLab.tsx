@@ -103,6 +103,8 @@ export default function QecLab() {
         )}
       </div>
 
+      <RotatedSurfaceCodePanel />
+
       <div className="panel">
         <h3>Toric surface code (educational simulator)</h3>
         <p style={{ fontSize: 12.5, color: "var(--text-dim)", marginTop: 0 }}>
@@ -145,6 +147,216 @@ export default function QecLab() {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Rotated planar surface code + exact MWPM decoder workflow. Every visual
+ * state is rendered from the backend decode/simulate documents. */
+
+const X_COLOR = "#4aa8ff";
+const Z_COLOR = "#3fb96f";
+const ERR_X = "#ff6b6b";
+const ERR_Z = "#e8b13f";
+
+function RotatedSurfaceCodePanel() {
+  const [d, setD] = useState(3);
+  const [model, setModel] = useState("depolarizing");
+  const [p, setP] = useState(0.05);
+  const [seed, setSeed] = useState(11);
+  const [mcTrials, setMcTrials] = useState(3000);
+  const [decoded, setDecoded] = useState<any>(null);
+  const [sim, setSim] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const decode = async () => {
+    setBusy(true); setError(null);
+    try {
+      setDecoded(await post("/api/qec/rotated-surface-code/decode", {
+        d, error_model: model, physical_error_rate: p, seed,
+      }));
+    } catch (e: any) { setError(e.message); }
+    finally { setBusy(false); }
+  };
+
+  const runMonteCarlo = async () => {
+    setBusy(true); setError(null);
+    try {
+      setSim(await post("/api/qec/rotated-surface-code/simulate", {
+        d, error_model: model, physical_error_rate: p, seed, trials: mcTrials,
+      }));
+    } catch (e: any) { setError(e.message); }
+    finally { setBusy(false); }
+  };
+
+  const layout = decoded?.layout;
+  const S = 240, M = 14;
+  const px = (v: number) => M + v * (S - 2 * M);
+  const dataPos = new Map<number, { x: number; y: number }>();
+  layout?.data_qubits.forEach((q: any) => dataPos.set(q.index, { x: px(q.x), y: px(q.y) }));
+  const checkPos = new Map<number, { x: number; y: number }>();
+  layout?.checks.forEach((c: any) => checkPos.set(c.index, { x: px(c.x), y: px(c.y) }));
+  const defectIdx = new Set((decoded?.events ?? []).map((e: any) => e.check_index));
+  const errX = new Set(decoded?.error_support?.X ?? []);
+  const errZ = new Set(decoded?.error_support?.Z ?? []);
+  const chainQ = new Map<string, number>();
+  (decoded?.matching ?? []).forEach((m: any, i: number) =>
+    m.chain.forEach((q: number) => chainQ.set(`${m.pauli}:${q}`, i)));
+
+  return (
+    <div className="panel">
+      <h3>Rotated planar surface code — MWPM decoder (code capacity)</h3>
+      <p style={{ fontSize: 12.5, color: "var(--text-dim)", marginTop: 0 }}>
+        Exact minimum-weight perfect matching over the rotated planar lattice with perfect
+        syndrome measurement (single round, code-capacity model). Logical X runs top-bottom,
+        logical Z runs left-right; Z chains exit left/right, X chains exit top/bottom.
+        Simulation study — no hardware or threshold claims.
+      </p>
+      {error && <div className="error-box">{error}</div>}
+
+      <div className="row" style={{ flexWrap: "wrap", gap: 10 }}>
+        <label className="field">Distance
+          <select value={d} onChange={(e) => { setD(+e.target.value); setDecoded(null); setSim(null); }}>
+            {[3, 5, 7].map((v) => <option key={v} value={v}>{v}</option>)}
+          </select>
+        </label>
+        <label className="field">Error model
+          <select value={model} onChange={(e) => setModel(e.target.value)}>
+            <option value="depolarizing">depolarizing (p/3 each of X, Y, Z)</option>
+            <option value="x_only">X-only</option>
+            <option value="z_only">Z-only</option>
+          </select>
+        </label>
+        <label className="field">Physical p
+          <input type="number" min={0} max={1} step={0.01} value={p}
+                 onChange={(e) => setP(Math.max(0, Math.min(1, +e.target.value || 0)))}
+                 style={{ width: 90 }} />
+        </label>
+        <label className="field">Seed
+          <input type="number" value={seed} onChange={(e) => setSeed(+e.target.value || 0)}
+                 style={{ width: 80 }} />
+        </label>
+        <button className="btn" disabled={busy} onClick={decode}>
+          {busy ? "Decoding…" : "Generate error & decode"}
+        </button>
+      </div>
+
+      {decoded && (
+        <div className="grid2" style={{ marginTop: 12 }}>
+          <div>
+            <svg viewBox={`0 0 ${S} ${S}`} width={S} role="img" aria-label="rotated surface code lattice">
+              {/* matching edges */}
+              {decoded.matching.map((m: any, i: number) => {
+                const a = checkPos.get(m.a.check_index);
+                const b = m.kind === "pair" && m.b
+                  ? checkPos.get(m.b.check_index)
+                  : dataPos.get(m.exit_qubit);
+                if (!a || !b) return null;
+                return (
+                  <line key={`m${i}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+                        stroke={m.pauli === "Z" ? Z_COLOR : X_COLOR}
+                        strokeWidth={1.6} strokeDasharray="4 3" opacity={0.9}>
+                    <title>{`${m.kind} match (${m.pauli}-chain), weight ${m.weight}`}</title>
+                  </line>
+                );
+              })}
+              {/* checks */}
+              {layout.checks.map((c: any) => {
+                const pos = checkPos.get(c.index);
+                if (!pos) return null;
+                const isDefect = defectIdx.has(c.index);
+                const col = c.kind === "X" ? X_COLOR : Z_COLOR;
+                return (
+                  <rect key={`c${c.index}`} x={pos.x - 5} y={pos.y - 5} width={10} height={10}
+                        fill={col} opacity={0.55}
+                        stroke={isDefect ? "#ffffff" : "none"} strokeWidth={isDefect ? 2 : 0}>
+                    <title>{`${c.kind}-check ${c.index} (weight ${c.support.length})${isDefect ? " — DEFECT" : ""}`}</title>
+                  </rect>
+                );
+              })}
+              {/* correction chains */}
+              {layout.data_qubits.map((q: any) => {
+                const zk = chainQ.get(`Z:${q.index}`);
+                const xk = chainQ.get(`X:${q.index}`);
+                if (zk === undefined && xk === undefined) return null;
+                const pos = dataPos.get(q.index)!;
+                return (
+                  <circle key={`k${q.index}`} cx={pos.x} cy={pos.y} r={7.5} fill="none"
+                          stroke={zk !== undefined ? Z_COLOR : X_COLOR} strokeWidth={1.5}
+                          strokeDasharray={zk !== undefined && xk !== undefined ? "2 2" : undefined} />
+                );
+              })}
+              {/* data qubits */}
+              {layout.data_qubits.map((q: any) => {
+                const pos = dataPos.get(q.index)!;
+                const hasX = errX.has(q.index), hasZ = errZ.has(q.index);
+                return (
+                  <circle key={`q${q.index}`} cx={pos.x} cy={pos.y} r={3.2}
+                          fill={hasX && hasZ ? ERR_X : hasX ? ERR_X : hasZ ? ERR_Z : "var(--text-dim)"}
+                          stroke={hasX || hasZ ? "#ffffff" : "none"} strokeWidth={0.8}>
+                    <title>{`data qubit ${q.index}${hasX ? " · X" : ""}${hasZ ? " · Z" : ""}`}</title>
+                  </circle>
+                );
+              })}
+            </svg>
+            <p style={{ fontSize: 11.5, color: "var(--text-dim)" }}>
+              Squares: X (blue) / Z (green) checks, white ring = syndrome defect · dots: data qubits
+              (red = X or Y error, amber = Z error) · dashed: MWPM correction chains ·
+              ringed dots: correction Paulis.
+            </p>
+          </div>
+          <div>
+            <p className="kv">
+              Outcome:{" "}
+              <span className={"badge " + (decoded.outcome === "CORRECTED" ? "ok" : "err")}>
+                {decoded.outcome}
+              </span>
+            </p>
+            <p className="kv">Matching weight: <b>{decoded.matching_weight}</b> ·
+              detection events: <b>{decoded.events.length}</b></p>
+            {decoded.matching.length > 0 && (
+              <table className="data-table">
+                <thead><tr><th>Match</th><th>Pauli</th><th>Weight</th><th>Chain</th></tr></thead>
+                <tbody>
+                  {decoded.matching.map((m: any, i: number) => (
+                    <tr key={i}>
+                      <td>{m.kind === "pair"
+                        ? `${m.a.check_kind}${m.a.check_index} ↔ ${m.b.check_kind}${m.b.check_index}`
+                        : `${m.a.check_kind}${m.a.check_index} → boundary (q${m.exit_qubit})`}</td>
+                      <td>{m.pauli}</td>
+                      <td>{m.weight}</td>
+                      <td>{m.chain.length} qubit(s)</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {decoded.decoder_error && <div className="error-box">{decoded.decoder_error}</div>}
+          </div>
+        </div>
+      )}
+
+      <div className="row" style={{ marginTop: 12, alignItems: "flex-end" }}>
+        <label className="field">MC trials
+          <input type="number" min={100} max={1000000} value={mcTrials}
+                 onChange={(e) => setMcTrials(+e.target.value || 1000)} style={{ width: 100 }} />
+        </label>
+        <button className="btn secondary" disabled={busy} onClick={runMonteCarlo}>
+          Run Monte Carlo at this (d, p)
+        </button>
+      </div>
+      {sim && (
+        <p className="kv" style={{ marginTop: 8 }}>
+          d={sim.d}, p={sim.physical_error_rate}: logical error rate p_L ={" "}
+          <b>{(sim.logical_error_rate * 100).toFixed(2)}%</b> · Wilson 95% CI [
+          {sim.ci95[0].toFixed(4)}, {sim.ci95[1].toFixed(4)}] · {sim.logical_failures}/
+          {sim.trials} failures
+        </p>
+      )}
+      {sim && (
+        <p style={{ fontSize: 11.5, color: "var(--text-dim)" }}>{sim.note}</p>
+      )}
     </div>
   );
 }

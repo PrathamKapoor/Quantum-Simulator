@@ -62,6 +62,11 @@ class RemoteOp:
     ebit_fidelity: float | None = None
     ebit_latency_ns: float | None = None
     ebit_attempts: int | None = None
+    # Werner-noise provenance: fidelity actually used for the quantum state
+    # (equals ebit_fidelity in network mode; may differ in fixed mode) and the
+    # sampled Pauli component per consumed ebit ("I" = ideal component).
+    ebit_fidelity_applied: float | None = None
+    ebit_noise: list[str] | None = None
     executed: bool = False
     failure_reason: str | None = None
 
@@ -80,6 +85,8 @@ class RemoteOp:
             "ebit_fidelity": self.ebit_fidelity,
             "ebit_latency_ns": self.ebit_latency_ns,
             "ebit_attempts": self.ebit_attempts,
+            "ebit_fidelity_applied": self.ebit_fidelity_applied,
+            "ebit_noise": list(self.ebit_noise) if self.ebit_noise is not None else None,
             "executed": self.executed,
             "failure_reason": self.failure_reason,
         }

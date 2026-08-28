@@ -48,6 +48,29 @@ class DistributedConfig:
     fallback: str = "error"  # "error" (default) or "centralized"
     max_remote_operations: int = 64
     max_ancillas: int = 512
+    # Entanglement-resource noise model (AD-012):
+    #   "ideal"            — perfect ebits (historical behavior, default)
+    #   "network_fidelity" — consume the NetworkBridge grant fidelity as the
+    #                        Werner fidelity of each ebit
+    #   "fixed"            — use ``ebit_noise_fidelity`` for every ebit
+    # In all modes the Werner noise is applied exactly once, at protocol
+    # expansion (see remote_cnot.py); F >= 1 reduces to the ideal path.
+    ebit_noise: str = "ideal"
+    ebit_noise_fidelity: float | None = None
+    # Opt-in: attach the reduced logical density matrix (2^n x 2^n) to
+    # output_state. Only sensible for small n (guarded); kept off by default
+    # so persisted results stay lightweight.
+    include_reduced_state: bool = False
+
+    def __post_init__(self):
+        if self.ebit_noise not in ("ideal", "network_fidelity", "fixed"):
+            raise ValueError(
+                f"ebit_noise must be 'ideal', 'network_fidelity', or 'fixed'; "
+                f"got {self.ebit_noise!r}."
+            )
+        if self.ebit_noise_fidelity is not None \
+                and not (0.0 <= float(self.ebit_noise_fidelity) <= 1.0):
+            raise ValueError("ebit_noise_fidelity must lie in [0, 1].")
 
     def validated_node_names(self) -> list[str]:
         if self.node_names is not None:
@@ -59,6 +82,54 @@ class DistributedConfig:
         if self.num_nodes < 2:
             return ["node_0"]
         return [f"node_{i}" for i in range(max(2, self.num_nodes))]
+
+    def resolve_ebit_noise_fidelity(self, grant_fidelity: float | None) -> float | None:
+        """Fidelity used for the Werner state of the next ebit (None = ideal)."""
+        if self.ebit_noise == "ideal":
+            return None
+        if self.ebit_noise == "fixed":
+            f = self.ebit_noise_fidelity
+            if f is None or not (0.0 <= float(f) <= 1.0):
+                raise ValueError(
+                    'ebit_noise="fixed" requires ebit_noise_fidelity in [0, 1].'
+                )
+            return float(f)
+        # "network_fidelity": the grant's own fidelity drives the state.
+        if self.ebit_noise != "network_fidelity":
+            raise ValueError(f"Unknown ebit_noise mode {self.ebit_noise!r}.")
+        if grant_fidelity is None:
+            raise ValueError(
+                'ebit_noise="network_fidelity" requires a grant fidelity; '
+                "the granted resource did not report one."
+            )
+        f = float(grant_fidelity)
+        if not (0.0 <= f <= 1.0):
+            raise ValueError(f"Granted ebit fidelity {grant_fidelity} outside [0, 1].")
+        return f
+
+
+def reduced_logical_density(amplitudes: np.ndarray, physical_positions: list[int]) -> DensityMatrix:
+    """Reduce a statevector to the density matrix over the given physical qubits.
+
+    Computed directly from the amplitudes via axis permutation, so no full
+    4^N density matrix of the expanded register is ever materialised (that
+    would explode for large remote circuits; documented in LIMITATIONS).
+    """
+    N = int(round(np.log2(amplitudes.size)))
+    tensor = amplitudes.reshape([2] * N)
+    # C-order reshape puts the most-significant index bit on axis 0,
+    # i.e. axis p corresponds to physical qubit N-1-p.
+    logical_axes = [N - 1 - q for q in physical_positions]
+    remaining = [p for p in range(N) if p not in set(logical_axes)]
+    moved = np.transpose(tensor, logical_axes + remaining)
+    m = moved.reshape(1 << len(physical_positions), -1)
+    rho = m @ m.conj().T
+    tr = float(np.real(np.trace(rho)))
+    if tr <= 0 or abs(tr - 1.0) > 1e-6:
+        raise QuantumCoreError(
+            f"Reduced-state trace {tr:.6f}; numerical failure."
+        )
+    return DensityMatrix(rho / tr, len(physical_positions))
 
 
 class DistributedExecutor:
@@ -114,6 +185,9 @@ class DistributedExecutor:
             protocol=self.config.protocol, seed=self.config.seed,
             qubit_to_node=assignment, topology=self.config.topology,
             network_config=self.config.network_config, fallback=self.config.fallback,
+            ebit_noise=self.config.ebit_noise,
+            ebit_noise_fidelity=self.config.ebit_noise_fidelity,
+            include_reduced_state=self.config.include_reduced_state,
         )
         return DistributedExecutor(cfg).execute(sub)
 
@@ -164,6 +238,15 @@ class DistributedExecutor:
             seed=self.config.seed if self.config.seed is not None else 7,
         )
 
+        # Werner-noise trajectory RNG: namespaced from the experiment seed so
+        # it is deterministic and independent of the simulator's own stream
+        # (seed None -> fresh entropy, matching the simulator's convention).
+        if self.config.seed is None:
+            noise_rng = np.random.default_rng()
+        else:
+            noise_rng = np.random.default_rng([int(self.config.seed), 0xEB1A7])
+        noise_active = self.config.ebit_noise != "ideal"
+
         # Expand remote CNOTs into protocol circuits while tracking the
         # logical->physical carrier remapping.
         remote_by_index = {r.op_index: r for r in plan.remote_operations}
@@ -192,12 +275,6 @@ class DistributedExecutor:
                 rop = remote_by_index[idx]
                 if rop.control_qubit == rop.target_qubit:
                     raise ValueError("control and target must be distinct qubits.")
-                c_phys = physical_of[rop.control_qubit]
-                t_phys = physical_of[rop.target_qubit]
-                expansion = expand_remote_cnot(
-                    c_phys, t_phys, rop.source_node, rop.target_node,
-                    self.config.protocol, get_ancilla, get_clbit,
-                )
                 # Request the real entanglement resource from the network.
                 grant = bridge.request_ebit(rop.source_node, rop.target_node,
                                             protocol=self.config.protocol)
@@ -237,13 +314,25 @@ class DistributedExecutor:
                 # Grant succeeded: run the genuine protocol expansion and record
                 # ACTUAL resource consumption (protocol-dependent, e.g. double
                 # teleportation consumes 2 ebits + 4 cbits, not the partition
-                # plan's single-ebit estimate).
+                # plan's single-ebit estimate). The grant fidelity drives the
+                # Werner state of each consumed ebit when noise is enabled.
+                c_phys = physical_of[rop.control_qubit]
+                t_phys = physical_of[rop.target_qubit]
+                noise_fidelity = self.config.resolve_ebit_noise_fidelity(grant.fidelity)
+                expansion = expand_remote_cnot(
+                    c_phys, t_phys, rop.source_node, rop.target_node,
+                    self.config.protocol, get_ancilla, get_clbit,
+                    ebit_noise_fidelity=noise_fidelity,
+                    ebit_noise_rng=noise_rng,
+                )
                 rop.executed = True
                 rop.ebits_required = expansion.ebits
                 rop.classical_messages = expansion.classical_bits
                 rop.ebit_fidelity = grant.fidelity
                 rop.ebit_latency_ns = grant.latency_ns
                 rop.ebit_attempts = grant.attempts
+                rop.ebit_fidelity_applied = noise_fidelity
+                rop.ebit_noise = list(expansion.ebit_noise) if noise_fidelity is not None else None
                 order = 0
                 for (sender, receiver, bits) in expansion.classical_messages:
                     result.classical_messages.append(
@@ -286,26 +375,10 @@ class DistributedExecutor:
         # is ever materialised (that would explode for large remote circuits).
         n = circuit.num_qubits
 
-        def reduced(amps: np.ndarray, phys_positions: list[int]) -> DensityMatrix:
-            N = int(round(np.log2(amps.size)))
-            tensor = amps.reshape([2] * N)
-            # C-order reshape puts the most-significant index bit on axis 0,
-            # i.e. axis p corresponds to physical qubit N-1-p.
-            logical_axes = [N - 1 - q for q in phys_positions]
-            remaining = [p for p in range(N) if p not in set(logical_axes)]
-            moved = np.transpose(tensor, logical_axes + remaining)
-            m = moved.reshape(1 << len(phys_positions), -1)
-            rho = m @ m.conj().T
-            tr = float(np.real(np.trace(rho)))
-            if tr <= 0 or abs(tr - 1.0) > 1e-6:
-                raise QuantumCoreError(
-                    f"Reduced-state trace {tr:.6f}; numerical failure."
-                )
-            return DensityMatrix(rho / tr, len(phys_positions))
-
-        rho_d = reduced(sim.final_state.amplitudes,
-                        [physical_of[q] for q in range(n)])
-        rho_c = reduced(central.final_state.amplitudes, list(range(n)))
+        rho_d = reduced_logical_density(
+            sim.final_state.amplitudes, [physical_of[q] for q in range(n)])
+        rho_c = reduced_logical_density(
+            central.final_state.amplitudes, list(range(n)))
         fid = float(rho_d.fidelity_with(rho_c))
         equiv_passed = bool(fid >= 1 - 1e-8)
         result.equivalence = {
@@ -314,6 +387,12 @@ class DistributedExecutor:
             "method": "Uhlmann fidelity of reduced logical states",
             "tolerance": 1e-8,
         }
+        if noise_active:
+            result.equivalence["note"] = (
+                "Reference is the IDEAL centralized execution; with ebit noise "
+                "enabled this fidelity quantifies noise-induced degradation "
+                "and is expected to fall below 1."
+            )
         if not equiv_passed and self.config.fallback != "centralized":
             result.warnings.append(
                 "Distributed output did not match centralized reference within tolerance."
@@ -342,6 +421,17 @@ class DistributedExecutor:
             "logical_qubits": n,
             "note": "Reduced state over the original logical qubits (ancillas traced out).",
         }
+        if self.config.include_reduced_state:
+            if n > 6:
+                raise ValueError(
+                    f"include_reduced_state supports at most 6 logical qubits "
+                    f"(got {n}); the reduced density matrix would be "
+                    f"{1 << n}x{1 << n}."
+                )
+            result.output_state["reduced_density_matrix"] = [
+                [[float(v.real), float(v.imag)] for v in row]
+                for row in rho_d.matrix
+            ]
 
         result.reproducibility = {
             "seed": self.config.seed,
@@ -350,7 +440,18 @@ class DistributedExecutor:
             "assignment": {str(k): v for k, v in assignment.items()},
             "fallback": self.config.fallback,
             "network_model": "ideal" if self.config.topology is None else "network_engine",
+            "ebit_noise": self.config.ebit_noise,
         }
+        if self.config.ebit_noise == "fixed":
+            result.reproducibility["ebit_noise_fidelity"] = self.config.ebit_noise_fidelity
+        if noise_active:
+            result.notes.append(
+                "Ebit noise (Werner model, AD-012): each consumed ebit is a "
+                "trajectory component of rho_W(F) = F|Phi+><Phi+| + (1-F)/3 "
+                "(|Phi-> + |Psi+| + |Psi-|) with F taken from the configured "
+                "noise mode; the sampled Pauli per ebit is recorded in "
+                "remote_operations[].ebit_noise."
+            )
         result.notes = [
             "Remote CNOTs are executed through the genuine protocol expansion "
             "(entanglement + teleportation + Pauli corrections), not a relabeled "

@@ -18,12 +18,28 @@ Protocol 2 — double teleportation
     Shared 2 ebits, 4 classical bits; the control is returned to Alice.
     Cost: 2 ebits, 4 cbits.
 
+Noisy ebits (Werner model)
+    When an ebit fidelity F < 1 is supplied (from the NetworkBridge grant or
+    an explicit fixed value), each consumed ebit is prepared as the canonical
+    Werner state rho_W(F) = F|Phi+><Phi+| + (1-F)/3 (|Phi-| + |Psi+| + |Psi-|)
+    (see DensityMatrix.werner for the exact convention). Under the engine's
+    statevector trajectory semantics the mixed state is represented by
+    sampling ONE Bell-state component per consumed ebit: applying the single-
+    qubit Pauli P on the first (Alice) ebit half maps |Phi+> to
+      I -> |Phi+> (probability F),  X -> |Psi+>,  Z -> |Phi->,  Y -> |Psi-|
+    each with probability (1-F)/3, which reproduces rho_W(F) exactly in the
+    trajectory aggregate. The sampled Pauli is inserted as an UNCONDITIONED
+    gate right after ebit preparation and BEFORE the Bell measurement, so the
+    X^{mx}-before-Z^{mz} correction ordering (AD-004) is untouched. The noise
+    is applied exactly once: here, at protocol expansion; the network engine
+    only computes and reports the fidelity, it never injects circuit noise.
+
 Correction order is X^{mx} BEFORE Z^{mz} (AD-004); this is load-bearing for
 entangling circuits, not merely a global-phase choice.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ..circuits.model import Operation, Condition
 
@@ -36,6 +52,56 @@ class RemoteCNOTExpansion:
     ebits: int
     classical_bits: int
     classical_messages: list[tuple[str, str, int]]  # (sender, receiver, bits)
+    # Sampled Werner Pauli error per consumed ebit ("I" = ideal component).
+    # Empty when the ebit is ideal (no fidelity below 1 supplied).
+    ebit_noise: list[str] = field(default_factory=list)
+
+
+def sample_ebit_pauli_error(fidelity: float, rng) -> str:
+    """Sample one trajectory component of the Werner state rho_W(F).
+
+    Returns the Pauli label ("I", "X", "Z", "Y") to apply on the first ebit
+    half so the resulting pure state is the corresponding Bell state:
+    I -> |Phi+> with probability F; X, Z, Y -> |Psi+>, |Phi->, |Psi-> each
+    with probability (1-F)/3. ``rng`` needs a ``.random()`` method
+    (numpy Generator or random.Random). F = 1 returns "I" without drawing.
+    """
+    f = float(fidelity)
+    if not (0.0 <= f <= 1.0):
+        raise ValueError(f"Ebit fidelity {fidelity} outside [0, 1].")
+    if f >= 1.0:
+        return "I"
+    u = rng.random()
+    p_err = (1.0 - f) / 3.0
+    if u < f:
+        return "I"
+    if u < f + p_err:
+        return "X"
+    if u < f + 2.0 * p_err:
+        return "Z"
+    return "Y"
+
+
+_NOISE_GATES = {"X": "X", "Z": "Z", "Y": "Y"}
+
+
+def _ebit_prep(a: int, b: int, fidelity: float | None, rng, noise_log: list[str]) -> list[Operation]:
+    """Ideal ebit preparation plus the sampled Werner Pauli error (if any)."""
+    ops = [
+        Operation(kind="gate", gate="H", qubits=(a,)),
+        Operation(kind="gate", gate="CX", qubits=(a, b)),
+    ]
+    if fidelity is None or fidelity >= 1.0:
+        return ops
+    if rng is None:
+        raise ValueError(
+            "A noise RNG is required when an ebit fidelity < 1 is supplied."
+        )
+    pauli = sample_ebit_pauli_error(fidelity, rng)
+    noise_log.append(pauli)
+    if pauli != "I":
+        ops.append(Operation(kind="gate", gate=_NOISE_GATES[pauli], qubits=(a,)))
+    return ops
 
 
 def _alloc_pair(get_ancilla, get_clbit):
@@ -50,33 +116,43 @@ def expand_remote_cnot(
     protocol: str,
     get_ancilla,
     get_clbit,
+    ebit_noise_fidelity: float | None = None,
+    ebit_noise_rng=None,
 ) -> RemoteCNOTExpansion:
     """Return the protocol operations that implement CNOT(control, target)
     between two nodes, plus resource metadata.
 
     ``get_ancilla`` / ``get_clbit`` yield fresh physical qubit / classical bit
     indices for the protocol's internal carriers.
+
+    ``ebit_noise_fidelity`` (Werner fidelity F of each consumed ebit; None or
+    >= 1 means ideal) and ``ebit_noise_rng`` drive the sampled Werner-noise
+    trajectory; with ideal ebits the emitted operations are exactly the
+    historical ideal ones.
     """
     if protocol == "single_ebit":
         return _expand_single_ebit(
-            control_phys, target_phys, control_node, target_node, get_ancilla, get_clbit
+            control_phys, target_phys, control_node, target_node, get_ancilla, get_clbit,
+            ebit_noise_fidelity, ebit_noise_rng,
         )
     if protocol == "double_teleport":
         return _expand_double_teleport(
-            control_phys, target_phys, control_node, target_node, get_ancilla, get_clbit
+            control_phys, target_phys, control_node, target_node, get_ancilla, get_clbit,
+            ebit_noise_fidelity, ebit_noise_rng,
         )
     raise ValueError(f"Unknown remote-CNOT protocol {protocol!r}.")
 
 
-def _expand_single_ebit(control_phys, target_phys, control_node, target_node, get_ancilla, get_clbit):
+def _expand_single_ebit(control_phys, target_phys, control_node, target_node, get_ancilla, get_clbit,
+                        ebit_noise_fidelity=None, ebit_noise_rng=None):
     a = get_ancilla()          # Alice half of ebit
     b = get_ancilla()          # Bob half of ebit
     mz = get_clbit()           # Alice -> Bob: m_z
     mx = get_clbit()           # Alice -> Bob: m_x
+    noise: list[str] = []
     ops: list[Operation] = []
-    # 1. entanglement distribution (ebit)
-    ops.append(Operation(kind="gate", gate="H", qubits=(a,)))
-    ops.append(Operation(kind="gate", gate="CX", qubits=(a, b)))
+    # 1. entanglement distribution (ebit, Werner-noisy when F < 1)
+    ops.extend(_ebit_prep(a, b, ebit_noise_fidelity, ebit_noise_rng, noise))
     # 2. Bell measurement of control onto a
     ops.append(Operation(kind="gate", gate="CX", qubits=(control_phys, a)))
     ops.append(Operation(kind="gate", gate="H", qubits=(control_phys,)))
@@ -95,19 +171,21 @@ def _expand_single_ebit(control_phys, target_phys, control_node, target_node, ge
         ebits=1,
         classical_bits=2,
         classical_messages=[(control_node, target_node, 2)],
+        ebit_noise=noise,
     )
 
 
-def _expand_double_teleport(control_phys, target_phys, control_node, target_node, get_ancilla, get_clbit):
+def _expand_double_teleport(control_phys, target_phys, control_node, target_node, get_ancilla, get_clbit,
+                            ebit_noise_fidelity=None, ebit_noise_rng=None):
     A1 = get_ancilla(); B1 = get_ancilla()
     A2 = get_ancilla(); B2 = get_ancilla()
     m0 = get_clbit(); m1 = get_clbit(); m2 = get_clbit(); m3 = get_clbit()
+    noise: list[str] = []
     ops: list[Operation] = []
-    # ebit 1 (A1-B1) and ebit 2 (A2-B2)
-    ops.append(Operation(kind="gate", gate="H", qubits=(A1,)))
-    ops.append(Operation(kind="gate", gate="CX", qubits=(A1, B1)))
-    ops.append(Operation(kind="gate", gate="H", qubits=(A2,)))
-    ops.append(Operation(kind="gate", gate="CX", qubits=(A2, B2)))
+    # ebit 1 (A1-B1) and ebit 2 (A2-B2), each an independently sampled
+    # Werner trajectory component of the SAME grant fidelity.
+    ops.extend(_ebit_prep(A1, B1, ebit_noise_fidelity, ebit_noise_rng, noise))
+    ops.extend(_ebit_prep(A2, B2, ebit_noise_fidelity, ebit_noise_rng, noise))
     # teleport control -> B1 (Bob side)
     ops.append(Operation(kind="gate", gate="CX", qubits=(control_phys, A1)))
     ops.append(Operation(kind="gate", gate="H", qubits=(control_phys,)))
@@ -135,4 +213,5 @@ def _expand_double_teleport(control_phys, target_phys, control_node, target_node
         ebits=2,
         classical_bits=4,
         classical_messages=[(control_node, target_node, 2), (target_node, control_node, 2)],
+        ebit_noise=noise,
     )

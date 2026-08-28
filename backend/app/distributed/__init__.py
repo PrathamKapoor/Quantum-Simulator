@@ -384,7 +384,11 @@ from .partition import (  # noqa: E402
     heuristic_assignment,
     PartitionPlan,
 )
-from .remote_cnot import expand_remote_cnot, RemoteCNOTExpansion  # noqa: E402
+from .remote_cnot import (  # noqa: E402
+    expand_remote_cnot,
+    RemoteCNOTExpansion,
+    sample_ebit_pauli_error,
+)
 from .network_bridge import NetworkBridge, topology_from_nodes_links  # noqa: E402
 from .engine import DistributedExecutor, DistributedConfig  # noqa: E402
 from .model import (  # noqa: E402
@@ -411,6 +415,7 @@ __all__ = [
     "heuristic_assignment",
     "PartitionPlan",
     "expand_remote_cnot",
+    "sample_ebit_pauli_error",
     "RemoteCNOTExpansion",
     "NetworkBridge",
     "topology_from_nodes_links",

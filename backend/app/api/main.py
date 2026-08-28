@@ -561,6 +561,8 @@ def _distributed_config(req, *, for_plan: bool = False) -> DistributedConfig:
         ncfg = getattr(req, "network_config", None)
         kwargs["network_config"] = NetworkConfig(**ncfg) if ncfg else None
         kwargs["fallback"] = getattr(req, "fallback", "error")
+        kwargs["ebit_noise"] = getattr(req, "ebit_noise", "ideal")
+        kwargs["ebit_noise_fidelity"] = getattr(req, "ebit_noise_fidelity", None)
     return DistributedConfig(**kwargs)
 
 

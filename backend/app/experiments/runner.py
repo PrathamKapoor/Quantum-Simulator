@@ -460,6 +460,10 @@ def run_distributed_circuit(config: dict, seed: int) -> dict:
     - topology: optional network topology (nodes + links) for real network modeling
     - network_config: optional network simulation config
     - fallback: "error" | "centralized" (default "error")
+    - ebit_noise: "ideal" | "network_fidelity" | "fixed" (default "ideal").
+      "network_fidelity" consumes each NetworkBridge grant's fidelity as the
+      Werner fidelity of the ebit; "fixed" uses ``ebit_noise_fidelity``.
+    - ebit_noise_fidelity: Werner fidelity in [0,1], only for ebit_noise="fixed"
     """
     from ..distributed import DistributedExecutor, DistributedConfig, topology_from_nodes_links
     from ..network import NetworkConfig
@@ -479,6 +483,9 @@ def run_distributed_circuit(config: dict, seed: int) -> dict:
 
     protocol = config.get("protocol", "single_ebit")
     fallback = config.get("fallback", "error")
+    # Entanglement-resource noise (AD-012): absent -> ideal (legacy behavior).
+    ebit_noise = config.get("ebit_noise", "ideal")
+    ebit_noise_fidelity = config.get("ebit_noise_fidelity")
 
     # Build topology if provided
     topology = None
@@ -507,6 +514,8 @@ def run_distributed_circuit(config: dict, seed: int) -> dict:
         topology=topology,
         network_config=network_config,
         fallback=fallback,
+        ebit_noise=ebit_noise,
+        ebit_noise_fidelity=ebit_noise_fidelity,
     )
 
     executor = DistributedExecutor(cfg)
@@ -543,6 +552,14 @@ def run_distributed_circuit(config: dict, seed: int) -> dict:
     seeded = dist.get("reproducibility", {}).get("seed")
     if seeded is not None:
         metrics["effective_seed"] = seeded
+    metrics["ebit_noise"] = (dist.get("reproducibility") or {}).get("ebit_noise", "ideal")
+    applied_fids = [
+        r.get("ebit_fidelity_applied")
+        for r in dist.get("remote_operations", [])
+        if r.get("ebit_fidelity_applied") is not None
+    ]
+    if applied_fids:
+        metrics["mean_ebit_fidelity"] = round(sum(applied_fids) / len(applied_fids), 6)
 
     modeled_latency_ms = None
     for g in dist.get("entanglement_operations", []):

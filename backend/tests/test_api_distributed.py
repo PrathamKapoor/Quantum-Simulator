@@ -167,3 +167,125 @@ def test_distributed_experiment_reproduce_immutable(exp_client):
     # original run status left COMPLETED (immutable)
     orig_run = exp_client.get(f"/api/runs/{rid}").json()
     assert orig_run["status"] == "COMPLETED"
+
+
+# ---------------------------------------------------------------------------
+# Noisy ebits / Werner-model entanglement injection (AD-012)
+# ---------------------------------------------------------------------------
+
+NOISY_TOPO = {
+    "nodes": [{"name": "A", "type": "end"}, {"name": "B", "type": "end"}],
+    "links": [{"source": "A", "destination": "B", "distance_km": 0,
+               "base_fidelity": 0.7}],
+}
+
+
+def test_simulate_network_fidelity_mode():
+    r = client.post("/api/distributed/simulate", json={
+        "circuit": CIRCUIT, "qubit_to_node": {0: "A", 1: "B"},
+        "topology": NOISY_TOPO, "seed": 5, "ebit_noise": "network_fidelity"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "success"
+    rop = body["remote_operations"][0]
+    assert rop["ebit_fidelity"] == pytest.approx(0.7)
+    assert rop["ebit_fidelity_applied"] == pytest.approx(0.7)
+    assert len(rop["ebit_noise"]) == 1
+    assert rop["ebit_noise"][0] in ("I", "X", "Y", "Z")
+    assert body["reproducibility"]["ebit_noise"] == "network_fidelity"
+
+
+def test_simulate_fixed_fidelity_F1_matches_legacy():
+    legacy = client.post("/api/distributed/simulate", json={
+        "circuit": CIRCUIT, "qubit_to_node": {0: "node_0", 1: "node_1"},
+        "seed": 21}).json()
+    f1 = client.post("/api/distributed/simulate", json={
+        "circuit": CIRCUIT, "qubit_to_node": {0: "node_0", 1: "node_1"},
+        "seed": 21, "ebit_noise": "fixed", "ebit_noise_fidelity": 1.0}).json()
+    assert f1["status"] == "success"
+    assert f1["output_state"]["probabilities"] == legacy["output_state"]["probabilities"]
+    assert f1["equivalence"]["fidelity"] == 1.0
+
+
+def test_simulate_fixed_fidelity_degrades():
+    fids = []
+    saw_noise = False
+    for seed in range(5, 25):
+        r = client.post("/api/distributed/simulate", json={
+            "circuit": CIRCUIT, "qubit_to_node": {0: "node_0", 1: "node_1"},
+            "seed": seed, "ebit_noise": "fixed", "ebit_noise_fidelity": 0.5})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["status"] == "success"
+        fids.append(body["equivalence"]["fidelity"])
+        if body["remote_operations"][0]["ebit_noise"] != ["I"]:
+            saw_noise = True
+    assert saw_noise
+    assert sum(fids) / len(fids) < 1.0
+
+
+def test_simulate_invalid_noise_mode_rejected():
+    r = client.post("/api/distributed/simulate", json={
+        "circuit": CIRCUIT, "qubit_to_node": {0: "node_0", 1: "node_1"},
+        "ebit_noise": "bogus"})
+    assert r.status_code == 422
+
+
+def test_simulate_invalid_noise_fidelity_rejected():
+    r = client.post("/api/distributed/simulate", json={
+        "circuit": CIRCUIT, "qubit_to_node": {0: "node_0", 1: "node_1"},
+        "ebit_noise": "fixed", "ebit_noise_fidelity": 1.5})
+    assert r.status_code == 422
+
+
+def test_noisy_distributed_experiment_run_and_reproduce(exp_client):
+    r = exp_client.post("/api/experiments", json={
+        "name": "noisy distributed ghz study",
+        "module": "distributed_circuit",
+        "config": {
+            "circuit": CIRCUIT_GHZ,
+            "qubit_to_node": {0: "node_0", 1: "node_1", 2: "node_1"},
+            "protocol": "single_ebit",
+            "ebit_noise": "fixed",
+            "ebit_noise_fidelity": 0.9,
+        },
+        "seed": 13,
+    })
+    assert r.status_code == 200, r.text
+    rid = r.json()["run_ids"][0]
+    exp_client.post(f"/api/runs/{rid}/execute")
+    run = _wait_completed(exp_client, rid)
+    assert run["status"] == "COMPLETED", run.get("error_message", run)
+
+    res = exp_client.get(f"/api/runs/{rid}/result").json()
+    doc = res["document"]
+    assert doc["metrics"]["ebit_noise"] == "fixed"
+    assert doc["metrics"]["mean_ebit_fidelity"] == pytest.approx(0.9)
+    dist = doc["artifacts"]["distributed_result"]
+    assert dist["reproducibility"]["ebit_noise"] == "fixed"
+    assert all(
+        rop["ebit_fidelity_applied"] == pytest.approx(0.9)
+        for rop in dist["remote_operations"] if rop["executed"]
+    )
+    # A noisy run is not expected to match the ideal centralized reference,
+    # unless every sampled Werner component happened to be the ideal one
+    # (probability F^(#ebits) for a fixed seed).
+    components = [rop["ebit_noise"] for rop in dist["remote_operations"] if rop["executed"]]
+    if all(c == ["I"] for c in components):
+        assert doc["summary"]["equivalence"]["fidelity"] == 1.0
+    else:
+        assert doc["summary"]["equivalence"]["fidelity"] < 1.0
+
+    # Reproduction: same noisy behavior, new run, original immutable.
+    rep = exp_client.post(f"/api/runs/{rid}/reproduce")
+    assert rep.status_code == 200, rep.text
+    report = rep.json()
+    assert report["reproduced_run_id"] != rid
+    rep_run = exp_client.get(
+        f"/api/runs/{report['reproduced_run_id']}/result").json()
+    rep_dist = rep_run["document"]["artifacts"]["distributed_result"]
+    assert rep_dist["reproducibility"]["ebit_noise"] == "fixed"
+    assert (rep_dist["remote_operations"][0]["ebit_noise"]
+            == dist["remote_operations"][0]["ebit_noise"])
+    orig = exp_client.get(f"/api/runs/{rid}").json()
+    assert orig["status"] == "COMPLETED"

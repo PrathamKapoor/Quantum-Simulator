@@ -276,6 +276,8 @@ class DistributedSimulateRequest(BaseModel):
     topology: DistributedTopologyIn | None = None
     network_config: dict | None = None
     fallback: Literal["error", "centralized"] = "error"
+    ebit_noise: Literal["ideal", "network_fidelity", "fixed"] = "ideal"
+    ebit_noise_fidelity: float | None = Field(default=None, ge=0.0, le=1.0)
 
     @field_validator("circuit")
     @classmethod
@@ -293,3 +295,5 @@ class RemoteCNOTRequest(BaseModel):
     seed: int | None = None
     topology: DistributedTopologyIn | None = None
     network_config: dict | None = None
+    ebit_noise: Literal["ideal", "network_fidelity", "fixed"] = "ideal"
+    ebit_noise_fidelity: float | None = Field(default=None, ge=0.0, le=1.0)

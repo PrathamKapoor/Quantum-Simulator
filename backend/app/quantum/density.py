@@ -71,6 +71,50 @@ class DensityMatrix:
             raise QuantumCoreError("Probabilities must be finite, non-negative, summing to 1.")
         return cls(np.diag(p).astype(np.complex128), n)
 
+    @classmethod
+    def werner(cls, fidelity: float) -> "DensityMatrix":
+        """Canonical two-qubit Werner state toward the project Bell target |Phi+>.
+
+        rho_W(F) = F |Phi+><Phi+|
+                 + (1-F)/3 * ( |Phi-><Phi-| + |Psi+><Psi+| + |Psi-><Psi-| )
+
+        with |Phi+> = (|00> + |11>)/sqrt(2) in the project's qubit ordering
+        (qubit 0 = most-significant local bit, same as every gate operand).
+        This is the SAME state family as the network model's
+        ``rho = q|Phi+><Phi+| + (1-q) I/4`` with q = (4F-1)/3 (see
+        network.resources.werner_parameter), which is the parameterization
+        used by swapping, memory decay, and purification for F in [0.25, 1].
+        The direct Bell-weight form above extends validly to all F in [0, 1].
+
+        Entanglement regime: the state is entangled iff F > 1/2 (PPT for this
+        Bell-diagonal family); F = 1/2 is maximally mixed; F < 1/2 is a valid
+        separable Bell-diagonal state. Callers must not label F <= 1/2
+        resources "entangled".
+        """
+        f = float(fidelity)
+        if not (0.0 <= f <= 1.0):
+            raise QuantumCoreError(
+                f"Werner fidelity must lie in [0, 1]; got {fidelity}."
+            )
+
+        def ket(a: int, b: int) -> np.ndarray:
+            # |ab> with a = qubit 0 (most-significant local bit)
+            v = np.zeros(4, dtype=np.complex128)
+            v[(a << 1) | b] = 1.0
+            return v
+
+        def projector(v: np.ndarray) -> np.ndarray:
+            return np.outer(v, v.conj())
+
+        phi_p = (ket(0, 0) + ket(1, 1)) / np.sqrt(2.0)
+        phi_m = (ket(0, 0) - ket(1, 1)) / np.sqrt(2.0)
+        psi_p = (ket(0, 1) + ket(1, 0)) / np.sqrt(2.0)
+        psi_m = (ket(0, 1) - ket(1, 0)) / np.sqrt(2.0)
+        rho = f * projector(phi_p) + ((1.0 - f) / 3.0) * (
+            projector(phi_m) + projector(psi_p) + projector(psi_m)
+        )
+        return cls(rho, 2)
+
     # ---------- basic quantities ----------
 
     def probabilities(self) -> np.ndarray:

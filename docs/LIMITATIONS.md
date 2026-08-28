@@ -112,8 +112,30 @@ layout, process-isolated workers.
   dimensions (e.g. protocol) cannot be swept without a framework change and are
   intentionally not engineered here.
 - `distributed_circuit` runs use statevector mode with ideal local operations
-  (the engine's documented model); network grant fidelity is reported but not
-  yet injected into execution (next milestone).
+  (the engine's documented model). Noisy ebits (AD-012) are supported via
+  Werner-model injection with these boundaries:
+  - The Werner model is phenomenological: it does not represent correlated
+    noise, coherent errors, non-Markovian effects, or hardware-specific
+    microscopic channels.
+  - Production execution is trajectory-based: a single run realizes ONE pure
+    Bell component (recorded in `remote_operations[].ebit_noise`); the Werner
+    mixture emerges over seeds/repetitions. Single-run output probabilities
+    are pure-component, not mixture averages.
+  - Purification (BBPSSW/DEJMPS) cannot trigger through the NetworkBridge
+    grant path: the network engine runs one in-flight generation chain per
+    route segment, and purification requires two live pairs on one segment.
+    Grants consumed by distributed runs are therefore unpurified; the
+    purification subsystem remains available standalone.
+  - The fidelity reported at request completion is the network engine's
+    analytic link-base swap model (`expected_end_to_end_fidelity`); memory
+    aging affects internal swap bookkeeping but not the reported grant
+    fidelity. This engine boundary is pinned by a test so any future engine
+    change flows through to the distributed protocol automatically.
+  - Repeated remote CNOTs between the SAME node pair reuse one cached grant
+    (existing bridge design): link quality is per node pair, while each
+    consumed ebit receives an independent Werner realization.
+  - `include_reduced_state` (exact logical density matrix in the result) is
+    guarded to <= 6 logical qubits and off by default.
 - The Experiments UI exposes a fixed "Distributed GHZ study" template plus full
   result inspection; a circuit editor inside the template is a listed next
   step.

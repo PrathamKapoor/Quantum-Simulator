@@ -119,3 +119,56 @@ Significant decisions with reasons, alternatives, and consequences (§176).
   numeric dimensions are exposed (`num_nodes` with auto-assignment); sweeps over
   strings (e.g. protocol) were deliberately NOT engineered because the existing
   framework types sweep values as floats.
+
+## AD-012 — Werner ebit noise: ownership, representation, and compatibility
+
+**Decision.** The network's granted fidelity (`EbitGrant.fidelity`) is made to
+govern the actual quantum state consumed by remote-CNOT protocols, with these
+boundaries:
+
+1. **Where the constructor lives.** The canonical Werner state is
+   `DensityMatrix.werner(F)` in `app/quantum/density.py` — quantum-state
+   mathematics stays in the quantum layer; the network and distributed layers
+   reference it, they do not reimplement it. It reuses the network subsystem's
+   existing Werner parameterization (q = (4F-1)/3) rather than introducing a
+   second model.
+
+2. **Who applies the noise.** The NetworkEngine OWNS the fidelity value
+   (link model, swaps, purification config). The NetworkBridge OWNS carrying
+   it. The distributed engine OWNS the single application of state-level
+   noise, at protocol expansion (`remote_cnot._ebit_prep`), inserted as an
+   unconditioned Pauli before the Bell measurement. Exactly one layer applies
+   the effect; AD-004 correction ordering and AD-003 partial-trace semantics
+   are untouched.
+
+3. **Density matrix vs trajectory.** Production execution samples one
+   Bell-state component per consumed ebit (exact trajectory representation of
+   the Bell-diagonal Werner state — the architecture already executes under
+   statevector trajectory semantics). The exact 4x4 density-matrix constructor
+   is the validation reference and an opt-in result artifact
+   (`include_reduced_state`, <= 6 qubits). Global density matrices are never
+   materialised; the amplitude-space equivalence reduction (64 GiB fix)
+   remains.
+
+4. **Backward compatibility.** Default mode is "ideal": with no noise config
+   (or F >= 1) the emitted operation list is byte-identical to the previous
+   implementation, so legacy experiments, persisted results, and their
+   semantics are unchanged. Modes: "ideal" | "network_fidelity" (consume the
+   grant's fidelity) | "fixed" (`ebit_noise_fidelity` in [0,1]); invalid
+   configurations fail fast at `DistributedConfig` construction and a failed
+   remote grant still fails the run (bad resources execute, missing resources
+   do not).
+
+5. **Result schema.** `quantumlab.distributed-result` stays v1 with additive
+   fields only (`ebit_fidelity_applied`, `ebit_noise` per remote operation;
+   `ebit_noise` in reproducibility; `equivalence.note`). Equivalence continues
+   to reference the IDEAL centralized execution; with noise enabled a fidelity
+   below 1 is documented degradation, not a validation failure.
+
+**Rejected alternatives.** (a) Applying noise inside NetworkBridge — wrong
+layer: the bridge translates resources, it does not execute circuits.
+(b) Random bit-flip heuristics — not a Werner state, destroys mixed-state
+semantics. (c) Density-matrix execution of the expanded register — reintroduces
+the 64 GiB scaling failure. (d) Injecting memory decay into grant fidelity —
+the network engine's completion model is analytic by design; changing it is a
+network-subsystem decision, not a distributed-layer workaround.

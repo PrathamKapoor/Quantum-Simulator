@@ -336,3 +336,88 @@ containing ONLY the swept keys. The engine-supported numeric dimension exposed
 here is `num_nodes` (auto-assigned partition); iterating it changes the
 cross-node resource profile of the same circuit while preserving per-run
 evidence in resolved_config and metrics.
+
+## Session-5 additions
+
+### Noisy ebits: Werner-model entanglement injection (AD-012)
+
+**Model.** A granted ebit with fidelity F is prepared as the canonical Werner
+state toward the project's Bell target |Phi+> = (|00> + |11>)/sqrt(2) (qubit 0
+= most-significant local bit, the same ordering as every gate operand):
+
+    rho_W(F) = F |Phi+><Phi+|
+             + (1-F)/3 * ( |Phi-><Phi-| + |Psi+><Psi+| + |Psi-><Psi-| )
+
+This is the SAME state family the network subsystem already uses everywhere:
+rho = q|Phi+><Phi+| + (1-q) I/4 with q = (4F-1)/3 (`werner_parameter`), which
+is the parameterization of swapping (`swap_fidelity`), memory decay
+(`aged_fidelity`), and purification. No second Werner model was introduced.
+The direct Bell-weight form is mathematically valid on all F in [0, 1]
+(the network q-form is quoted for F >= 0.25 only); the state is entangled iff
+F > 1/2 (PPT), is maximally mixed at F = 1/4, and is a valid separable
+Bell-diagonal state below. Values F <= 1/2 must not be labelled "entangled".
+The exact constructor is `DensityMatrix.werner(F)` (4x4, with invariants
+trace/Hermiticity/PSD/target-fidelity covered by dedicated tests).
+
+**Representation.** The distributed engine executes under statevector
+trajectory semantics, and a Bell-diagonal state IS a Pauli channel: applying
+the single-qubit Pauli P on one ebit half of |Phi+> yields
+I -> |Phi+> (probability F), X -> |Psi+>, Z -> |Phi->, Y -> |Psi-> each with
+probability (1-F)/3. Production execution therefore samples ONE Pauli per
+consumed ebit (`sample_ebit_pauli_error`) and inserts it as an unconditioned
+gate immediately after ebit preparation and before the Bell measurement; the
+aggregate over trajectories reproduces rho_W(F) exactly. The X^{mx}-before-
+Z^{mz} correction ordering (AD-004) is untouched, and no global density
+matrix is ever formed (the 64 GiB equivalence regression cannot recur; the
+equivalence reduction remains the amplitude-space axis-permutation method).
+
+**Channel equivalence (independent validation reference).** Teleportation
+through a Pauli-errored ebit is ideal teleportation composed with the
+corresponding Pauli on the carried qubit. Hence for the single-ebit protocol
+the effective logical channel is
+
+    rho_out = sum_P p_P * CNOT (P_c (x) I) rho_in (P_c (x) I)^dag CNOT^dag,
+
+and for double teleportation the two ebit errors compose on both sides of the
+local CNOT:
+
+    rho_out = sum_{P1,P2} p1 p2 (P2 (x) I) CNOT (P1 (x) I) rho_in (...)^dag.
+
+These derived references are checked against the trajectory-average of the
+production engine (300 seeds: Uhlmann fidelity > 0.98, trace distance < 0.06
+at F in {0.6, 0.85}), so the noisy implementation is not validated only
+against itself.
+
+**Ownership / noise composition.** The NetworkEngine computes the fidelity
+that a grant reports (link base fidelity, Werner-parameter swap
+multiplication, purification configuration); the NetworkBridge carries it
+verbatim in `EbitGrant.fidelity`; the distributed engine applies the
+state-level noise EXACTLY ONCE, at protocol expansion. The network engine
+never injects circuit-level noise and the distributed engine never alters a
+grant's fidelity, so no effect is applied twice. Local gate noise (a circuit
+noise model) is a separate simulator feature and composes multiplicatively
+with the ebit channel by construction (different application points).
+
+**Provenance & seeding.** Each executed remote operation records
+`ebit_fidelity` (granted), `ebit_fidelity_applied` (used for the state;
+differs only in fixed-fidelity mode), and `ebit_noise` (the sampled Pauli per
+consumed ebit). The noise RNG is a numpy Generator namespaced from the
+experiment seed (`default_rng([seed, 0xEB1A7])`), independent of the
+simulator's stream; identical config + seed reproduce identical sampled
+components and results bit-for-bit. Reproducibility records the noise mode.
+
+**Equivalence semantics.** The equivalence reference remains the IDEAL
+centralized execution. With ebit noise enabled, `equivalence.fidelity < 1`
+is the expected, scientifically meaningful outcome (noise-induced
+degradation), and the result document says so explicitly (`equivalence.note`);
+this is not a validation failure.
+
+### Experiment integration
+
+`ebit_noise` ("ideal" | "network_fidelity" | "fixed") and
+`ebit_noise_fidelity` are regular `distributed_circuit` experiment-config
+fields (absent = "ideal" = historical behavior, byte-identical). Metrics add
+`ebit_noise` and `mean_ebit_fidelity` (mean applied fidelity over executed
+remote operations). Because the existing sweep engine types values as floats,
+`ebit_noise_fidelity` (fixed mode) is sweepable with the base-config fix from
+session 4; `ebit_noise` itself is a string and deliberately not sweepable.

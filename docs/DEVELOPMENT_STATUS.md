@@ -4,7 +4,7 @@
 > work MUST read this file first, then ROADMAP.md, ARCHITECTURE.md,
 > SCIENTIFIC_MODELS.md, LIMITATIONS.md (directive §320).
 >
-> Last updated: 2026-08-26 (session 4 final checkpoint)
+> Last updated: 2026-08-29 (session 5 final checkpoint)
 
 ## Current state
 
@@ -23,17 +23,31 @@ is a first-class experiment module using the existing runner/lifecycle
 document wrapping the distributed-result v1 payload, seed handling /
 reproduction / comparison / sweeps through the existing framework, and an
 Experiments-UI workflow (template, distributed result view, reproduction).
+Session 5: **noisy ebits / Werner-model entanglement injection (AD-012)** —
+the NetworkBridge grant fidelity now governs the actual quantum state of each
+consumed ebit: canonical Werner state (`DensityMatrix.werner`, reusing the
+network subsystem's q = (4F-1)/3 family), sampled Pauli trajectory per ebit at
+protocol expansion, per-operation provenance (`ebit_fidelity_applied`,
+`ebit_noise`), modes ideal / network_fidelity / fixed (default ideal =
+byte-identical legacy behavior), end-to-end through the experiment runner, API,
+and Experiments UI (noisy template + fidelity/noise columns).
 
 Run it: `dev.bat backend` + `dev.bat frontend` → http://localhost:5173
 
 ## Tests & validation
 
-- Fast suite: **437 passed** (~4 min).
-  This session added: `test_distributed_experiment_runner.py` (16: unit config /
-  topology / protocols / failure / fallback / lifecycle / failed semantics /
-  reproduction immutability / sweep / comparison / cancellation) and extended
-  `test_api_distributed.py` (create→execute→result and reproduce-immutable
-  end-to-end via the experiment API).
+- Fast suite: **514 passed** (session 5 final; was 437 at session 4).
+  Session 5 added: `test_werner_state.py` (40: trace/Hermiticity/PSD,
+  target-fidelity = F at seven F values, F = 1/0/0.25/0.5 limit cases,
+  q-parameterization consistency, ordering convention, negativity/concurrence
+  entanglement regime) and `test_distributed_noisy_ebit.py` (30: sampling
+  statistics, expansion noise ops, F=1 regression, legacy default, basis
+  mixture, derived analytic channel references for BOTH protocols, GHZ-chain
+  degradation, reproducibility, config errors, network-fidelity mode,
+  multi-hop swap degradation, grant-model boundary, purification consistency);
+  `test_api_distributed.py` extended (network-fidelity mode, fixed F=1 vs
+  legacy, statistical degradation, schema rejections, noisy experiment
+  run + reproduce).
 - Distributed equivalence: Uhlmann fidelity = 1.0 vs centralized (reported in
   every experiment summary). Sweep machinery fixed: `expand_sweep` now seeds
   each combo from the base configuration (previously it silently dropped it).
@@ -130,3 +144,33 @@ surfacing, no-dependency policy).
 4. Playwright UI smoke tests (would also close the visual-inspection gap).
 5. Distribution-aware experiments in the Experiments UI: circuit editor inside
    the distributed template (currently a fixed GHZ template + generic config).
+
+## Session 5 — noisy ebits / Werner-model entanglement injection
+
+Classification: VERIFIED = exercised by the passing automated suite; STATICALLY
+REVIEWED = code-reviewed, build-verified, not behavior-tested in a browser.
+
+- VERIFIED — Werner state model and invariants (`DensityMatrix.werner`).
+- VERIFIED — grant fidelity reaches the quantum state: single trajectory
+  sampling with recorded Pauli components; statistical aggregate matches the
+  derived analytic Pauli-channel reference for both protocols (F=1 reduces to
+  the ideal path bit-for-bit; noise applied exactly once).
+- VERIFIED — configuration surfaces: executor (`DistributedConfig`), API
+  schemas (`/api/distributed/simulate`, `/api/distributed/remote-cnot`),
+  experiment runner config (`ebit_noise`, `ebit_noise_fidelity`), sweepable
+  fixed-fidelity dimension.
+- VERIFIED — provenance/reproducibility: same config+seed reproduces the same
+  sampled components and results; noisy experiment run + reproduce via the
+  live API; original records immutable.
+- VERIFIED — network coupling: direct-link base fidelity, multi-hop swap
+  degradation, and bad-vs-missing resource semantics flow into the distributed
+  result; equivalence fidelity < 1 documented as noise degradation (reference
+  remains the ideal centralized run).
+- STATICALLY REVIEWED — frontend: ebit-noise mode selector + fixed-fidelity
+  input in Circuit Studio's DistributedPanel, noisy distributed template,
+  per-operation "Ebit F" / "Werner sample" columns and mean-ebit-fidelity card
+  in the Experiments result view. All values rendered come from the backend
+  document. Visual browser validation NOT performed (no browser tooling).
+- VERIFIED — no performance regression (benchmark: ideal vs noisy within
+  run-to-run variance for 2-4 qubit GHZ chains) and no memory regression
+  (no global density matrices; equivalence path unchanged).

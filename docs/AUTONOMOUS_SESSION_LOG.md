@@ -201,3 +201,71 @@ first-class experiment type.
   polling).
 - Full backend suite **437 passed**. Frontend `tsc -b` + build clean.
 - Browser inspection NOT performed (no browser tooling) — recorded, not claimed.
+
+# Session 5 — Noisy ebits / Werner-model entanglement injection (2026-08-29)
+
+Directive: make `EbitGrant.fidelity` causally affect the quantum state used by
+the remote-CNOT protocols (previously reported-but-inert metadata). No second
+network simulator, no second Werner model, no purification reimplementation.
+
+## Phases
+
+1. **Inspection**: traced fidelity from NetworkEngine (link base fidelity →
+   Werner-parameter swap multiplication → completion model) through
+   NetworkBridge (`EbitGrant`) to `expand_remote_cnot`, where the ebit was
+   prepared ideally (`H; CX`) regardless of grant quality. Confirmed the
+   project's canonical Werner family: q = (4F-1)/3 toward |Phi+>, used by
+   swapping, decay, and purification.
+2. **Design (AD-012)**: Bell-diagonal Werner state == Pauli channel; the
+   engine executes statevector trajectories, so production samples one Pauli
+   (I/F, X, Z, Y each (1-F)/3) per consumed ebit, inserted unconditioned after
+   ebit prep and before the Bell measurement; the exact 4x4
+   `DensityMatrix.werner(F)` is the validation reference. Ownership: network
+   engine computes fidelity, bridge carries it, distributed engine applies the
+   noise exactly once.
+3. **Implementation**: `DensityMatrix.werner`; `sample_ebit_pauli_error` +
+   noise-aware expansions (both protocols) in `remote_cnot.py`;
+   `DistributedConfig.ebit_noise` / `ebit_noise_fidelity` (+ fail-fast
+   validation) and per-op provenance (`ebit_fidelity_applied`, `ebit_noise`)
+   in the engine/model; runner + API schema passthrough; frontend controls,
+   columns, and a "Noisy distributed GHZ study" template.
+4. **Scientific validation**: derived analytic channel references (teleport
+   through Pauli-errored ebit => Pauli on the carried qubit; double-teleport
+   composes on both CNOT sides) and matched the production trajectory average
+   over 300 seeds (Uhlmann fidelity > 0.98, trace distance < 0.06 at
+   F in {0.6, 0.85}) for BOTH protocols. F=1 path byte-identical to ideal.
+   Basis-input mixtures, superposition coherence, GHZ-chain degradation,
+   statistical (not per-sample) monotonicity.
+5. **Network interaction**: direct-link and multi-hop (swap-degraded) grants
+   flow into computation; bad resources execute while missing resources fail
+   the run. Findings recorded honestly: purification cannot trigger through
+   the bridge's one-chain-per-segment grant path (documented, tested as a
+   pinned contract); memory decay does not enter the reported grant fidelity
+   (analytic completion model — pinned by test, not invented around).
+6. **Validation**: full backend suite 514 passed (was 438); frontend
+   `tsc -b` + production build clean; benchmark shows no measurable noisy-vs-
+   ideal runtime difference at 2-4 qubits; equivalence path unchanged
+   (amplitude-space reduction; no 64 GiB regression).
+
+## Findings
+
+- Two wrong test expectations were corrected during development (the
+  maximally mixed point of this family is F = 1/4, not 1/2; concurrence is
+  max(0, 2F-1)) — the implementation was right, the tests were not.
+- The equivalence reference remains the IDEAL centralized run: with noise,
+  fidelity < 1 is expected degradation, now explained in `equivalence.note`.
+- Statistical assertions must aggregate over seeds; a single trajectory at
+  F = 0.9 realizes the ideal component ~10% of the time.
+
+## Limitations
+
+Werner model is phenomenological; trajectory semantics mean a single run is
+one mixture component; purification is not reachable through the grant path;
+grant fidelity excludes memory decay (engine boundary). All documented in
+LIMITATIONS.md with pinned tests where appropriate.
+
+## Next milestone
+
+MWPM decoder + planar rotated surface code (per roadmap and handoff), then
+process-isolated workers, then Playwright smoke tests. Reread the roadmap
+before starting.

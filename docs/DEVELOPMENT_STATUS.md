@@ -4,7 +4,7 @@
 > work MUST read this file first, then ROADMAP.md, ARCHITECTURE.md,
 > SCIENTIFIC_MODELS.md, LIMITATIONS.md (directive §320).
 >
-> Last updated: 2026-08-29 (session 5 final checkpoint)
+> Last updated: 2026-08-29 (session 6 final checkpoint)
 
 ## Current state
 
@@ -31,12 +31,19 @@ protocol expansion, per-operation provenance (`ebit_fidelity_applied`,
 `ebit_noise`), modes ideal / network_fidelity / fixed (default ideal =
 byte-identical legacy behavior), end-to-end through the experiment runner, API,
 and Experiments UI (noisy template + fidelity/noise columns).
+Session 6: **MWPM decoder + planar rotated surface code (AD-013)** — rotated
+planar geometry (doubled-coordinate construction, algebra-validated), exact
+MWPM decoder with boundary-copy reduction validated against brute force,
+GF(2) coset-functional residual classification, exhaustive distance
+verification (d = 3, 5, 7), Monte Carlo with the existing Wilson intervals,
+`surface_code_mwpm` experiment module, two `/api/qec/rotated-surface-code/*`
+endpoints, and a QecLab lattice/decode/Monte-Carlo workflow.
 
 Run it: `dev.bat backend` + `dev.bat frontend` → http://localhost:5173
 
 ## Tests & validation
 
-- Fast suite: **514 passed** (session 5 final; was 437 at session 4).
+- Fast suite: **597 passed** (session 6 final; was 514 at session 5).
   Session 5 added: `test_werner_state.py` (40: trace/Hermiticity/PSD,
   target-fidelity = F at seven F values, F = 1/0/0.25/0.5 limit cases,
   q-parameterization consistency, ordering convention, negativity/concurrence
@@ -174,3 +181,44 @@ REVIEWED = code-reviewed, build-verified, not behavior-tested in a browser.
 - VERIFIED — no performance regression (benchmark: ideal vs noisy within
   run-to-run variance for 2-4 qubit GHZ chains) and no memory regression
   (no global density matrices; equivalence path unchanged).
+
+## Session 6 — MWPM decoder + planar rotated surface code
+
+Classification: VERIFIED = exercised by the passing automated suite;
+STATICALLY REVIEWED = code-reviewed, build-verified, not browser-tested.
+
+- VERIFIED — geometry: counts ((d^2-1)/2 checks per type), commutation
+  (every X/Z pair), no duplicate supports, full data-qubit coverage, boundary
+  structure (weight-2 X checks top/bottom, weight-2 Z checks left/right),
+  for d = 3, 5, 7.
+- VERIFIED — logical operators: commute with all checks, anticommute with
+  each other, weight exactly d, and are genuinely nontrivial (functional
+  fires).
+- VERIFIED — code distance independently computed (exhaustive per-component
+  enumeration) equals d for d = 3, 5, 7.
+- VERIFIED — syndromes: per-qubit fast path equals the algebraic
+  `syndrome_of` for every single-qubit Pauli on every data qubit at d = 3, 5.
+- VERIFIED — MWPM matcher: exact; matches an independent brute-force
+  enumeration on 900 random instances (2, 4, 6 defects, boundary exits,
+  ties); deterministic tie-breaking.
+- VERIFIED — decoder: all weight-1 errors corrected (d = 3, 5, 7), ALL
+  weight-2 errors corrected at d = 5, full weight-2 classification at d = 3,
+  degeneracy/syndrome collisions, zero-syndrome classification (identity /
+  stabilizer / logical), logical strings flagged despite trivial syndrome,
+  corner/boundary errors, residual invariant property test (2000 random
+  errors per distance).
+- VERIFIED — Monte Carlo: p = 0 gives zero failures; p_L rises with p;
+  d = 5 beats d = 3 outside the d = 3 Wilson interval at p = 0.05; exact
+  seed reproducibility; Wilson reuse verified by recomputation; x_only /
+  z_only models.
+- VERIFIED — API + experiments: decode/simulate endpoints with validation
+  and honest notes; `surface_code_mwpm` experiment end-to-end (create ->
+  execute -> COMPLETED -> result with Wilson CIs -> reproduce EXACT_MATCH ->
+  original immutable) and d = 3 vs d = 5 comparison through the existing
+  compare endpoint.
+- STATICALLY REVIEWED — frontend: QecLab rotated-surface-code panel
+  (lattice SVG with checks/defects/errors/matching/correction from backend
+  data, per-match table, Monte Carlo summary). Browser visual validation NOT
+  performed (no browser tooling).
+- VERIFIED — performance: build 0.9/2.5/11.9 ms and decode 0.03/0.09/0.26 ms
+  per trial at d = 3/5/7; MC throughput > 2500 trials/s at d = 7.

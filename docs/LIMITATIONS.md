@@ -141,3 +141,36 @@ layout, process-isolated workers.
   step.
 - Empty nodes: an auto-assigned partition may leave a requested node unused
   (reported node_count reflects nodes actually hosting qubits).
+
+## Rotated planar surface code + MWPM decoder
+
+- **Code-capacity, perfect syndrome (§19, §40):** syndromes are computed from
+  stabilizer algebra in a single perfect round. No circuit-level noise, no
+  measurement errors, no fault-tolerant syndrome extraction; temporal
+  (repeated-round) decoding is not implemented, though detection events carry
+  a round field for future extension.
+- **Independent Pauli data-qubit noise only:** depolarizing (I w.p. 1-p, else
+  X/Y/Z equally), X-only, or Z-only. No correlated, coherent, or measurement
+  noise.
+- **Supported distances:** d = 3, 5, 7 (odd distances; even and other values
+  are rejected, never rounded). Distances are independently verified by
+  exhaustive per-component enumeration (the d = 7 verification enumerates
+  ~100M supports and is the slowest validation test).
+- **Matcher limits:** the exact MWPM DP carries a memo-state budget; if a
+  pathological syndrome exceeded it, decoding fails loudly (DECODER_ERROR /
+  runtime error in simulation) and is never reported as success. For the
+  supported distances and error rates the guard is far out of reach.
+- **MWPM is not the optimal decoder:** maximum-likelihood decoding would be
+  more accurate; MWPM is the standard near-optimal benchmark. Degenerate
+  equal-weight matchings are resolved deterministically (sorted indices,
+  smallest exit first), which can in principle pick a logical-failing
+  representative among physically equivalent corrections - inherent to MWPM,
+  and detected by the residual classification rather than hidden.
+- **Finite-size threshold studies (§39, §80):** bounded sweeps over
+  (d, p, trials) produce logical-error curves with Wilson intervals. They are
+  evidence of behaviour; no threshold value is claimed or derivable from the
+  shipped defaults. The all-failures Wilson upper bound inherits the shared
+  pipeline implementation's float quirk (1 - 1e-16 instead of exactly 1).
+- **Error-correction context:** the rotated planar code is a simulator
+  construct; no hardware, real-time decoding, or physical-threshold claims
+  are made anywhere in the subsystem.

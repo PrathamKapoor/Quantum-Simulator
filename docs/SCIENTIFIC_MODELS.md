@@ -421,3 +421,89 @@ fields (absent = "ideal" = historical behavior, byte-identical). Metrics add
 remote operations). Because the existing sweep engine types values as floats,
 `ebit_noise_fidelity` (fixed mode) is sweepable with the base-config fix from
 session 4; `ebit_noise` itself is a string and deliberately not sweepable.
+
+## Session-6 additions
+
+### Rotated planar surface code (geometry, stabilizers, logicals)
+
+**Lattice (doubled integer coordinates).** Data qubits at odd (x, y),
+1 <= x, y <= 2d-1; index q = ((y-1)//2)*d + ((x-1)//2). Stabilizer centers at
+even (x, y) in [0, 2d]^2 with type X iff (x+y) % 4 == 0, else Z; support =
+diagonally adjacent data qubits. Kept checks: all interior (weight 4), plus
+weight-2 X checks on the top/bottom edges and weight-2 Z checks on the
+left/right edges; the four weight-1 corners are dropped. This yields exactly
+(d^2-1)/2 checks of each type, all pairs commuting, every data qubit covered
+by at least one check of each type (validated at construction and re-verified
+in tests for d = 3, 5, 7).
+
+**Logical operators.** Logical X = vertical column x = d (d data qubits,
+top-bottom); logical Z = horizontal row y = d (left-right). They commute with
+every check, anticommute with each other (overlap at (d, d)), and have weight
+exactly d. Boundary semantics (§13 of the milestone) are verified through
+string construction, not naming: X-check syndrome chains terminate on the
+left/right exits, Z-check syndrome chains on the top/bottom exits, and the
+logical X column crosses Z checks while the logical Z row crosses X checks.
+
+**Distance verification.** The distance is COMPUTED, not assumed: for each
+CSS component the minimum weight of a nontrivial logical is found by
+exhaustive binary enumeration over supports of weight <= d (exact for CSS
+codes because d = min(d_X, d_Z)), vectorized with per-qubit GF(2) generator
+masks and numpy. Verified equal to d for d = 3, 5, 7.
+
+### MWPM decoder (code capacity)
+
+**CSS split.** Z errors flip X checks and are corrected by Z chains on the
+X-check graph; X errors flip Z checks and are corrected by X chains on the
+Z-check graph. A Y error enters both components. The two matching problems
+never mix syndrome types.
+
+**Chain graph.** Vertices = one CSS component's checks; a data qubit in two
+check supports is an internal chain edge (weight 1); a data qubit with a
+single support is a boundary EXIT (the point where a correction chain leaves
+the lattice). All-pairs minimum chain weights and the actual chains (data
+qubit lists) are precomputed once per code by BFS over the alternating
+check-data incidence graph with sorted expansion (deterministic, §53).
+
+**Matching reduction.** Decoding = minimum-weight perfect matching on the
+defect set where each defect either pairs with another defect (cost = chain
+weight) or takes a boundary exit (cost = min chain weight to an exit). The
+implementation gives each defect a private "boundary copy" vertex (leftover
+copies pair at weight 0), which makes the graph always perfectly matchable
+for any defect parity while representing EVERY valid correction. The matcher
+(`qec/matching.py`) is EXACT dynamic programming over defect subsets with
+memoization and a loud state-budget guard - genuine minimum-weight perfect
+matching, not greedy nearest-neighbour pairing (§74). It is validated against
+an independent plain-recursion brute force on hundreds of random instances
+with 2, 4, and 6 defects (§22, §54).
+
+**Correction and residual.** Each matched pair contributes its actual chain;
+overlapping chains combine by GF(2) XOR. The residual R = correction XOR
+error has zero syndrome by construction (asserted). R is stabilizer-equivalent
+to identity iff its component coset functionals are silent; a firing
+functional is a genuine logical operator. Outcomes: CORRECTED, LOGICAL_X,
+LOGICAL_Z (X-/Z-type residual), LOGICAL_Y (both). The functional is a GF(2)
+bitmask solved from the generator algebra at build time (k = 1 makes the
+coset space one-dimensional), so classification never enumerates the
+stabilizer group (§29).
+
+**Edge-weight model.** Edge weight = number of data qubits on the minimum
+correction chain (a probability-derived weight under uniform noise reduces to
+this Manhattan-like lattice metric; the BFS makes the metric exact for the
+rotated lattice rather than assumed Euclidean).
+
+**Zero-syndrome semantics (§49-§50).** Identity and stabilizer products
+decode to CORRECTED; a bare logical operator has zero syndrome but is flagged
+by the functional - never silently "successful".
+
+### Monte Carlo and experiments
+
+`simulate_rotated_surface_code(d, p, trials, seed, error_model)` samples
+independent Pauli data-qubit noise (depolarizing = I w.p. 1-p, X/Y/Z equally -
+the existing stabilizer.py model; x_only / z_only also supported), decodes
+each trial, and reports p_L = failures/trials with the EXISTING Wilson 95%
+interval from `qec.pipeline` (no second implementation). Experiments use the
+`surface_code_mwpm` module in the existing runner (configuration, persistence,
+reproduction, comparison, sweep through the standard framework); seeds follow
+the existing conventions and per-point seeds derive deterministically from
+the base seed. Threshold language: sweeps report observed behaviour with
+confidence intervals; no threshold value is claimed.

@@ -172,3 +172,44 @@ semantics. (c) Density-matrix execution of the expanded register — reintroduce
 the 64 GiB scaling failure. (d) Injecting memory decay into grant fidelity —
 the network engine's completion model is analytic by design; changing it is a
 network-subsystem decision, not a distributed-layer workaround.
+
+## AD-013 — Surface code integrates the existing QEC stack; exact MWPM without new dependencies
+
+**Decision.** The rotated planar surface code is built ON the existing QEC
+infrastructure rather than beside it:
+
+1. **Reuse over duplication.** Pauli algebra, syndrome generation
+   (`stabilizer.syndrome_of` semantics), the depolarizing sampling convention
+   (`random_pauli_errors`), and the Wilson interval (`pipeline.wilson_interval`)
+   are reused unchanged. The toric code remains untouched; the planar code is
+   a sibling, not a fork. No second stabilizer algebra, Monte Carlo engine,
+   confidence-interval formula, or experiment framework exists.
+2. **Geometry is derived and algebra-gated.** The doubled-coordinate
+   construction is validated at build time (check counts, commutation,
+   coverage, logical structure); construction FAILS LOUDLY rather than
+   shipping a broken lattice. Distance is computed by exhaustive per-component
+   enumeration, never taken from the constructor argument.
+3. **Exact MWPM without dependencies (AD-008).** No matching library exists in
+   the environment and AD-008 forbids additions; scipy's matcher is
+   bipartite-only and the decoder graph is general. The decoder therefore uses
+   an exact dynamic-programming MWPM over the defect+boundary-copy graph with
+   a loud capacity guard, validated against brute force on small instances.
+   The boundary-copy reduction keeps the graph always perfectly matchable and
+   expressive for every valid correction. Complexity: O(2^k) worst case in the
+   defect count k with memoization - exact and fast for supported distances
+   (k <= 24), documented honestly instead of claiming blossom-scalability.
+4. **Residual classification via coset functionals.** Stabilizer-equivalence
+   of zero-syndrome operators is decided by precomputed GF(2) coset
+   functionals (valid: k = 1), so logical failure detection is O(1) per trial
+   and independent of decoder internals.
+5. **Experiments and API reuse the existing frameworks.** The
+   `surface_code_mwpm` runner module and the two `/api/qec/rotated-surface-
+   code/*` endpoints follow the existing conventions; no new database,
+   migration, or result-versioning scheme was needed.
+
+**Rejected alternatives.** (a) Greedy/nearest-neighbour "MWPM" - prohibited
+(§74) and empirically worse. (b) A new dependency (networkx/pymatching) -
+violates AD-008. (c) Dense-statevector simulation of the code - unnecessary
+and unscalable; everything operates in stabilizer/Pauli space. (d) Reusing the
+toric lookup decoder - it corrects only weight-1 patterns and would silently
+understate the planar code's capability.

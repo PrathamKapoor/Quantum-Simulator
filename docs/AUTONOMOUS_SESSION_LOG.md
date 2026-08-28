@@ -269,3 +269,77 @@ LIMITATIONS.md with pinned tests where appropriate.
 MWPM decoder + planar rotated surface code (per roadmap and handoff), then
 process-isolated workers, then Playwright smoke tests. Reread the roadmap
 before starting.
+
+# Session 6 — MWPM decoder + planar rotated surface code (2026-08-29)
+
+Directive: extend the QEC subsystem with a mathematically correct MWPM
+decoder and a planar rotated surface code, integrated with the existing QEC,
+Monte Carlo, and experiment infrastructure. No duplicated stabilizer algebra,
+Monte Carlo engine, Wilson interval, or second experiment framework.
+
+## Phases
+
+1. **Inspection**: mapped the existing stack — Pauli-string algebra and
+   group-theoretic syndromes (`stabilizer.py`), validated `QECode` dataclass,
+   toric code with weight-1 lookup decoder (`surface_code.py`), Wilson
+   interval (`pipeline.py`), `/api/qec/*` endpoints, `qec_sweep` runner
+   module, QecLab toric visualization. No matching library in the environment
+   (networkx/pymatching absent; scipy bipartite-only); AD-008 forbids new
+   dependencies.
+2. **Geometry derivation**: doubled-integer-coordinate rotated planar
+   construction, derived programmatically and validated (counts
+   (d^2-1)/2 per type, commutation, coverage) for d = 3..9; kept X checks
+   terminate top/bottom, Z checks left/right; logical X = column x = d,
+   logical Z = row y = d (verified by string construction, §13).
+3. **MWPM**: boundary-copy reduction (each defect gets a private boundary
+   copy; leftover copies pair at weight 0 — always matchable, fully
+   expressive) + exact DP over defect subsets with memoization and a loud
+   state-budget guard. Validated against an independent plain-recursion
+   brute force on 900 random instances (2/4/6 defects, exits, ties).
+   One real bug found and fixed by the brute-force validation: dead
+   matching branches must prune, not abort (an over-eager exception aborted
+   valid sibling branches).
+4. **Decoder**: CSS split (Z errors -> X-check syndrome -> Z chains on the
+   X-check graph; mirror for X), precomputed BFS chain weights/paths,
+   per-component syndrome fast paths validated against `syndrome_of`,
+   residual classification via GF(2) coset functionals (no stabilizer-group
+   enumeration), outcomes CORRECTED / LOGICAL_X / LOGICAL_Z / LOGICAL_Y.
+5. **Validation battery**: exhaustive weight-1 correction (d = 3, 5, 7);
+   ALL weight-2 errors corrected at d = 5 and fully classified at d = 3;
+   degeneracy and syndrome collisions; zero-syndrome classification
+   (identity/stabilizer/logical); logical strings flagged despite trivial
+   syndrome; corner/boundary errors; deterministic tie-breaking; 2000-trial
+   residual property tests per distance.
+6. **Distance verification**: exhaustive per-component enumeration
+   (d = min(d_X, d_Z)) with numpy-vectorized GF(2) masks — verified d = 3,
+   5, 7 exactly (~100M supports at d = 7, ~46 s, the slowest test).
+7. **Monte Carlo + experiments**: `simulate_rotated_surface_code` reuses
+   `random_pauli_errors` and `wilson_interval`; p = 0 gives zero failures,
+   p_L rises with p, d = 5 beats d = 3 outside its Wilson CI at p = 0.05;
+   exact seed reproducibility. `surface_code_mwpm` experiment module through
+   the existing runner (persistence, reproduction EXACT_MATCH, comparison).
+8. **API + frontend**: two endpoints with schema validation and honest
+   notes; QecLab panel rendering the lattice, errors, defects, MWPM matches,
+   and correction chains strictly from backend documents.
+
+## Scientific conclusions
+
+- The construction satisfies every geometry/logical/syndrome invariant by
+  computation, not assertion; distances verified exactly for d = 3, 5, 7.
+- Bounded Monte Carlo shows sub-threshold distance suppression
+  (p_L(0.05): 3.0% d=3, 1.7% d=5, 0.7% d=7, 5000 trials) — reported as
+  observed behaviour with Wilson intervals, never as a threshold.
+- Performance: build 0.9/2.5/11.9 ms; decode 0.03/0.09/0.26 ms per trial
+  (d = 3/5/7); MC throughput ~3000 trials/s at d = 7.
+
+## Limitations
+
+Code-capacity with perfect syndrome only; independent Pauli noise only;
+odd distances 3/5/7; MWPM is near-optimal, not maximum-likelihood;
+tie-breaking among degenerate corrections is deterministic but arbitrary.
+All documented in LIMITATIONS.md.
+
+## Next milestone
+
+Per roadmap: process-isolated workers, then Playwright browser validation.
+Reread the roadmap and handoff before starting.

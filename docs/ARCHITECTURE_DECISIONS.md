@@ -213,3 +213,70 @@ violates AD-008. (c) Dense-statevector simulation of the code - unnecessary
 and unscalable; everything operates in stabilizer/Pauli space. (d) Reusing the
 toric lookup decoder - it corrects only weight-1 patterns and would silently
 understate the planar code's capability.
+
+## AD-014 — Experiments execute in disposable worker processes (Windows spawn)
+
+**Decision.** Experiment execution moved OUT of the API process: each
+submitted run is computed by a fresh child process (Windows spawn, the
+native semantics on this platform), supervised by the existing threaded
+JobQueue pool. The worker entrypoint is a module-level function
+(`workers/process_worker.worker_main`); nothing at import time spawns
+processes, so no recursive-startup hazard exists.
+
+**Process model.** One fresh process per experiment (option A of the
+milestone's decision space), chosen over a persistent pool because it makes
+state leakage structurally impossible, gives OS-level memory reclamation on
+exit, and lets cancellation terminate the child outright. Measured cost:
+~0.4 s warm spawn overhead per job - acceptable for experiments and
+documented rather than hidden; isolation is not traded away for trivial-job
+latency.
+
+**Contracts.** `WorkerSpec` (run_id, module, resolved_config, seed) is the
+only input; `WorkerResult` (ok, result, error_type/message, traceback text,
+exitcode, cancelled, timed_out) is the only output; progress crosses as
+run_id-tagged tuples. Everything is deliberately picklable; database
+connections, WebSocket objects, request objects, locks, and closures never
+cross. The worker resolves experiments through the CANONICAL
+`RUNNER_REGISTRY` via `runner.execute_run` - no second registry, no
+experiment-specific worker logic. The `process_probe` registered experiment
+is the sanctioned diagnostic vehicle for lifecycle tests.
+
+**Ownership.** The parent (JobQueue + ExperimentService) is the authoritative
+lifecycle owner and the ONLY database writer: it records RUNNING, progress,
+the result row, and COMPLETED/FAILED/CANCELLED. Workers never open the
+database, so no SQLite concurrency is added by parallel workers (writes
+remain serialized in the parent; WAL mode was already enabled). A parent
+database connection is never passed to a worker.
+
+**Failure semantics.** Child exception, non-zero/abnormal exit, missing
+result, result-serialization failure, and timeout all become FAILED - never
+COMPLETED, never fabricated results. The child pre-pickles its result so a
+serialization failure is an explicit SerializationError rather than a
+silently lost message. Malformed/mismatched worker messages are rejected
+(run_id validated). Persistence failures in the parent are reported
+honestly: the run is FAILED with a PersistenceError, not COMPLETED.
+
+**Cancellation.** QUEUED jobs cancel without starting (worker never spawns;
+run row marked CANCELLED). RUNNING jobs are cancelled by TERMINATING the
+child process - strictly stronger than the previous cooperative thread
+model - and the run becomes CANCELLED with no partial result. The
+cancel/completion race is resolved deterministically: a cancellation
+requested before result acceptance wins; otherwise the completion stands.
+Exactly one terminal state is ever recorded.
+
+**Shutdown/restart.** `JobQueue.shutdown()` terminates active children; no
+new worker spawns after shutdown begins (no orphans). Startup recovery
+(`ExperimentService.recover_interrupted_runs`, called in the API lifespan):
+RUNNING/CANCELLING runs orphaned by a dead process become FAILED with
+error_code INTERRUPTED_BY_RESTART; the volatile queue's QUEUED marks return
+to CREATED so runs can be re-executed. Recovery is implemented and tested -
+not merely documented.
+
+**Timeouts.** A per-queue configurable `process_timeout_s` (default None:
+no arbitrary cap that could kill legitimate long-running experiments). On
+timeout the child is terminated and the run is FAILED with WorkerTimeout.
+
+**Honest limits.** Process isolation contains faults and reclaims memory;
+it is NOT a sandbox - workers run with the same OS-user rights as the
+parent, and no hard CPU/memory quotas exist. No broker, no Docker, no
+microservices: this remains a local application on the standard library.

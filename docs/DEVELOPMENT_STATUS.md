@@ -4,7 +4,7 @@
 > work MUST read this file first, then ROADMAP.md, ARCHITECTURE.md,
 > SCIENTIFIC_MODELS.md, LIMITATIONS.md (directive §320).
 >
-> Last updated: 2026-08-29 (session 6 final checkpoint)
+> Last updated: 2026-08-30 (session 7 final checkpoint)
 
 ## Current state
 
@@ -38,12 +38,20 @@ GF(2) coset-functional residual classification, exhaustive distance
 verification (d = 3, 5, 7), Monte Carlo with the existing Wilson intervals,
 `surface_code_mwpm` experiment module, two `/api/qec/rotated-surface-code/*`
 endpoints, and a QecLab lattice/decode/Monte-Carlo workflow.
+Session 7: **process-isolated experiment workers (AD-014)** — every
+experiment run executes in a fresh Windows-spawn child process supervised by
+the existing JobQueue; the parent owns all persistence and lifecycle state;
+workers use the canonical registry and never touch the database; worker
+exceptions, hard exits, serialization and persistence failures all become
+FAILED (never COMPLETED); running-job cancellation is now process
+termination; startup recovery converts orphaned RUNNING runs to FAILED; a
+`process_probe` diagnostic experiment backs the adversarial test battery.
 
 Run it: `dev.bat backend` + `dev.bat frontend` → http://localhost:5173
 
 ## Tests & validation
 
-- Fast suite: **597 passed** (session 6 final; was 514 at session 5).
+- Fast suite: **630 passed** (session 7 final; was 597 at session 6).
   Session 5 added: `test_werner_state.py` (40: trace/Hermiticity/PSD,
   target-fidelity = F at seven F values, F = 1/0/0.25/0.5 limit cases,
   q-parameterization consistency, ordering convention, negativity/concurrence
@@ -222,3 +230,46 @@ STATICALLY REVIEWED = code-reviewed, build-verified, not browser-tested.
   performed (no browser tooling).
 - VERIFIED — performance: build 0.9/2.5/11.9 ms and decode 0.03/0.09/0.26 ms
   per trial at d = 3/5/7; MC throughput > 2500 trials/s at d = 7.
+
+## Session 7 — process-isolated experiment workers
+
+Classification: VERIFIED = exercised by the passing automated suite;
+STATICALLY REVIEWED = code-reviewed, build-verified.
+
+- VERIFIED — process boundary: experiment results are produced by child
+  processes with distinct PIDs (spawn, Windows), via the canonical registry.
+- VERIFIED — failure semantics: child exception -> FAILED with type/message/
+  traceback; hard exit (exitcode 70) -> FAILED WorkerAborted; unserializable
+  result -> explicit SerializationError; timeout -> FAILED WorkerTimeout;
+  persistence failure -> FAILED PersistenceError. Never COMPLETED, never
+  fabricated.
+- VERIFIED — crash containment (the central acceptance demonstration):
+  worker A hard-crashes; run A = FAILED; API and database remain healthy;
+  worker B completes and persists afterwards — at both service and live-API
+  levels.
+- VERIFIED — cancellation: queued cancel never starts a worker; running
+  cancel terminates the process; the cancel/completion race yields exactly
+  one consistent terminal state shared by job and run row.
+- VERIFIED — concurrency and isolation: different modules/seeds/configs run
+  concurrently with results attributed to the correct runs; progress events
+  carry run_id and never cross-contaminate; bounded capacity (jobs > workers
+  remain queued).
+- VERIFIED — reproducibility: same seed in different worker processes gives
+  identical results; reproduction through the process boundary reports
+  EXACT_MATCH with the original immutable; surface-code p_L is bit-identical
+  in-process vs via a worker.
+- VERIFIED — shutdown/restart: shutdown terminates active workers (no
+  orphans; runs FAILED); startup recovery marks orphaned RUNNING runs FAILED
+  (INTERRUPTED_BY_RESTART) and returns volatile QUEUED to CREATED.
+- VERIFIED — real experiments through the boundary: surface_code_mwpm,
+  distributed_circuit, bb84_study, vqe — all complete with correct results
+  (the vqe run uncovered a PRE-EXISTING broken import
+  `app.experiments.variational`; fixed at the root and noted below).
+- VERIFIED — performance: ~0.4 s warm spawn overhead per job; heavy
+  experiments amortize it; no dense-state or memory-regression changes.
+- STATICALLY REVIEWED — frontend requires no changes (API contracts
+  unchanged); TypeScript + production build clean.
+- Bug found and fixed: `run_vqe_experiment` imported run_vqe from a
+  nonexistent module (app.experiments.variational); the vqe experiment could
+  never execute. Root-cause fixed (app.optimization.variational) with a
+  regression test running vqe through the process boundary.

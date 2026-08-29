@@ -343,3 +343,79 @@ All documented in LIMITATIONS.md.
 
 Per roadmap: process-isolated workers, then Playwright browser validation.
 Reread the roadmap and handoff before starting.
+
+# Session 7 — Process-isolated experiment workers (2026-08-30)
+
+Directive: harden experiment execution with real process isolation on
+Windows. Preserve all existing experiment semantics, seeds, reproducibility,
+persistence, comparison, sweeps, cancellation, WebSocket progress, and API
+behavior.
+
+## Phases
+
+1. **Reconnaissance**: mapped the lifecycle — API -> JobQueue (2 daemon
+   threads) -> service.execute_run_now (DB writes + compute interleaved) ->
+   runs/results tables -> WebSocket broadcast. Key seam: `execute_run`
+   (module, resolved_config, seed, progress_cb) is pure, serializable
+   computation; the Database wrapper is a single shared connection (WAL) —
+   unsafe across processes, so parent-owned persistence was the correct
+   model.
+2. **Design (AD-014)**: one fresh spawn process per experiment, supervised
+   by the existing JobQueue threads (no second queue, no registry fork).
+   WorkerSpec/WorkerResult dataclasses; tagged progress tuples over a
+   multiprocessing.Queue; canonical registry only; parent-only persistence;
+   process-termination cancellation; configurable timeout (default none);
+   startup recovery policy.
+3. **Implementation**: `workers/process_worker.py` (entrypoint + supervisor
+   with dead-process/EOF/timeout/cancel handling and pre-pickle validation);
+   JobQueue adapted to supervise (facade-based persistence: load_spec /
+   begin / progress / persist_success / persist_failure / mark_cancelled);
+   service refactored into those pieces + `execute_run_isolated`
+   (reproduction now isolated too) + `recover_interrupted_runs`;
+   `process_probe` diagnostic experiment registered for lifecycle tests;
+   API call sites switched to the facade.
+4. **Adversarial battery** (the point of the milestone): probed success,
+   exception, hard exit (os._exit 70), timeout, cancellation, and
+   unserializable results directly; then the queue-level battery — crash
+   containment (A crashes, B completes), failure independence, queue
+   overload, cancel-before-start / during-execution / completion-race,
+   concurrent isolation, RNG isolation, progress attribution, reproduction
+   EXACT_MATCH, stale-run recovery, persistence-failure honesty, shutdown
+   termination — plus live-API lifecycle tests.
+
+## Bugs found (root causes fixed)
+
+- **Latent vqe breakage**: `run_vqe_experiment` imported
+  `from .variational import run_vqe` — a module that does not exist; the
+  vqe experiment could never have run (untested until now). Fixed to
+  `app.optimization.variational`; regression test runs vqe through a worker.
+- **Message-unpack mismatch** in my own supervisor draft (progress tuples
+  are 4-tuples): caught immediately by the probe tests.
+- **Dead-branch handling**: an early draft treated unmatchable child IPC
+  states as fatal; corrected to bounded pruning (same lesson family as the
+  MWPM DP bug the directive warned about).
+- **Cancel-persistence gap**: cancelling a running job updated the job but
+  not the run row; fixed so job and run always agree.
+
+## Verification highlights
+
+- Worker PIDs differ from the API process; results identical for identical
+  seeds across different workers (no pid/time seeding).
+- Crash containment: hard-exit worker A -> run FAILED (WorkerAborted), DB
+  usable, worker B COMPLETED — service-level and live-API-level.
+- Reproduction through the boundary: EXACT_MATCH, original immutable.
+- surface_code_mwpm p_L bit-identical in-process vs via worker (d=5,
+  2000 trials).
+- Performance: ~0.4 s warm spawn overhead per job (measured); memory reclaims
+  on worker exit (teardown verified); no quotas claimed.
+
+## Limitations
+
+Not a sandbox; no hard CPU/memory quotas; spawn overhead for tiny jobs;
+shutdown terminates running workers (FAILED, not resumed); recovery is
+bookkeeping-level, not checkpoint/resume. Documented in LIMITATIONS.md.
+
+## Next milestone
+
+Playwright browser validation (roadmap), now cheap to add since the API and
+UI are stable. Reread roadmap/handoff first.

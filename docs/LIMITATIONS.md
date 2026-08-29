@@ -174,3 +174,28 @@ layout, process-isolated workers.
 - **Error-correction context:** the rotated planar code is a simulator
   construct; no hardware, real-time decoding, or physical-threshold claims
   are made anywhere in the subsystem.
+
+## Process-isolated experiment workers (AD-014)
+
+- **Not a sandbox:** worker processes run with the same operating-system
+  user rights as the API process. Fault containment is provided; security
+  isolation is not. No hard CPU or memory quotas are enforced.
+- **Startup overhead:** each experiment pays a Windows-spawn interpreter
+  start (~0.4 s warm). Trivial experiments are slower than the former
+  in-thread model; isolation was deliberately preferred over micro-latency.
+- **No silent fallback:** if worker creation fails, the run is FAILED - the
+  experiment is never silently executed inside the API process.
+- **Shutdown:** shutting down the API terminates active worker processes;
+  their runs are recorded FAILED (never COMPLETED). Results of completed
+  runs are persisted before shutdown is requested by normal means.
+- **Stale-run recovery:** RUNNING/CANCELLING rows orphaned by a previous
+  crash become FAILED (INTERRUPTED_BY_RESTART) at next startup; QUEUED rows
+  return to CREATED (the in-memory queue is volatile). This is implemented
+  and tested - but it is recovery of bookkeeping, not checkpoint/resume.
+- **Cancellation of RUNNING jobs is process termination:** partial results
+  are discarded (never persisted); a run cancelled near completion may
+  still complete if the result was accepted before the cancellation - the
+  deterministic ordering is documented in AD-014.
+- **Windows specifics:** spawn semantics are required (no fork); the worker
+  entrypoint is module-level and import-safe; child results are flushed
+  explicitly before exit to avoid IPC-feeder message loss.

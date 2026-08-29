@@ -55,6 +55,9 @@ async def lifespan(app: FastAPI):
     # Startup: database + workers (directive §223 health-checkable).
     db = Database("quantumlab.db")
     service = ExperimentService(db)
+    # Startup recovery (AD-014): runs orphaned by a previous process exit
+    # become FAILED (never COMPLETED); volatile QUEUED marks return to CREATED.
+    recovery = service.recover_interrupted_runs()
     queue = JobQueue(db=db, workers=2)
 
     loop = asyncio.get_running_loop()
@@ -805,7 +808,7 @@ async def execute_run(run_id: int):
     if not svc.get_run(run_id):
         raise http_error(404, "NOT_FOUND", f"Run {run_id} does not exist.")
     queue: JobQueue = STATE["queue"]
-    job = queue.submit_run_job(run_id, lambda rid, cb=None: svc.execute_run_now(rid, cb))
+    job = queue.submit_run_job(run_id, svc)
     return {"job_id": job.id, "run_id": run_id, "status": job.status}
 
 
@@ -817,7 +820,7 @@ async def execute_runs_batch(req: schemas.RunActionRequest):
     for rid in req.run_ids:
         if not svc.get_run(rid):
             raise http_error(404, "NOT_FOUND", f"Run {rid} does not exist.")
-        job = queue.submit_run_job(rid, lambda r, cb=None: svc.execute_run_now(r, cb))
+        job = queue.submit_run_job(rid, svc)
         jobs.append({"job_id": job.id, "run_id": rid})
     return {"jobs": jobs}
 

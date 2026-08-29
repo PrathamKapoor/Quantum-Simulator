@@ -167,7 +167,7 @@ class TestJobQueue:
         rid = svc.create_runs_for_experiment(exp)[0]
         jq = JobQueue(db=db, workers=1)
         updates: list[float] = []
-        job = jq.submit_run_job(rid, lambda r, cb=None: svc.execute_run_now(r, cb))
+        job = jq.submit_run_job(rid, svc)
         jq.subscribe(lambda j: updates.append(j.progress))
         jq.start()
         import time
@@ -197,8 +197,8 @@ class TestJobQueue:
         rid_good = svc.create_runs_for_experiment(exp2)[0]
 
         jq = JobQueue(db=db, workers=1)
-        jbad = jq.submit_run_job(rid_bad, lambda r, cb=None: svc.execute_run_now(r, cb))
-        jgood = jq.submit_run_job(rid_good, lambda r, cb=None: svc.execute_run_now(r, cb))
+        jbad = jq.submit_run_job(rid_bad, svc)
+        jgood = jq.submit_run_job(rid_good, svc)
         jq.start()
         import time
 
@@ -217,7 +217,7 @@ class TestJobQueue:
         exp = svc.create_experiment(spec)
         rid = svc.create_runs_for_experiment(exp)[0]
         jq = JobQueue(db=db, workers=1)
-        job = jq.submit_run_job(rid, lambda r, cb=None: svc.execute_run_now(r, cb))
+        job = jq.submit_run_job(rid, svc)
         assert jq.cancel_job(job.id)
         jq.start()
         import time

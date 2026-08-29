@@ -6,7 +6,12 @@ COMPLETED FAILED PARTIAL. A partial run is never reported as completed (§329).
 from __future__ import annotations
 
 from ..persistence.db import Database, ensure_default_project, _utcnow
+from ..workers.process_worker import WorkerSpec
 from .runner import ExperimentSpec, execute_run, expand_sweep, RESULT_SCHEMA, RESULT_VERSION
+
+
+class CancelledRunError(RuntimeError):
+    """Raised when an isolated execution was cancelled (§29)."""
 
 
 class ExperimentService:
@@ -84,9 +89,72 @@ class ExperimentService:
 
     # ---------------- execution ----------------
 
+    def load_run_spec(self, run_id: int) -> WorkerSpec:
+        """Serializable experiment specification for a worker process (§11).
+
+        Raises ValueError for unknown runs and for runs already RUNNING, so
+        the caller can fail honestly before spawning anything."""
+        run = self.get_run(run_id)
+        if not run:
+            raise ValueError(f"Unknown run {run_id}.")
+        if run["status"] in ("RUNNING", "CANCELLING"):
+            raise ValueError(f"Run {run_id} is already running.")
+        module_row = self.db.query_one(
+            "SELECT module FROM experiments WHERE id = ?", (run["experiment_id"],))
+        if not module_row:
+            raise ValueError(f"Run {run_id} has no experiment row.")
+        return WorkerSpec(
+            run_id=run_id,
+            module=module_row["module"],
+            resolved_config=self.db.loads(run["resolved_config"]),
+            seed=int(run["seed"] or 0),
+        )
+
+    def begin_run(self, run_id: int) -> None:
+        self.db.execute(
+            "UPDATE runs SET status='RUNNING', started_at=?, progress=0 WHERE id=?",
+            (_utcnow(), run_id))
+
+    def update_run_progress(self, run_id: int, frac: float, detail: str) -> None:
+        self.db.execute(
+            "UPDATE runs SET progress = ?, progress_detail = ? WHERE id = ?",
+            (float(frac), str(detail), run_id),
+        )
+
+    def persist_run_success(self, run_id: int, doc: dict) -> int:
+        cur = self.db.execute(
+            "INSERT INTO results (run_id, schema_name, schema_version, payload, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (run_id, RESULT_SCHEMA, RESULT_VERSION, self.db.dumps(doc), _utcnow()),
+        )
+        result_id = int(cur.lastrowid)
+        self.db.execute(
+            "UPDATE runs SET status='COMPLETED', completed_at=?, result_id=?, metrics=? "
+            "WHERE id=?",
+            (_utcnow(), result_id, self.db.dumps(doc.get("metrics", {})), run_id))
+        self.db.audit("run", run_id, "completed")
+        return result_id
+
+    def persist_run_failure(self, run_id: int, code: str, message: str) -> None:
+        self.db.execute(
+            "UPDATE runs SET status='FAILED', completed_at=?, "
+            "error_code=?, error_message=? WHERE id=?",
+            (_utcnow(), code, str(message)[:2000], run_id))
+        self.db.audit("run", run_id, "failed", f"{code}: {message}")
+
+    def mark_run_cancelled(self, run_id: int) -> None:
+        self.db.execute(
+            "UPDATE runs SET status='CANCELLED', completed_at=? WHERE id=?",
+            (_utcnow(), run_id))
+        self.db.audit("run", run_id, "cancelled")
+
     def execute_run_now(self, run_id: int, progress_callback=None) -> dict:
-        """Synchronously execute a stored run. Used directly by tests and by
-        the worker; the API layer schedules it on a worker thread."""
+        """Synchronously execute a stored run IN THIS PROCESS.
+
+        Kept as the documented in-process path for direct service use (tests,
+        scripts). The API job queue and reproduction use
+        :meth:`execute_run_isolated`, which runs the computation in a worker
+        process (AD-014)."""
         run = self.get_run(run_id)
         if not run:
             raise ValueError(f"Unknown run {run_id}.")
@@ -99,38 +167,69 @@ class ExperimentService:
         seed = int(run["seed"] or 0)
 
         def cb(frac, detail):
-            self.db.execute(
-                "UPDATE runs SET progress = ?, progress_detail = ? WHERE id = ?",
-                (float(frac), str(detail), run_id),
-            )
+            self.update_run_progress(run_id, frac, detail)
             if progress_callback:
                 progress_callback(float(frac), str(detail))
 
-        self.db.execute(
-            "UPDATE runs SET status='RUNNING', started_at=?, progress=0 WHERE id=?",
-            (_utcnow(), run_id))
+        self.begin_run(run_id)
         try:
             doc = execute_run(module, resolved, seed, cb)
         except Exception as exc:
             code = type(exc).__name__
-            self.db.execute(
-                "UPDATE runs SET status='FAILED', completed_at=?, "
-                "error_code=?, error_message=? WHERE id=?",
-                (_utcnow(), code, str(exc)[:2000], run_id))
-            self.db.audit("run", run_id, "failed", f"{code}: {exc}")
+            self.persist_run_failure(run_id, code, str(exc))
             raise
-        cur = self.db.execute(
-            "INSERT INTO results (run_id, schema_name, schema_version, payload, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (run_id, RESULT_SCHEMA, RESULT_VERSION, self.db.dumps(doc), _utcnow()),
-        )
-        result_id = int(cur.lastrowid)
-        self.db.execute(
-            "UPDATE runs SET status='COMPLETED', completed_at=?, result_id=?, metrics=? "
-            "WHERE id=?",
-            (_utcnow(), result_id, self.db.dumps(doc["metrics"]), run_id))
-        self.db.audit("run", run_id, "completed")
+        self.persist_run_success(run_id, doc)
         return doc
+
+    def execute_run_isolated(self, run_id: int, *, timeout_s: float | None = None,
+                             progress_callback=None) -> dict:
+        """Execute a stored run in a fresh worker process (AD-014).
+
+        The parent owns persistence; the worker only computes and reports.
+        Raises on failure like execute_run_now (after recording FAILED)."""
+        spec = self.load_run_spec(run_id)
+        self.begin_run(run_id)
+        from ..workers.process_worker import run_spec_in_process
+
+        def _on_progress(frac, detail):
+            self.update_run_progress(run_id, frac, detail)
+            if progress_callback:
+                progress_callback(frac, detail)
+
+        result = run_spec_in_process(
+            spec, on_progress=_on_progress, timeout_s=timeout_s)
+        if result.ok and isinstance(result.result, dict):
+            self.persist_run_success(run_id, result.result)
+            return result.result
+        if result.cancelled:
+            self.mark_run_cancelled(run_id)
+            raise CancelledRunError(f"Run {run_id} cancelled during execution.")
+        code = result.error_type or "WorkerError"
+        message = result.error_message or "worker failed without a result"
+        self.persist_run_failure(run_id, code, message)
+        raise RuntimeError(f"{code}: {message}")
+
+    def recover_interrupted_runs(self) -> dict:
+        """Startup recovery for runs orphaned by a previous process exit.
+
+        Policy (AD-014, documented): RUNNING/CANCELLING runs can no longer
+        have a live worker (the queue is in-process and volatile), so they
+        become FAILED with error_code INTERRUPTED_BY_RESTART - never silently
+        COMPLETED. QUEUED runs return to CREATED so they can be re-executed
+        (the in-memory queue does not survive restarts)."""
+        recovered = {"failed": 0, "unqueued": 0}
+        rows = self.db.query(
+            "SELECT id FROM runs WHERE status IN ('RUNNING', 'CANCELLING')")
+        for row in rows:
+            self.persist_run_failure(row["id"], "INTERRUPTED_BY_RESTART",
+                                     "process exited while the run was running.")
+            recovered["failed"] += 1
+        rows = self.db.query("SELECT id FROM runs WHERE status = 'QUEUED'")
+        for row in rows:
+            self.db.execute(
+                "UPDATE runs SET status='CREATED' WHERE id=?", (row["id"],))
+            recovered["unqueued"] += 1
+        return recovered
 
     def cancel_run(self, run_id: int) -> bool:
         run = self.get_run(run_id)
@@ -190,7 +289,7 @@ class ExperimentService:
              original["backend"], original["noise_model"], original["seed"],
              _utcnow()))
         new_run_id = int(cur.lastrowid)
-        self.execute_run_now(new_run_id)
+        self.execute_run_isolated(new_run_id)
         original_doc = self.get_result(run_id)
         reproduced_doc = self.get_result(new_run_id)
         if not original_doc or not reproduced_doc:

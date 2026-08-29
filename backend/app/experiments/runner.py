@@ -263,7 +263,11 @@ def run_network_study(config: dict, seed: int) -> dict:
 def run_vqe_experiment(config: dict, seed: int) -> dict:
     from ..optimization import h2_hamiltonian, transverse_field_ising, two_local_h2_ansatz
     from ..circuits.model import Circuit
-    from .variational import run_vqe as _run
+    # ROOT-CAUSE FIX (found by the process-isolation battery): run_vqe lives
+    # in app.optimization.variational; the previous `from .variational import
+    # run_vqe` pointed at a nonexistent module, so the "vqe" experiment
+    # module could never run at all.
+    from ..optimization.variational import run_vqe as _run
 
     system = config.get("system", "h2")
     if system == "h2":
@@ -662,6 +666,42 @@ def run_surface_code_mwpm(config: dict, seed: int) -> dict:
     )
 
 
+def run_process_probe(config: dict, seed: int) -> dict:
+    """Diagnostic experiment for the process-isolation milestone (AD-014).
+
+    Config-driven actions used ONLY by the worker-lifecycle test suite and
+    operational verification; it is a registered experiment so spawned
+    workers resolve it through the CANONICAL registry (§64 - no second
+    dispatch table, no experiment-specific worker logic).
+
+    Actions:
+      "succeed"        - return a small valid document (default)
+      "fail"           - raise an intentional exception
+      "hard_exit"      - exit the process abnormally (os._exit(70))
+      "slow"           - sleep config["seconds"] (timeout/cancel tests)
+      "unserializable" - return a document that cannot cross the pickling
+                         boundary (result-transport failure, §47)
+    """
+    import os
+    import time as _time
+
+    action = str(config.get("action", "succeed"))
+    if action == "fail":
+        raise RuntimeError("intentional probe failure (process_probe)")
+    if action == "hard_exit":
+        # Test-only abnormal termination path (directive §23); never used by
+        # production experiments.
+        os._exit(70)
+    if action == "slow":
+        _time.sleep(float(config.get("seconds", 2.0)))
+    result: dict = {"action": action, "note": "process probe document"}
+    if action == "unserializable":
+        # A lambda cannot be pickled: the child cannot transport its result.
+        result["payload"] = lambda: None
+    return make_result_document("process_probe", {"action": action},
+                                summary=result)
+
+
 RUNNER_REGISTRY = {
     "circuit_shots": run_circuit_shots,
     "qec_sweep": run_qec_sweep,
@@ -674,6 +714,7 @@ RUNNER_REGISTRY = {
     "network_bb84": run_network_bb84_exp,
     "distributed_circuit": run_distributed_circuit,
     "surface_code_mwpm": run_surface_code_mwpm,
+    "process_probe": run_process_probe,
 }
 
 

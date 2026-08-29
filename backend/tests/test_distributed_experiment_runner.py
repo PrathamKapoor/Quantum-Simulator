@@ -376,7 +376,7 @@ def test_experiment_cancellation_queued_job(svc):
     exp_id = svc.create_experiment(_dist_spec())
     rid = svc.create_runs_for_experiment(exp_id)[0]
     jq = JobQueue(db=svc.db, workers=1)
-    job = jq.submit_run_job(rid, lambda r, cb=None: svc.execute_run_now(r, cb))
+    job = jq.submit_run_job(rid, svc)
     assert jq.cancel_job(job.id)
     jq.start()
     import time

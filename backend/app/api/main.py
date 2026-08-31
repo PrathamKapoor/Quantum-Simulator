@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -53,7 +54,10 @@ def get_service() -> ExperimentService:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: database + workers (directive §223 health-checkable).
-    db = Database("quantumlab.db")
+    # Testability (E2E milestone): the database path is overridable via
+    # QUANTUMLAB_DB so browser tests can run against an isolated database
+    # instead of the developer's working database.
+    db = Database(os.environ.get("QUANTUMLAB_DB", "quantumlab.db"))
     service = ExperimentService(db)
     # Startup recovery (AD-014): runs orphaned by a previous process exit
     # become FAILED (never COMPLETED); volatile QUEUED marks return to CREATED.

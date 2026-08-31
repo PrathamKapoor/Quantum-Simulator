@@ -6,7 +6,7 @@ export default function Algorithms() {
   const [grover, setGrover] = useState<any>(null);
   const [dj, setDj] = useState<any>(null);
   const [, setBv] = useState<any>(null);
-  const [, setSd] = useState<any>(null);
+  const [sd, setSd] = useState<any>(null);
   const [walk, setWalk] = useState<any>(null);
   const [of_, setOf] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
@@ -79,6 +79,12 @@ export default function Algorithms() {
           <div className="panel">
             <h3>Superdense coding</h3>
             <SuperdenseForm onRun={setSd} busy={busy} setBusy={setBusy} />
+            {sd && (
+              <div className="kv" style={{ marginTop: 8 }}>
+                Sent <b>{sd.sent}</b> → decoded <b>{sd.decoded}</b> (expected {sd.expected_key}) ·
+                {" "}success rate <b>{(sd.success_rate * 100).toFixed(1)}%</b>
+              </div>
+            )}
           </div>
         </div>
       </div>

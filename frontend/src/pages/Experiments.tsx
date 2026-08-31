@@ -91,12 +91,21 @@ export default function Experiments() {
   const [jobs, setJobs] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [reproReport, setReproReport] = useState<any>(null);
+  const [compareDoc, setCompareDoc] = useState<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
   const refresh = async () => {
     try {
       setExperiments(await get("/api/experiments"));
       setJobs(await get("/api/jobs"));
+      // ROOT-CAUSE FIX (browser E2E, run-status milestone): the open
+      // experiment's runs table was fetched once on click and never
+      // refreshed, so live QUEUED/RUNNING/COMPLETED transitions and the
+      // WebSocket-driven progress never reached the detail view. Reload it
+      // whenever the backend reports activity.
+      if (selected) {
+        setSelected(await get(`/api/experiments/${selected.id}`));
+      }
     } catch { /* backend offline indicator covers this */ }
   };
 
@@ -154,6 +163,36 @@ export default function Experiments() {
     try {
       setReproReport(await post(`/api/runs/${runId}/reproduce`, {}));
       setTimeout(refresh, 600);
+    } catch (e: any) { setError(e.message); }
+  };
+
+  const compareRecent = async () => {
+    setError(null);
+    try {
+      const done = (selected?.runs ?? [])
+        .filter((r: any) => r.status === "COMPLETED")
+        .slice(0, 2);
+      if (done.length < 2) {
+        setError("Need at least two completed runs to compare.");
+        return;
+      }
+      setCompareDoc(await post("/api/experiments/compare", {
+        run_ids: done.map((r: any) => r.id),
+      }));
+    } catch (e: any) { setError(e.message); }
+  };
+
+  const cancelRun = async (runId: number) => {
+    setError(null);
+    try {
+      const jobs = await get("/api/jobs");
+      const mine = (jobs as any[]).filter(
+        (j) => j.payload?.run_id === runId && (j.status === "QUEUED" || j.status === "RUNNING"),
+      );
+      if (mine.length === 0) throw new Error("No cancellable job for this run.");
+      const job = mine.reduce((a, b) => (a.job_id > b.job_id ? a : b));
+      await post(`/api/jobs/${job.job_id}/cancel`);
+      setTimeout(refresh, 300);
     } catch (e: any) { setError(e.message); }
   };
 
@@ -243,12 +282,17 @@ export default function Experiments() {
                   <td><span className={"badge " + (r.status === "COMPLETED" ? "ok" : r.status === "FAILED" ? "err" : "warn")}>{r.status}</span></td>
                   <td>{r.seed}</td>
                   <td>
-                    {r.status === "COMPLETED" && (
-                      <span className="row" style={{ gap: 6 }}>
-                        <button className="btn small secondary" onClick={() => loadResult(r.id)}>View result</button>
-                        <button className="btn small secondary" onClick={() => reproduceRun(r.id)}>Reproduce</button>
-                      </span>
-                    )}
+                    <span className="row" style={{ gap: 6 }}>
+                      {(r.status === "QUEUED" || r.status === "RUNNING") && (
+                        <button className="btn small secondary" onClick={() => cancelRun(r.id)}>Cancel</button>
+                      )}
+                      {r.status === "COMPLETED" && (
+                        <>
+                          <button className="btn small secondary" onClick={() => loadResult(r.id)}>View result</button>
+                          <button className="btn small secondary" onClick={() => reproduceRun(r.id)}>Reproduce</button>
+                        </>
+                      )}
+                    </span>
                   </td>
                 </tr>
               ))}
@@ -262,7 +306,38 @@ export default function Experiments() {
                     onClick={() => loadResult(selected.runs.find((r: any) => r.status === "COMPLETED")?.id)}>
               View latest result
             </button>
+            <button className="btn secondary" onClick={compareRecent}>
+              Compare last two completed runs
+            </button>
           </div>
+        </div>
+      )}
+
+      {compareDoc && (
+        <div className="panel">
+          <h3>Run comparison</h3>
+          <p className="kv">
+            Differing configuration parameters:{" "}
+            <b>{compareDoc.differing_parameters.length > 0
+              ? compareDoc.differing_parameters.join(", ")
+              : "none"}</b>
+          </p>
+          <table className="data-table">
+            <thead><tr><th>Run</th><th>Label</th><th>Status</th><th>Seed</th><th>Key metrics</th></tr></thead>
+            <tbody>
+              {compareDoc.runs.map((r: any) => (
+                <tr key={r.run_id}>
+                  <td>{r.run_id}</td>
+                  <td>{r.label}</td>
+                  <td>{r.status}</td>
+                  <td>{r.seed}</td>
+                  <td style={{ fontSize: 11.5 }}>
+                    {r.metrics ? JSON.stringify(r.metrics).slice(0, 300) : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 

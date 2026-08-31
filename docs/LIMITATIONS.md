@@ -216,3 +216,24 @@ layout, process-isolated workers.
 - **Test database:** browser suites run against `e2e/e2e-test.db` (isolated
   via QUANTUMLAB_DB) and reset it at session start; the developer database
   is untouched.
+
+## Repeated-round surface-code decoding
+
+- **Phenomenological model only:** independent per-slot depolarizing data
+  noise + independent per-round measurement flips. No circuit-level noise
+  (ancilla preparation, gate, reset, correlated errors) is modeled; these
+  are the next milestone (§45-§50).
+- **Ideal final round:** the final syndrome is decoded assuming a perfect
+  final measurement; a final-round measurement flip is indistinguishable
+  from a final data error and is excluded by the model.
+- **Two-stage decoder, not a single 3-D MWPM:** documented in SCIENTIFIC
+  MODELS — it avoids the persistent-error double-counting artifact of the
+  naive "differences + final clean column" construction, at the cost of
+  splitting the decode into a temporal pass and a final single-shot pass.
+- **Bounded scope:** rounds 1..64, distances 3/5/7; the matcher retains its
+  capacity guard and fails loudly rather than running away.
+- **Integer-quantized weights:** likelihood weights are rounded to 1e-6
+  precision for the exact integer matcher (deterministic; not claimed
+  optimal beyond the stated model).
+- **No threshold / hardware claims:** distance and round trends are bounded
+  evidence, not threshold estimates; the model is a simulator.

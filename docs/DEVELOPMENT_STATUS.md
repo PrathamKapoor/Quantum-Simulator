@@ -4,7 +4,7 @@
 > work MUST read this file first, then ROADMAP.md, ARCHITECTURE.md,
 > SCIENTIFIC_MODELS.md, LIMITATIONS.md (directive §320).
 >
-> Last updated: 2026-08-30 (session 8 final checkpoint)
+> Last updated: 2026-08-31 (session 9 final checkpoint)
 
 ## Current state
 
@@ -61,7 +61,7 @@ Run it: `dev.bat backend` + `dev.bat frontend` → http://localhost:5173
 
 ## Tests & validation
 
-- Fast suite: **630 passed** (unchanged; session 8 added no backend tests — it added 35 browser tests).
+- Fast suite: **664 passed** (session 9; was 630).
   Session 5 added: `test_werner_state.py` (40: trace/Hermiticity/PSD,
   target-fidelity = F at seven F values, F = 1/0/0.25/0.5 limit cases,
   q-parameterization consistency, ordering convention, negativity/concurrence
@@ -322,6 +322,41 @@ STATICALLY REVIEWED = build-verified only.
 - VERIFIED — audits: zero orphan browser/server/worker processes after
   runs; console errors and failed network requests monitored per test;
   backend 630/630 green after all frontend changes; tsc + vite build clean.
+
+## Session 9 — repeated-round (space-time) surface-code decoding
+
+Classification: VERIFIED = exercised in this session's automated runs.
+
+- VERIFIED — scientific model explicit: phenomenological repeated-round model
+  (persistent per-slot depolarizing data noise p_d; independent per-round
+  measurement flips p_m on rounds 1..R-1; ideal final round), detection events
+  as syndrome differences, space-time graph with spatial/lateral/temporal
+  edges, integer-quantized likelihood weights, two-stage decode.
+- VERIFIED — exact deterministic battery (before any Monte Carlo): no-noise
+  (zero events/failures, all distances); single data error per qubit per
+  Pauli corrected (d=3/5); single and double measurement errors attributed
+  to temporal edges with zero data correction; combined data+measurement;
+  logical string detected at zero syndrome (LOGICAL_Z); stabilizer-equivalent
+  corrected; Y errors in both CSS sectors; reproducibility (same seed exact);
+  bounds validation (rounds/distance/probabilities/trials/syndrome length).
+- VERIFIED — Monte Carlo: p=0 zero failures; p_L broadly increasing with
+  noise; distance-trend evidence d5 < d3 at low noise; exact reproducibility;
+  Wilson intervals reused.
+- VERIFIED — integration: two API endpoints (decode + simulate, schema-
+  validated); `repeated_round_surface_code` experiment through the real
+  process-isolated worker (create → execute → COMPLETED → result → reproduce
+  EXACT_MATCH, original immutable; invalid config → FAILED); QecLab space-time
+  visualization; Playwright workflow (decode renders lattice/events/verdict;
+  Monte Carlo renders p_L + CI; rounds input clamping keeps the app usable).
+- VERIFIED — regression: backend 664/664 green (630 + 28 decoder + 6 API);
+  TypeScript and vite build clean; repeated-round Playwright 3/3 green.
+- VISUAL — screenshot captured (e2e/screenshots/repeated-round.png); DOM-
+  semantic rendering verified by Playwright assertions (space-time SVG
+  aria-label, CORRECTED badge, match table, observed-syndrome history).
+  NOTE: this session's provider did not return PNG pixels to the agent, so
+  pixel-level inspection was NOT performed; rendering is verified by
+  assertion, and prior sessions' "screenshots inspected" claims were made on
+  the same DOM-assertion basis — recorded here for honesty.
 
 ### Browser-discovered defects fixed at root
 

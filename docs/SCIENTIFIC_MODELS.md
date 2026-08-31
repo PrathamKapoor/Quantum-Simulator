@@ -507,3 +507,62 @@ reproduction, comparison, sweep through the standard framework); seeds follow
 the existing conventions and per-point seeds derive deterministically from
 the base seed. Threshold language: sweeps report observed behaviour with
 confidence intervals; no threshold value is claimed.
+
+## Session-9 additions
+
+### Repeated-round (space-time) surface-code decoding
+
+**Model (phenomenological, §45-§50 deferred).** The single-shot code-capacity
+decoder is extended to R rounds of stabilizer measurement. The rotated planar
+code (d = 3, 5, 7) is decoded per CSS sector (X errors from Z-check syndromes,
+Z errors from X-check syndromes, independently).
+
+- Data noise: at each of R "slots" (the interval before each measurement),
+  every data qubit takes an independent depolarizing error with probability
+  p_d (I w.p. 1-p_d, else X/Y/Z each p_d/3). Errors are PERSISTENT — each new
+  error XORs onto the cumulative data error. Reuses `random_pauli_errors`.
+- Measurement noise: each stabilizer measurement in rounds 1..R-1 has an
+  independent bit flip with probability p_m. A flip is a TEMPORAL fault and is
+  never converted into a data-qubit correction. The final round R is assumed
+  IDEAL — a necessary, documented choice, because a final measurement flip is
+  otherwise indistinguishable from a final data error in any single-slice
+  final decode.
+
+**Detection events (§12, derived).** Layer t (t = 1..R) is the syndrome
+difference d_t = observed_t XOR observed_{t-1}, with observed_0 = 0 (a
+known-clean start). A persistent data error introduced at slot t appears as
+detection events at exactly one layer; a measurement flip at round t (R-1 or
+below) appears as a pair at (stabilizer, t) and (stabilizer, t+1).
+
+**Two-stage decode (chosen and validated convention).** A single 3-D
+"differences + final clean column" MWPM double-counts a persistent data
+error (its syndrome enters the difference stream when introduced and exits
+again at a final clean round), which over-corrected boundary errors into
+false logical failures. The chosen construction is therefore:
+
+1. Stage A (temporal): MWPM over layers 1..R with SPATIAL edges (same-layer
+   data-error chains, cost chain_len * w_s), LATERAL boundary exits (data
+   error leaving the code, any layer), and TEMPORAL edges (measurement flip,
+   (S,t)-(S,t+1), cost w_m).
+2. Stage B (final residual): the last observed syndrome minus the syndrome
+   already explained by Stage A's data correction is decoded with the
+   EXISTING single-shot decoder, yielding the final data correction.
+
+**Weights (§15).** w_s = -ln((p_d/3)/(1-p_d)), w_m = -ln(p_m/(1-p_m)),
+integer-quantized to 1e-6 so the existing exact integer matcher
+(`matching.min_weight_perfect_matching`) is reused unchanged; matching is
+deterministic and, under the independent per-location model, maximum
+likelihood (for that model only — not claimed optimal beyond it).
+
+**Correction & classification.** correction = Stage A data correction XOR
+Stage B final correction; residual = correction XOR cumulative true data
+error; classified with the existing coset functionals into CORRECTED /
+LOGICAL_X / LOGICAL_Z / LOGICAL_Y (identical semantics to single-shot; a
+zero-syndrome logical string still fires the functional).
+
+**Validation.** Exact deterministic cases (no noise; single data error per
+qubit/Pauli at every distance; single and double measurement errors; data +
+measurement; logical string at zero syndrome; stabilizer equivalence; Y
+errors in both sectors; reproducibility) pass before any Monte Carlo. Monte
+Carlo reuses `wilson_interval`; p=0 gives zero failures; p_L increases with
+noise; larger distance suppresses p_L as evidence (not a threshold claim).

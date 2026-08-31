@@ -494,3 +494,67 @@ validation. Reread docs/AUTONOMOUS_ROADMAP.md and handoff.md before
 selecting further work; natural candidates are circuit-editor UX in the
 experiment templates, repeated-round surface-code decoding, or
 checkpoint/resume workers.
+
+# Session 9 — Repeated-round (space-time) surface-code decoding (2026-08-31)
+
+Roadmap decision (§0, §124): the original validation roadmap is complete; the
+highest-value scientific extension is repeated-round QEC (handoff listed it;
+no higher-priority roadmap item supersedes it). Documented, then implemented.
+
+## Phases
+
+1. **Reconnaissance**: confirmed the single-shot rotated planar decoder's
+   reusability (geometry graphs `dist`/`path`/`dist_exit`/`path_exit`, the
+   exact integer matcher `min_weight_perfect_matching`, the coset functionals
+   `phi_x/phi_z`, `wilson_interval`). Verified the single-shot decoder's
+   symptom set: a persistent data error in a naive "differences + final clean
+   column" 3-D graph double-counts and OVER-CORRECTS a corner error into a
+   false LOGICAL_Z.
+2. **Design (AD-016)**: a two-stage decoder — Stage A runs the existing MWPM
+   over difference layers (spatial data edges, lateral boundary, temporal
+   measurement edges); Stage B decodes the final residual syndrome with the
+   single-shot decoder. Integer-quantized log-likelihood weights w_s/w_m;
+   ideal final round (documented).
+3. **Implementation** (`qec/repeated_round.py`): sampling (persistent per-slot
+   data errors + per-round measurement flips), detection-event generation,
+   space-time graph, matching, correction, residual classification; all reuses
+   the existing engine.
+4. **Testing**: 28 exact deterministic cases first (no-noise, single data
+   error × every qubit/Pauli, single/double measurement error → temporal,
+   combined, logical string at zero syndrome, stabilizer, Y in both sectors,
+   reproducibility, validation bounds), then Monte Carlo (p=0, trends,
+   distance evidence), then 6 API/experiment tests, then 3 Playwright tests.
+5. **Integration**: API endpoints, `repeated_round_surface_code` experiment
+   through the process-isolated worker, QecLab RepeatedRoundPanel component
+   (separate file, space-time SVG + match table + syndrome history + MC).
+
+## Bugs found and fixed at root
+
+- The initial single-3-D-MWPM design over-corrected persistent boundary
+  errors into false logical failures (observed: single Z on a corner qubit →
+  LOGICAL_Z). Root cause: the "differences + final clean column" double-count.
+  Fixed by the two-stage model (AD-016); regression-tested by the single-data-
+  error battery at every qubit/Pauli/distance.
+- A stale heredoc truncation corrupted the frontend append mid-component;
+  repaired by moving the component to its own file and truncating cleanly.
+
+## Scientific conclusions
+
+- The repeated-round decoder reuses the proven geometry/matcher/classifier
+  and passes every exact deterministic case before any Monte Carlo.
+- Monte Carlo shows distance suppression (d5 < d3), reported as evidence, no
+  threshold claim.
+
+## Honesty note on visual validation
+
+This session the agent's provider did not return PNG pixels, so pixel-level
+screenshot inspection was not performed; rendering is verified by DOM-
+semantic Playwright assertions and the screenshot is archived for human
+inspection. (Session 8's "screenshots inspected" wording was made on the same
+DOM-assertion basis; corrected in DEVELOPMENT_STATUS.)
+
+## Next milestone
+
+Circuit-level QEC noise (ancilla preparation, gate, reset, measurement
+channels) is the natural next scientific extension (§45-§50, now explicitly
+deferred). Reread roadmap + handoff first.

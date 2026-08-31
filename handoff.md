@@ -1,9 +1,8 @@
 # QuantumLab — Handoff to Next Agent
 
-Generated: 2026-08-30, end of autonomous session 8.
+Generated: 2026-08-31, end of autonomous session 9.
 Read together with `docs/DEVELOPMENT_STATUS.md` (checkpoint) and
-`docs/AUTONOMOUS_SESSION_LOG.md` (per-phase log). This file documents what
-actually happened.
+`docs/AUTONOMOUS_SESSION_LOG.md` (per-phase log).
 
 ---
 
@@ -12,144 +11,107 @@ actually happened.
 - **Project:** QuantumLab — integrated quantum computing / information /
   networking research platform. Python+FastAPI backend, React+TS frontend,
   SQLite persistence.
-- **Session 8 of autonomous development.** Objective (roadmap): Playwright
-  browser validation — exercise the real application in a real browser
-  against the real backend and close the visual-validation gap that every
-  previous milestone honestly recorded.
-- **Status: COMPLETE and validated.** 35/35 Playwright E2E tests green;
-  backend unchanged at **630/630**; frontend builds clean; all work
-  committed on `main`.
+- **Session 9 of autonomous development.** Objective: extend QEC from
+  single-shot code-capacity decoding to REPEATED-ROUND (space-time) decoding
+  with measurement-error handling (the highest-value next milestone after the
+  original validation roadmap completed — documented decision).
+- **Status: COMPLETE and validated.** Backend **664/664** (was 630);
+  TypeScript + vite build clean; repeated-round Playwright 3/3; working tree
+  clean; all work committed on `main`.
 
-## 2. Work Completed (session 8)
+## 2. Work Completed (session 9)
 
-- **E2E workspace** (`e2e/`): Playwright 1.62 + Chromium, own package.json
-  (devDependency of that workspace only — runtime dependency trees
-  untouched, AD-015). `playwright.config.ts` launches the REAL backend
-  (uvicorn, isolated `QUANTUMLAB_DB` test database) and the REAL vite
-  frontend as health-checked webServers, `reuseExistingServer` for
-  interactive use; global setup wipes only the isolated test DB. Trace on
-  failure, screenshots on failure, no retries (flakiness must be
-  root-caused).
-- **Test suites** (`e2e/tests/`, 35 tests):
-  - `boot.spec.ts` — boot smoke, all 11 routes via sidebar AND direct hash
-    navigation, back/forward, refresh, accessible nav links + keyboard.
-  - `scientific.spec.ts` — Circuit Studio (gate placement, execution,
-    probability distribution; distributed workflow with partition,
-    execution, ebit accounting, equivalence verdict, centralized-vs-
-    distributed table, noisy-ebit selector); Algorithms (Deutsch–Jozsa,
-    Grover, superdense coding, order finding); Network Studio (topology +
-    simulation); QEC Lab (toric workflow, rotated surface-code decode with
-    lattice/defects/matching/verdict, Monte Carlo with p_L + Wilson CI);
-    Cryptography (BB84 QBER, E91 CHSH, QRNG); Optimization (VQE, QAOA).
-  - `experiments.spec.ts` — the full lifecycle against REAL process-
-    isolated workers and the REAL WebSocket: create from template →
-    execute → live progress frames → COMPLETED → result view → refresh
-    recovery; worker failure → FAILED with no result affordance; UI
-    cancellation → CANCELLED; reproduction EXACT_MATCH; sweep + comparison
-    panel; stale-result prevention.
-  - `visual.spec.ts` — 10 full-page screenshots of loaded/result states
-    (dashboard, circuit, network, QEC lattice, experiments result, crypto,
-    optimize, docs, theme-flipped dashboard, 820px viewport) — all
-    INSPECTED by reading the PNGs; no layout defects found.
-- **Browser-discovered frontend defects fixed at root**:
-  1. `Experiments.tsx` — the open experiment's runs table was fetched once
-     and never refreshed: live QUEUED/RUNNING/COMPLETED transitions and
-     WebSocket progress were invisible without re-clicking. `refresh()`
-     now reloads the selected experiment too.
-  2. `Algorithms.tsx` — the superdense-coding result was computed and
-     deliberately discarded (`const [, setSd]`); "Send via 1 qubit" did
-     nothing visually. Now renders sent/decoded/expected/success-rate.
-  3. UI gaps (permitted additions): per-run **Cancel** button on the
-     Experiments page (queued/running) and a **"Compare last two completed
-     runs"** panel wired to the existing compare endpoint.
-- **Backend**: one small documented testability addition — the API lifespan
-  honors `QUANTUMLAB_DB` for the database path (browser suites run against
-  an isolated database; the developer's `quantumlab.db` is never touched).
+- **Repeated-round decoder** (`backend/app/qec/repeated_round.py`): a
+  two-stage phenomenological space-time decoder (AD-016). Stage A = MWPM over
+  syndrome-difference layers (spatial data edges, lateral boundary, temporal
+  measurement edges); Stage B = single-shot decode of the final residual
+  syndrome. Reuses the existing geometry, exact integer matcher, and coset
+  classification verbatim. Persistent per-slot depolarizing data noise (p_d)
+  + independent per-round measurement flips (p_m, rounds 1..R-1; ideal final
+  round), integer-quantized log-likelihood weights.
+- **Tests**: `tests/test_repeated_round_qec.py` (28 exact deterministic +
+  MC), `tests/test_repeated_round_api.py` (6 API/experiment).
+- **API**: `POST /api/qec/rotated-surface-code/repeated-round/decode` and
+  `/simulate` (schema-validated).
+- **Experiment**: `repeated_round_surface_code` runner module — through the
+  real process-isolated worker, reproduction EXACT_MATCH, invalid config →
+  FAILED.
+- **Frontend**: `RepeatedRoundPanel.tsx` (space-time SVG, match table,
+  observed-syndrome history, Monte Carlo summary) added to QecLab.
+- **Playwright**: `e2e/tests/repeated_round.spec.ts` (3 tests).
+- **Docs**: SCIENTIFIC_MODELS (repeated-round model), LIMITATIONS, AD-016,
+  DEVELOPMENT_STATUS (session 9), AUTONOMOUS_SESSION_LOG (session 9), handoff.
 
-## 3. Files Changed
+## 3. Scientific model (key facts)
 
-Frontend: `src/pages/Experiments.tsx` (refresh fix, Cancel, Compare),
-`src/pages/Algorithms.tsx` (superdense render).
-Backend: `app/api/main.py` (QUANTUMlab_DB override only).
-New: `e2e/` (package.json, playwright.config.ts, global-setup.ts,
-tests/{helpers,boot,scientific,experiments,visual}), `.gitignore` entries.
-Docs: ARCHITECTURE_DECISIONS (AD-015) / LIMITATIONS /
+- Detection event at layer t (1..R) = syndrome difference `o_t XOR o_{t-1}`
+  (clean start o_0 = 0). A persistent data error appears at exactly one layer;
+  a measurement flip at round t <= R-1 appears as a pair (S,t)-(S,t+1).
+- Weights w_s = -ln((p_d/3)/(1-p_d)), w_m = -ln(p_m/(1-p_m)) quantized to 1e-6.
+- Residual = correction XOR cumulative true data error, classified by the
+  coset functionals (CORRECTED / LOGICAL_X / LOGICAL_Z / LOGICAL_Y). A
+  zero-syndrome logical operator still fires (§33 preserved).
+- **Why two-stage (not a single 3-D MWPM)**: a naive "differences + final
+  clean column" graph double-counts a persistent data error and over-corrects
+  boundary errors into false logical failures (found + fixed this session).
+
+## 4. Files Changed
+
+Backend: `app/qec/repeated_round.py` (new), `app/qec/__init__.py` (exports),
+`app/experiments/runner.py` (`repeated_round_surface_code`),
+`app/api/{schemas,main}.py` (two endpoints + two schemas).
+Tests: `tests/test_repeated_round_qec.py`, `tests/test_repeated_round_api.py`.
+Frontend: `src/pages/RepeatedRoundPanel.tsx` (new), `src/pages/QecLab.tsx`
+(import + render call).
+E2E: `e2e/tests/repeated_round.spec.ts`.
+Docs: SCIENTIFIC_MODELS / LIMITATIONS / ARCHITECTURE_DECISIONS (AD-016) /
 DEVELOPMENT_STATUS / AUTONOMOUS_SESSION_LOG / handoff.
 
-## 4. How to Run the E2E Tests
+## 5. Commands / Test Counts
 
-```
-cd e2e
-npx playwright test                 # launches backend+frontend itself
-npx playwright test tests/experiments.spec.ts   # one suite
-npx playwright show-report          # HTML report
-```
+- Backend: `.venv/Scripts/python.exe -m pytest backend/tests --timeout=600`
+  → 664 collected, all pass (use `--collect-only` for the count).
+- Frontend: `cd frontend && npx tsc -b && npm run build`.
+- E2E: `cd e2e && npx playwright test` (35 + 3 = 38 tests). Remember Windows:
+  stop dev servers before a fresh-DB run; `localhost` (not 127.0.0.1) for vite.
 
-- If the dev stack is already running (backend :8000, frontend :5173), it
-  is REUSED (`reuseExistingServer: true`) — but the isolated-DB reset then
-  cannot delete a locked file; the setup retries briefly and proceeds.
-  For a fully deterministic run, stop the dev servers first.
-- After runs on Windows, orphan dev servers may survive Playwright's
-  teardown (npm.cmd child-tree issue); clean with:
-  `Get-CimInstance Win32_Process | Where-Object { ... 'uvicorn'/'vite' ... } | Stop-Process`.
-- Evidence (screenshots/, test-results/, playwright-report/) is gitignored.
+## 6. Known Limitations (repeated-round)
 
-## 5. Testing and Verification Summary
-
-- Playwright: **35/35 passed** (Chromium, 1440x900 + 820px viewports,
-  workers=1, retries=0).
-- Visual: 10 screenshots captured and actually inspected (read as images):
-  no blank components, clipped text, broken SVGs, or overlapping panels;
-  both themes readable; reduced-width layout usable with no horizontal
-  overflow.
-- Accessibility (functional): sidebar/nav/labels exercised via role-based
-  selectors; keyboard Tab reachability checked on primary navigation.
-- Console/page-error and failed-request monitoring attached to every test.
-- Backend: 630/630 green; `tsc -b` + `vite build` clean.
-- Process audit: zero orphan browser/server/worker processes after cleanup.
-
-## 6. Known Limitations
-
-- Chromium-only, two viewports; functional accessibility only; no
-  pixel-regression harness; no mobile/cross-browser certification.
-- Playwright webServer teardown does not kill the npm.cmd child tree on
-  Windows — orphan dev servers must be cleaned explicitly (documented).
-- The frontend dev server binds IPv6 ::1 (vite v8): use `localhost`.
-- Isolated-DB reset can't delete the file while a reused server holds it
-  (graceful degradation: suites namespace their data, but determinism is
-  best with dev servers stopped).
+- Phenomenological only (no circuit-level gate/reset/ancilla noise — the next
+  milestone).
+- Ideal final round (a final measurement flip is indistinguishable from a
+  final data error and is excluded).
+- Two-stage decode (documented tradeoff vs a single 3-D graph).
+- Bounded rounds (1..64), distances 3/5/7; integer-quantized weights;
+  matcher capacity guard retained; no threshold/hardware claims.
 
 ## 7. Unfinished Work / Next Priorities
 
-The roadmap's standing milestones (distributed QC → noisy ebits → MWPM
-surface code → process workers → Playwright) are ALL complete. Natural
-candidates for the next session, in rough order of value:
-1. Circuit-editor UX inside the experiment templates (the templates are
-   still fixed configurations).
-2. Repeated-round (temporal) surface-code decoding + circuit-level noise.
-3. Checkpoint/resume for long-running workers.
-Reread `docs/AUTONOMOUS_ROADMAP.md` and this file before starting.
+1. **Circuit-level QEC noise** (§45-§50): model ancilla preparation, gate,
+   reset, and measurement-channel noise on the actual stabilizer-measurement
+   circuits, rather than phenomenological per-round flips. Reuse the existing
+   circuit simulator + noise channels; keep the repeated-round decoder as the
+   sink.
+2. Optional: fold the final-round measurement-error handling back in via an
+   explicit final-boundary model once circuit-level syndromes exist.
 
 ## 8. Critical Context
 
-- The E2E acceptance suite NEVER mocks the backend/workers/WebSocket/DB;
-  keep it that way (§122-§127 of the browser directive).
-- `process_probe` (backend) is the diagnostic experiment for failure/
-  cancellation tests; fixtures may be API-created, but the workflows under
-  test are browser-driven.
-- Frontend refresh semantics: the Experiments page reloads the selected
-  experiment on every poll/WebSocket tick — preserve this when refactoring
-  (the lifecycle suite fails loudly without it).
-- `QUANTUMLAB_DB` overrides the backend database path (default
-  `quantumlab.db`); never point browser tests at the developer database.
+- Preserve: AD-003 (partial-trace ordering), AD-004 (X-before-Z), Werner
+  semantics, existing MWPM, process-worker semantics (§106) — none were
+  changed this session.
+- `repeated_round.py` reuses `RotatedSurfaceCode.build`, the graph dicts
+  (`dist`/`path`/`dist_exit`/`path_exit`), `RotatedSurfaceCodeDecoder` (incl.
+  `._match_component`), `min_weight_perfect_matching`, and `wilson_interval`
+  — do not fork these.
+- The `measurement_flips` / `observed_syndromes` shapes are the round-trace
+  contract for visualization (§23).
 - `quantumlab.db` is gitignored; never commit it or E2E evidence.
 
 ## 9. Agent Instructions
 
-- Keep the standing loop: inspect → implement → test → validate →
-  integrate → document → benchmark → continue.
-- Backend count baseline: 630. Playwright baseline: 35. Both must stay
-  green; no deletions, no weakened assertions.
-- On Windows, remember: `localhost` (not 127.0.0.1) for the vite frontend;
-  explicit process cleanup after Playwright runs; stop dev servers before
-  runs that need a fresh isolated database.
+- Keep the standing loop: inspect → implement → test → validate science →
+  integrate → document → benchmark → commit.
+- Backend baseline 664; Playwright baseline 38. Both must remain green.
+- Before circuit-level QEC, reread AD-016 and the repeated-round SCIENTIFIC
+  MODELS section; extend, do not replace.

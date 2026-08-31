@@ -309,3 +309,37 @@ are recorded so the next agent does not rediscover them.
 checks - not cross-browser certification, not WCAG certification, not a
 visual-regression pixel harness. Scientific correctness remains owned by the
 Python suites; browser tests prove the UI->API->worker->result->UI chain.
+
+## AD-016 — Repeated-round QEC is a two-stage decoder over the existing single-shot engine
+
+**Decision.** Temporal (repeated-round) surface-code decoding is implemented
+as a THIN extension (`qec/repeated_round.py`) built on the existing rotated
+planar geometry, the existing exact integer matcher, and the existing
+single-shot decoder — not as a second framework.
+
+1. **Two-stage model over a single 3-D MWPM.** The naive "syndrome
+   differences + final clean column" single graph double-counts a persistent
+   data error (its syndrome enters the difference stream on introduction and
+   exits at a final clean round), over-correcting boundary errors into false
+   logical failures. Instead: Stage A runs MWPM over the difference LAYERS
+   1..R (spatial data edges + temporal measurement edges + lateral boundary);
+   Stage B decodes the final residual syndrome with the proven single-shot
+   decoder. This is equivalent in information and validated by the exact-case
+   battery, and it reuses the matcher/single-shot verbatim.
+2. **Weights are integer-quantized log-likelihood ratios** (1e-6) so the
+   exact integer matcher is reused unchanged; matching stays deterministic.
+3. **Ideal final round:** the model assumes a perfect final measurement;
+   without it a final measurement flip is indistinguishable from a final data
+   error. Documented in LIMITATIONS.
+4. **Reuse, not duplication:** geometry, `min_weight_perfect_matching`, the
+   single-shot residual classifier (coset functionals), `wilson_interval`,
+   the experiment runner / process-isolated worker / WebSocket progress, and
+   the Playwright webServer harness are all reused. Circuit-level noise is
+   deliberately deferred to a later milestone (§45-§50).
+
+**Rejected alternatives.** (a) A single 3-D MWPM with a final clean column —
+   reintroduces the double-count artifact. (b) Persistent vs per-slice error
+   model ambiguity left implicit — the per-slot persistent-error sampling
+   with difference detection is made explicit and testable. (c) A new matcher
+   or graph framework — unnecessary; the existing DP matcher's complete-graph
+   + boundary-copy interface suffices for the space-time graph.

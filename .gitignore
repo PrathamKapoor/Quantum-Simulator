@@ -7,3 +7,12 @@ node_modules/
 dist/
 *.db-wal
 *.db-shm
+
+# Playwright E2E artifacts (dev tooling; never commit evidence or browsers)
+e2e/node_modules/
+e2e/test-results/
+e2e/playwright-report/
+e2e/screenshots/
+e2e/e2e-test.db
+e2e/e2e-test.db-wal
+e2e/e2e-test.db-shm

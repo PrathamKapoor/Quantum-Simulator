@@ -1,0 +1,12 @@
+{
+  "name": "quantumlab-e2e",
+  "version": "1.0.0",
+  "description": "Playwright end-to-end browser validation for QuantumLab (real backend + real frontend, no mocks)",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "type": "module",
+  "devDependencies": {
+    "@playwright/test": "^1.62.1"
+  }
+}

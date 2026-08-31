@@ -1,0 +1,14 @@
+import { chromium } from "@playwright/test";
+const b = await chromium.launch();
+const page = await b.newPage();
+page.on("console", (m) => console.log("[console:" + m.type() + "]", m.text().slice(0, 150)));
+page.on("pageerror", (e) => console.log("[pageerror]", String(e).slice(0, 200)));
+page.on("requestfailed", (r) => console.log("[reqfail]", r.url().slice(0, 100), r.failure()?.errorText));
+const resp = await page.goto("http://localhost:5173/", { waitUntil: "networkidle", timeout: 30000 }).catch((e) => console.log("[goto]", String(e).slice(0, 120)));
+console.log("status:", resp && resp.status());
+await page.waitForTimeout(3000);
+console.log("title:", await page.title());
+console.log("h1:", await page.locator("h1").first().textContent().catch(() => "none"));
+console.log("links:", await page.locator(".sidebar nav a").count());
+await page.screenshot({ path: "probe.png" });
+await b.close();

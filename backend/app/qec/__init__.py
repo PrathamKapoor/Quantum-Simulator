@@ -39,6 +39,14 @@ from .rotated_surface_code import (
     simulate_rotated_surface_code,
     sweep_rotated_surface_code,
 )
+from .repeated_round import (
+    decode_repeated,
+    sample_repeated,
+    simulate_repeated,
+    RepeatedRoundResult,
+    RepeatedDetectionEvent,
+    RepeatedMatch,
+)
 
 __all__ = [
     "QECode", "BIT_FLIP_3", "PHASE_FLIP_3", "SHOR_9", "STEANE_7", "FIVE_QUBIT",
@@ -53,4 +61,6 @@ __all__ = [
     "DetectionEvent", "ChainMatch", "StabilizerCheck",
     "error_from_string", "simulate_rotated_surface_code",
     "sweep_rotated_surface_code",
+    "decode_repeated", "sample_repeated", "simulate_repeated",
+    "RepeatedRoundResult", "RepeatedDetectionEvent", "RepeatedMatch",
 ]

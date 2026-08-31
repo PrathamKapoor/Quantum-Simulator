@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { get, post } from "../lib/api";
 import { LineChart } from "../lib/charts";
+import RepeatedRoundPanel from "./RepeatedRoundPanel";
 
 export default function QecLab() {
   const [codes, setCodes] = useState<any[]>([]);
@@ -104,6 +105,8 @@ export default function QecLab() {
       </div>
 
       <RotatedSurfaceCodePanel />
+
+      <RepeatedRoundPanel />
 
       <div className="panel">
         <h3>Toric surface code (educational simulator)</h3>

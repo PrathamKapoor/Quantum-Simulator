@@ -664,6 +664,42 @@ def rotated_surface_code_simulate(req: schemas.RotatedSurfaceCodeSimulateRequest
     return res.to_dict()
 
 
+@app.post("/api/qec/rotated-surface-code/repeated-round/decode")
+def repeated_round_decode(req: schemas.RepeatedRoundDecodeRequest):
+    """Sample and decode one repeated-round error history (space-time MWPM)."""
+    from ..qec import RotatedSurfaceCode, sample_repeated, decode_repeated
+
+    try:
+        code = RotatedSurfaceCode.build(req.d)
+        ex, ez, _, obs = sample_repeated(
+            code, req.rounds, req.p_data, req.p_measurement,
+            error_model=req.error_model, seed=req.seed)
+        result = decode_repeated(
+            code, req.rounds, req.p_data, req.p_measurement,
+            data_error_x=ex, data_error_z=ez, observed_syndromes=obs,
+            seed=req.seed, error_model=req.error_model)
+    except ValueError as e:
+        raise http_error(400, "VALIDATION_ERROR", str(e))
+    body = result.to_dict()
+    if req.include_layout:
+        body["layout"] = code.layout()
+    return body
+
+
+@app.post("/api/qec/rotated-surface-code/repeated-round/simulate")
+def repeated_round_simulate(req: schemas.RepeatedRoundSimulateRequest):
+    """Monte Carlo logical-error estimate for repeated-round decoding."""
+    from ..qec import simulate_repeated
+
+    try:
+        res = simulate_repeated(
+            req.d, req.rounds, req.p_data, req.p_measurement,
+            trials=req.trials, seed=req.seed, error_model=req.error_model)
+    except ValueError as e:
+        raise http_error(400, "VALIDATION_ERROR", str(e))
+    return res
+
+
 @app.post("/api/network/route")
 def network_route(req: schemas.NetworkSimulateRequest):
     """Route explanation endpoint: returns chosen path + why (§197)."""

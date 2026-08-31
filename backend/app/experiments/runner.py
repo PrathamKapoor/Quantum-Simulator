@@ -602,6 +602,72 @@ def run_distributed_circuit(config: dict, seed: int) -> dict:
     )
 
 
+def run_repeated_round_surface_code(config: dict, seed: int) -> dict:
+    """Monte Carlo repeated-round (space-time) surface-code decoding study.
+
+    Configuration:
+    - distances: odd distances, e.g. [3, 5]
+    - rounds: number of syndrome-measurement rounds
+    - p_data: data-qubit depolarizing probability (float)
+    - p_measurement: per-round measurement-flip probability (float)
+    - trials_per_point: Monte Carlo trials per (d, p) point
+    - error_model: "depolarizing" | "x_only" | "z_only"
+    """
+    from ..qec import simulate_repeated
+
+    distances = [int(d) for d in config.get("distances", [3, 5])]
+    if not distances:
+        raise ValueError("distances must be a non-empty list.")
+    rounds = int(config.get("rounds", 4))
+    if rounds < 1:
+        raise ValueError("rounds must be >= 1.")
+    p_data = float(config.get("p_data", 0.03))
+    p_measurement = float(config.get("p_measurement", 0.03))
+    if not (0 <= p_data <= 1) or not (0 <= p_measurement <= 1):
+        raise ValueError("p_data and p_measurement must be within [0,1].")
+    trials = int(config.get("trials_per_point", 2000))
+    if trials <= 0:
+        raise ValueError("trials_per_point must be positive.")
+    error_model = config.get("error_model", "depolarizing")
+
+    table = []
+    for di, d in enumerate(distances):
+        point_seed = seed + 1000 + di * 7919
+        res = simulate_repeated(d, rounds, p_data, p_measurement,
+                                trials=trials, seed=point_seed,
+                                error_model=error_model)
+        table.append({
+            "d": res["d"], "rounds": res["rounds"], "p_data": res["p_data"],
+            "p_measurement": res["p_measurement"],
+            "logical_error_rate": res["logical_error_rate"],
+            "logical_failures": res["logical_failures"],
+            "ci95_low": res["ci95"][0], "ci95_high": res["ci95"][1],
+            "trials": res["trials"], "seed": res["seed"],
+        })
+    metrics = {
+        "distances": distances, "rounds": rounds, "p_data": p_data,
+        "p_measurement": p_measurement, "error_model": error_model,
+        "points": len(table),
+        "trials_per_point": trials,
+        "trials_total": sum(t["trials"] for t in table),
+        "lowest_logical_error_rate": min(
+            (t["logical_error_rate"] for t in table), default=None),
+    }
+    notes = [
+        "Repeated-round (space-time) MWPM decoding of the rotated planar "
+        "surface code under the PHENOMENOLOGICAL model: per-slot persistent "
+        "depolarizing data noise and per-round measurement flips (rounds "
+        "1..R-1; the final round is ideal).",
+        "p_L is the logical error rate (failures/trials, Wilson 95% "
+        "interval); distinct from p_data and p_measurement.",
+        "Perfect stabilizer circuits (no circuit-level noise); no threshold "
+        "is claimed from this bounded study.",
+    ]
+    return make_result_document(
+        "repeated_round_surface_code", metrics,
+        artifacts={"table": table}, notes=notes)
+
+
 def run_surface_code_mwpm(config: dict, seed: int) -> dict:
     """Monte Carlo threshold-style study: rotated planar surface code decoded
     by exact MWPM (code capacity, perfect syndrome).
@@ -714,6 +780,7 @@ RUNNER_REGISTRY = {
     "network_bb84": run_network_bb84_exp,
     "distributed_circuit": run_distributed_circuit,
     "surface_code_mwpm": run_surface_code_mwpm,
+    "repeated_round_surface_code": run_repeated_round_surface_code,
     "process_probe": run_process_probe,
 }
 

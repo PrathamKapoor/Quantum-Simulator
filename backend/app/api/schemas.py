@@ -317,6 +317,27 @@ class RotatedSurfaceCodeSimulateRequest(BaseModel):
     error_model: Literal["depolarizing", "x_only", "z_only"] = "depolarizing"
 
 
+class RepeatedRoundDecodeRequest(BaseModel):
+    """Repeated-round (space-time) surface-code decoding request (§58)."""
+    d: int = Field(default=3, ge=3, le=7)
+    rounds: int = Field(default=4, ge=1, le=64)
+    p_data: float = Field(default=0.03, ge=0, le=1)
+    p_measurement: float = Field(default=0.03, ge=0, le=1)
+    error_model: Literal["depolarizing", "x_only", "z_only"] = "depolarizing"
+    seed: int = 5
+    include_layout: bool = True
+
+
+class RepeatedRoundSimulateRequest(BaseModel):
+    d: int = Field(default=3, ge=3, le=7)
+    rounds: int = Field(default=4, ge=1, le=64)
+    p_data: float = Field(default=0.03, ge=0, le=1)
+    p_measurement: float = Field(default=0.03, ge=0, le=1)
+    error_model: Literal["depolarizing", "x_only", "z_only"] = "depolarizing"
+    trials: int = Field(default=3000, ge=100, le=200_000)
+    seed: int = 5
+
+
 class RemoteCNOTRequest(BaseModel):
     control_qubit: int = Field(ge=0, le=63)
     target_qubit: int = Field(ge=0, le=63)

@@ -280,3 +280,32 @@ timeout the child is terminated and the run is FAILED with WorkerTimeout.
 it is NOT a sandbox - workers run with the same OS-user rights as the
 parent, and no hard CPU/memory quotas exist. No broker, no Docker, no
 microservices: this remains a local application on the standard library.
+
+## AD-015 — Playwright end-to-end validation as an isolated dev workspace
+
+**Decision.** Real browser validation uses Playwright (Chromium) in a
+self-contained `e2e/` workspace with its own package.json; `@playwright/test`
+is a devDependency OF THAT WORKSPACE ONLY. The backend runtime dependencies
+are unchanged (AD-008's no-new-runtime-dependency rule is untouched), the
+frontend package.json is unchanged, and no browser framework enters either
+production surface.
+
+**Mechanics.** `e2e/playwright.config.ts` launches the REAL backend (uvicorn
+with an isolated `QUANTUMLAB_DB` test database - a small, documented env-var
+override added to the API lifespan) and the REAL frontend (vite) as
+webServers, with health-check gating and `reuseExistingServer` for
+interactive runs. The acceptance suite never mocks the backend, the workers,
+the WebSocket, or the database (§9, §122-§127). Global setup wipes only the
+isolated E2E database; the developer's `quantumlab.db` is never touched.
+Evidence (screenshots, traces, reports) is gitignored.
+
+**Windows notes (validated, not assumed).** Vite v8 binds IPv6 ::1 - use
+`localhost`, not 127.0.0.1, for the frontend URL. Playwright's webServer
+teardown does not reliably kill npm.cmd child process trees on Windows;
+orphan servers are cleaned with an explicit PowerShell process query. These
+are recorded so the next agent does not rediscover them.
+
+**Scope honesty.** Chromium-only, two viewports, functional accessibility
+checks - not cross-browser certification, not WCAG certification, not a
+visual-regression pixel harness. Scientific correctness remains owned by the
+Python suites; browser tests prove the UI->API->worker->result->UI chain.

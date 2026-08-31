@@ -419,3 +419,78 @@ bookkeeping-level, not checkpoint/resume. Documented in LIMITATIONS.md.
 
 Playwright browser validation (roadmap), now cheap to add since the API and
 UI are stable. Reread roadmap/handoff first.
+
+# Session 8 — Playwright browser validation (2026-08-30)
+
+Directive: validate the actual application in a real browser against the
+real backend — no mocks for the acceptance suite, no fake visual claims.
+
+## Phases
+
+1. **Reconnaissance**: mapped the frontend (hash-routed SPA, 11 pages,
+   semantic sidebar links, fetch API client, /ws/jobs WebSocket, hardcoded
+   127.0.0.1:8000 API base), package.json (no Playwright), dev.bat startup
+   commands, and the two UI gaps relevant to the directive's lifecycle
+   matrix (no Cancel control, no comparison view).
+2. **Setup**: Playwright 1.62 + Chromium in a self-contained `e2e/`
+   workspace (own package.json; frontend and backend dependency trees
+   untouched — AD-015). Config launches the real backend (with a new
+   documented `QUANTUMLAB_DB` env override for an isolated test database)
+   and the real vite frontend as health-checked webServers.
+3. **Windows findings (validated by hitting them)**: vite v8 binds IPv6
+   ::1 (frontend URLs must use `localhost`); Playwright's webServer
+   teardown does not kill the npm.cmd child tree (explicit PowerShell
+   process cleanup after runs); killed background runs leave orphan
+   servers that must be reaped before the next run's globalSetup can reset
+   the isolated DB.
+4. **Suites built**: boot/navigation (6), scientific workflows (14:
+   circuit execution with probability-sum semantics, distributed workflow
+   with noisy-ebit selector, four algorithm surfaces, network simulation,
+   QEC toric + rotated decode + Monte Carlo, BB84/E91/QRNG, VQE/QAOA),
+   experiment lifecycle (6: full create→progress→result→refresh chain with
+   real WebSocket frames, worker failure, UI cancellation, reproduction,
+   sweep + comparison, stale-result prevention), visual/theme/responsive
+   (9). All console/page errors and failed requests monitored per test.
+5. **Bugs found and fixed at root**:
+   - FRONTEND: the open experiment's runs table never refreshed — live
+     QUEUED/RUNNING/COMPLETED status and WebSocket progress were invisible
+     without re-clicking the experiment (refresh() reloaded only the list).
+     The entire lifecycle suite was red until this was fixed; green after.
+   - FRONTEND (latent, pre-existing): the superdense-coding result was
+     computed and deliberately discarded (`const [, setSd]`) — the button
+     visibly did nothing. Rendered sent/decoded/expected/success-rate.
+   - GAP: no Cancel control on the Experiments page (cancellation was
+     API-only); added per-run Cancel for queued/running runs.
+   - GAP: comparison endpoint had no UI; added "Compare last two completed
+     runs" rendering differing parameters + per-run metrics.
+   - TEST bugs (fixed, not worked around): clicking sidebar links from
+     about:blank; waiting for the FIRST terminal badge instead of ALL runs
+     on sweeps; wrong template names; strict-mode selector violations;
+     #/route vs #route hash format.
+6. **Visual inspection**: 10 full-page screenshots captured and actually
+   READ (dashboard, circuit result with live bar chart + state inspection,
+   network, QEC lattice with X/Z checks, experiments result view, crypto,
+   optimization, docs, theme-flipped dashboard, 820px viewport). Both
+   themes readable; no broken/clipped/overlapping content.
+7. **Regression**: backend 630/630 green after all changes; tsc + vite
+   build clean; 35/35 Playwright tests green; zero orphan processes after
+   cleanup.
+
+## Honest validation statement
+
+QuantumLab's major user-facing workflows have been exercised in a real
+Chromium browser against the real backend, real process-isolated workers,
+the real WebSocket, and a real isolated database, and validated end-to-end.
+DOM/interaction validation performed for all 35 tests; visual inspection
+performed on 10 screenshots (not a pixel-regression harness); functional
+accessibility checks performed (not a WCAG audit); Chromium + 2 viewports
+only (not cross-browser certification). Scientific correctness remains
+owned by the Python validation suites.
+
+## Next milestone
+
+The roadmap's standing priorities are complete through Playwright
+validation. Reread docs/AUTONOMOUS_ROADMAP.md and handoff.md before
+selecting further work; natural candidates are circuit-editor UX in the
+experiment templates, repeated-round surface-code decoding, or
+checkpoint/resume workers.

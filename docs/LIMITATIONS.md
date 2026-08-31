@@ -199,3 +199,20 @@ layout, process-isolated workers.
 - **Windows specifics:** spawn semantics are required (no fork); the worker
   entrypoint is module-level and import-safe; child results are flushed
   explicitly before exit to avoid IPC-feeder message loss.
+
+## Browser validation (E2E milestone)
+
+- **Chromium only, two viewports** (1440x900 desktop, 820px reduced width):
+  no cross-browser, mobile-device, or WCAG certification is claimed.
+- **Functional accessibility only:** semantic roles/labels and keyboard
+  reachability of primary navigation and forms were exercised; a full
+  accessibility audit was not performed.
+- **No pixel-regression harness:** screenshots are manually inspected
+  evidence, not automated visual diffs.
+- **Windows webServer teardown:** Playwright does not reliably kill the
+  npm.cmd -> node process tree; orphan dev servers are removed explicitly
+  after runs (see AD-015). Test runs use `reuseExistingServer` so an already
+  running dev stack is reused rather than duplicated.
+- **Test database:** browser suites run against `e2e/e2e-test.db` (isolated
+  via QUANTUMLAB_DB) and reset it at session start; the developer database
+  is untouched.

@@ -4,7 +4,7 @@
 > work MUST read this file first, then ROADMAP.md, ARCHITECTURE.md,
 > SCIENTIFIC_MODELS.md, LIMITATIONS.md (directive §320).
 >
-> Last updated: 2026-08-30 (session 7 final checkpoint)
+> Last updated: 2026-08-30 (session 8 final checkpoint)
 
 ## Current state
 
@@ -46,12 +46,22 @@ exceptions, hard exits, serialization and persistence failures all become
 FAILED (never COMPLETED); running-job cancellation is now process
 termination; startup recovery converts orphaned RUNNING runs to FAILED; a
 `process_probe` diagnostic experiment backs the adversarial test battery.
+Session 8: **Playwright browser validation** — the application is now
+exercised in a real Chromium browser against the real backend, real
+process-isolated workers, real WebSocket, and a real isolated database:
+35 E2E tests across boot/navigation, every major scientific workflow, the
+full experiment lifecycle (create → live progress → result → failure →
+cancellation → reproduction → comparison → sweep), theme and responsive
+checks, with screenshots captured and inspected. Browser-discovered defects
+fixed at root: the open experiment's runs never refreshed (live status was
+invisible), and the superdense-coding result was computed but discarded
+without rendering.
 
 Run it: `dev.bat backend` + `dev.bat frontend` → http://localhost:5173
 
 ## Tests & validation
 
-- Fast suite: **630 passed** (session 7 final; was 597 at session 6).
+- Fast suite: **630 passed** (unchanged; session 8 added no backend tests — it added 35 browser tests).
   Session 5 added: `test_werner_state.py` (40: trace/Hermiticity/PSD,
   target-fidelity = F at seven F values, F = 1/0/0.25/0.5 limit cases,
   q-parameterization consistency, ordering convention, negativity/concurrence
@@ -273,3 +283,60 @@ STATICALLY REVIEWED = code-reviewed, build-verified.
   nonexistent module (app.experiments.variational); the vqe experiment could
   never execute. Root-cause fixed (app.optimization.variational) with a
   regression test running vqe through the process boundary.
+
+## Session 8 — Playwright browser validation
+
+Classification: VERIFIED = exercised in this session's automated runs;
+STATICALLY REVIEWED = build-verified only.
+
+- VERIFIED — infrastructure: Playwright 1.62 + Chromium on Windows; real
+  uvicorn backend (isolated QUANTUMLAB_DB) + real vite frontend launched by
+  the config; no mocks anywhere in the acceptance suite.
+- VERIFIED — boot/navigation: application boots with zero page errors and
+  zero failed requests; all 11 routes render via sidebar navigation AND
+  direct hash navigation; back/forward and refresh coherent; nav links are
+  accessible-name links, keyboard reachable.
+- VERIFIED — scientific workflows through the UI: Circuit Studio
+  (place gates, run, distribution renders with probabilities summing to 1);
+  distributed workflow (partition → execute → REMOTE ops → ebit accounting →
+  equivalence verdict → centralized-vs-distributed probabilities → noisy-
+  ebit selector); Algorithms (Deutsch–Jozsa, Grover success metric,
+  superdense coding, order finding); Network Studio (topology + simulation);
+  QEC Lab (toric workflow; rotated surface-code decode renders the lattice,
+  defects, matching, correction, verdict; Monte Carlo renders p_L + Wilson
+  CI); Cryptography (BB84 QBER, E91 CHSH, QRNG); Optimization (VQE energies,
+  QAOA).
+- VERIFIED — experiment lifecycle through the browser against REAL
+  process-isolated workers: create from template → queue → RUNNING → live
+  WebSocket progress (real /ws/jobs frames, progress reaching 1.0) →
+  COMPLETED → result view with backend values → refresh recovers persisted
+  state; worker failure → FAILED with no result affordance and a subsequent
+  normal experiment completing; UI cancellation → CANCELLED; reproduction →
+  EXACT_MATCH with original immutable; sweep → both runs → comparison
+  panel with differing parameters; stale-result contamination test.
+- VERIFIED — visual: 10 screenshots captured and INSPECTED (dashboard,
+  circuit result, network, QEC lattice, experiments result, crypto,
+  optimization, docs, theme-flipped dashboard, 820px viewport). No blank
+  components, clipped text, broken SVGs, or overlapping panels; both themes
+  readable; no horizontal overflow at reduced width.
+- VERIFIED — audits: zero orphan browser/server/worker processes after
+  runs; console errors and failed network requests monitored per test;
+  backend 630/630 green after all frontend changes; tsc + vite build clean.
+
+### Browser-discovered defects fixed at root
+
+1. **Live run status never reached the open experiment view**
+   (frontend bug, `Experiments.tsx`): `refresh()` reloaded the experiment
+   LIST but not the selected experiment, so QUEUED/RUNNING/COMPLETED
+   transitions and WebSocket-driven progress were invisible without
+   re-clicking. Fixed by reloading the selected experiment in the refresh
+   loop; the whole experiment lifecycle suite depends on this.
+2. **Superdense coding result discarded** (frontend bug,
+   `Algorithms.tsx`): `const [, setSd]` threw the computed result away —
+   clicking "Send via 1 qubit" did nothing visually. Fixed by rendering
+   sent/decoded/expected/success-rate (order finding was already rendered).
+3. **Missing UI affordances** (gaps, permitted additions): the Experiments
+   page had no Cancel control (runs could not be cancelled from the UI) and
+   no comparison view (the compare endpoint existed with no UI). Added a
+   per-run Cancel button (queued/running) and a "Compare last two completed
+   runs" panel driven by the existing compare endpoint.

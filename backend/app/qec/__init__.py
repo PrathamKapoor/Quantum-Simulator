@@ -47,6 +47,13 @@ from .repeated_round import (
     RepeatedDetectionEvent,
     RepeatedMatch,
 )
+from .circuit_level import (
+    cnot_propagate,
+    extract_syndrome_noiseless,
+    simulate_circuit_level,
+    decode_circuit_level,
+    simulate_circuit_level_mc,
+)
 
 __all__ = [
     "QECode", "BIT_FLIP_3", "PHASE_FLIP_3", "SHOR_9", "STEANE_7", "FIVE_QUBIT",
@@ -63,4 +70,6 @@ __all__ = [
     "sweep_rotated_surface_code",
     "decode_repeated", "sample_repeated", "simulate_repeated",
     "RepeatedRoundResult", "RepeatedDetectionEvent", "RepeatedMatch",
+    "cnot_propagate", "extract_syndrome_noiseless", "simulate_circuit_level",
+    "decode_circuit_level", "simulate_circuit_level_mc",
 ]

@@ -52,7 +52,7 @@ claims (§45-§50 are deferred).
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -125,6 +125,7 @@ class RepeatedRoundResult:
     outcome: str
     success: bool
     error: str | None = None
+    hook_events: list = field(default_factory=list)  # circuit-level only
 
     def _support(self, mask: int) -> list[int]:
         n = self.d * self.d

@@ -1,0 +1,235 @@
+"""Circuit-level surface-code syndrome extraction with fault-tolerant noise.
+
+Replaces the PHENOMENOLOGICAL repeated-round syndrome generator with a real
+stabilizer-measurement circuit simulator: explicit, disposable ancilla qubits,
+a deterministic CNOT schedule per stabilizer, and gate-, reset-, preparation-,
+and readout-channel noise. Tracks a Pauli (Gottesman-Knill) frame over data
+qubits (persistent) and per-round ancillas, then feeds the measured syndrome
+history plus the net data error into the EXISTING repeated-round decoder
+(qec.repeated_round.decode_repeated).
+
+Model assumptions (explicit; no hardware claims):
+  * Geometry/decoder reuse: RotatedSurfaceCode + decode_repeated.
+  * Ancillas: one per stabilizer per round, disposable; no logical info.
+  * Schedules (support is already sorted -> deterministic):
+      Z-check (measures Z on data, detects X-type data errors):
+          reset ancilla |0> ; CNOT(data_q -> ancilla) ; measure Z.
+      X-check (measures X on data, detects Z-type data errors):
+          reset ancilla |0> ; H (->|+>) ; CNOT(ancilla -> data_q) ; H ; measure Z.
+    Directions validated against syndrome_of in tests.
+  * Noise (all independent, one seeded PRNG per trial):
+      reset:   ancilla X w.p. p_reset.
+      prep:    depolarizing on the ancilla w.p. p_prep (before any CNOT).
+      gate:    after every CNOT, independent depolarizing on each participating
+               qubit w.p. p_gate; single-qubit H is IDEAL (documented).
+      readout: measured ancilla bit flips w.p. p_readout (the channel, distinct
+               from data errors).
+  * Hook errors: an ancilla fault (reset/prep/gate) propagates through the
+    remaining CNOTs of its schedule onto data qubits -> correlated multi-qubit
+    data errors. Emerges from schedule + propagation (orientation-aware);
+    recorded explicitly, never injected separately.
+
+Pauli-frame propagation through CNOT(control c, target t), bits (ax=has X,
+az=has Z): az_c ^= az_t (target Z -> control Z); ax_t ^= ax_c (control X ->
+target X). This is CNOT P CNOT^dag; validated against an independent 4x4
+matrix CNOT in tests.
+"""
+from __future__ import annotations
+
+import numpy as np
+
+from .pipeline import wilson_interval
+from .repeated_round import decode_repeated
+from .rotated_surface_code import RotatedSurfaceCode
+
+_SUPPORTED_DISTANCES = (3, 5, 7)
+_MAX_ROUNDS = 64
+
+
+def cnot_propagate(ax_c, az_c, ax_t, az_t):
+    """Return (ax_c, az_c, ax_t, az_t) after CNOT(control=c, target=t)."""
+    return ax_c, az_c ^ az_t, ax_t ^ ax_c, az_t
+
+
+def _sample_pauli_depolarizing(rng, p: float) -> tuple[int, int]:
+    """Sample one single-qubit depolarizing error channel: I w.p. 1-p, else
+    X/Y/Z each w.p. p/3 (the project's established convention, matching
+    stabilizer.random_pauli_errors). Returns (has_X, has_Z)."""
+    u = rng.random()
+    if u < 1.0 - p:
+        return 0, 0          # I
+    u = rng.random()
+    if u < 1 / 3:
+        return 1, 0          # X
+    if u < 2 / 3:
+        return 1, 1          # Y
+    return 0, 1              # Z
+
+
+def _measure_one_check(code, check, kind, ax, az, rng, p_gate, p_reset,
+                       p_prep, p_readout):
+    """Run one stabilizer's noisy measurement circuit on the shared data frame.
+
+    Mutates ax/az in place (data-frame propagation for hook errors); returns
+    (outcome_bit, hooked_flag)."""
+    aa_x, aa_z = 0, 0
+    hooked = False
+    if p_reset > 0 and rng.random() < p_reset:
+        aa_x = 1
+    if kind == "X":
+        aa_x, aa_z = aa_z, aa_x            # H -> |+>
+    if p_prep > 0:
+        ex, ez = _sample_pauli_depolarizing(rng, p_prep)
+        aa_x ^= ex
+        aa_z ^= ez
+    for q in check.support:
+        if p_gate > 0:
+            for is_anc in (False, True):
+                ex, ez = _sample_pauli_depolarizing(rng, p_gate)
+                if is_anc:
+                    aa_x ^= ex
+                    aa_z ^= ez
+                else:
+                    ax[q] ^= ex
+                    az[q] ^= ez
+        if kind == "Z":
+            # CNOT(data_q=c, ancilla=t): az_c ^= az_t ; ax_t ^= ax_c
+            if aa_z:
+                hooked = True
+            az[q] ^= aa_z
+            aa_x ^= ax[q]
+        else:
+            # X-check CNOT(ancilla=c, data_q=t): az_c ^= az_t ; ax_t ^= ax_c
+            if aa_x:
+                hooked = True
+            aa_z ^= az[q]
+            ax[q] ^= aa_x
+    if kind == "X":
+        aa_x, aa_z = aa_z, aa_x            # H (back to Z basis)
+    outcome = aa_x
+    if p_readout > 0 and rng.random() < p_readout:
+        outcome ^= 1
+    return outcome, hooked
+
+
+def extract_syndrome_noiseless(code, ex, ez):
+    """Run the NOISELESS stabilizer circuits on a known data error and return
+    (x_check_bits, z_check_bits). Exists as the independent validation oracle:
+    must equal RotatedSurfaceCodeDecoder.syndrome(ex, ez)."""
+    n = code.d * code.d
+    ax = [1 if (ex >> q) & 1 else 0 for q in range(n)]
+    az = [1 if (ez >> q) & 1 else 0 for q in range(n)]
+
+    class _NoRng:
+        def random(self):
+            raise RuntimeError("noiseless oracle must not sample")
+    x_out, z_out = [], []
+    for kind, checks in (("X", code.x_checks), ("Z", code.z_checks)):
+        for check in checks:
+            out, _ = _measure_one_check(code, check, kind, ax, az, _NoRng(),
+                                        0.0, 0.0, 0.0, 0.0)
+            (x_out if kind == "X" else z_out).append(out)
+    return tuple(x_out), tuple(z_out)
+
+
+def simulate_circuit_level(code, rounds, p_gate, p_readout, p_reset, p_prep,
+                           *, seed):
+    """Run R rounds of noisy stabilizer-measurement circuits.
+
+    Returns (data_error_x, data_error_z, hook_events, observed_syndromes).
+    """
+    if rounds < 1 or rounds > _MAX_ROUNDS:
+        raise ValueError(f"rounds must be within [1, {_MAX_ROUNDS}], got {rounds}.")
+    for p, name in ((p_gate, "p_gate"), (p_readout, "p_readout"),
+                    (p_reset, "p_reset"), (p_prep, "p_prep")):
+        if not (0 <= p <= 1):
+            raise ValueError(f"{name} must be within [0,1].")
+    rng = np.random.default_rng(seed)
+    n = code.d * code.d
+    ax = [0] * n
+    az = [0] * n
+    hook_events: list[tuple[int, str, int]] = []
+    observed: list[tuple[tuple[int, ...], tuple[int, ...]]] = []
+
+    for _round in range(1, rounds + 1):
+        x_out: list[int] = []
+        z_out: list[int] = []
+        # The FINAL round uses an IDEAL syndrome readout (p_reset / p_prep /
+        # p_readout zeroed) so its outcome is exactly the net data syndrome —
+        # honoring decode_repeated's documented ideal-final-round contract.
+        # Gate faults (and their hooks) in the final round are still modeled,
+        # so final-slice data errors propagate normally before the readout.
+        is_final = _round == rounds
+        r_reset = 0.0 if is_final else p_reset
+        r_prep = 0.0 if is_final else p_prep
+        r_readout = 0.0 if is_final else p_readout
+        for kind, checks in (("X", code.x_checks), ("Z", code.z_checks)):
+            for check in checks:
+                outcome, hooked = _measure_one_check(
+                    code, check, kind, ax, az, rng, p_gate, r_reset, r_prep,
+                    r_readout)
+                (x_out if kind == "X" else z_out).append(outcome)
+                if hooked:
+                    hook_events.append((_round, kind, check.index))
+        observed.append((tuple(x_out), tuple(z_out)))
+
+    data_ex = sum(1 << q for q in range(n) if ax[q])
+    data_ez = sum(1 << q for q in range(n) if az[q])
+    return data_ex, data_ez, hook_events, observed
+
+
+def decode_circuit_level(code, rounds, p_gate, p_readout, p_reset, p_prep,
+                         *, data_error_x, data_error_z, observed_syndromes,
+                         hook_events=(), seed=None):
+    """Feed a circuit-level history into the existing repeated-round decoder."""
+    result = decode_repeated(
+        code, rounds, p_gate, p_readout,
+        data_error_x=data_error_x, data_error_z=data_error_z,
+        observed_syndromes=observed_syndromes, seed=seed,
+        error_model="circuit_level")
+    result.hook_events = list(hook_events)
+    return result
+
+
+def simulate_circuit_level_mc(d, rounds, p_gate, p_readout, p_reset, p_prep, *,
+                              trials, seed):
+    """Circuit-level Monte Carlo logical-error estimate (reuses decode_repeated
+    + Wilson interval)."""
+    if d not in _SUPPORTED_DISTANCES:
+        raise ValueError(f"Unsupported distance {d}; use {list(_SUPPORTED_DISTANCES)}.")
+    if rounds < 1 or rounds > _MAX_ROUNDS:
+        raise ValueError(f"rounds must be within [1, {_MAX_ROUNDS}], got {rounds}.")
+    for p, name in ((p_gate, "p_gate"), (p_readout, "p_readout"),
+                    (p_reset, "p_reset"), (p_prep, "p_prep")):
+        if not (0 <= p <= 1):
+            raise ValueError(f"{name} must be within [0,1].")
+    if trials <= 0:
+        raise ValueError("trials must be positive.")
+    code = RotatedSurfaceCode.build(d)
+    failures = 0
+    total_hooks = 0
+    for t in range(trials):
+        trial_seed = seed + t * 7919
+        ex, ez, hooks, obs = simulate_circuit_level(
+            code, rounds, p_gate, p_readout, p_reset, p_prep, seed=trial_seed)
+        total_hooks += len(hooks)
+        res = decode_circuit_level(
+            code, rounds, p_gate, p_readout, p_reset, p_prep,
+            data_error_x=ex, data_error_z=ez, observed_syndromes=obs,
+            hook_events=hooks, seed=trial_seed)
+        if not res.success:
+            failures += 1
+    lo, hi = wilson_interval(failures, trials)
+    return {
+        "d": d, "rounds": rounds, "p_gate": p_gate, "p_readout": p_readout,
+        "p_reset": p_reset, "p_prep": p_prep, "trials": trials,
+        "logical_failures": failures, "logical_error_rate": failures / trials,
+        "ci95": [lo, hi], "seed": seed, "decoder": "mwpm",
+        "hook_error_events": total_hooks,
+        "note": (
+            "Circuit-level surface-code decoding: explicit ancilla stabilizer "
+            "circuits with gate (p_gate), readout (p_readout), reset (p_reset), "
+            "and preparation (p_prep) noise, decoded by the repeated-round MWPM. "
+            "Single-qubit gates ideal; no hardware or threshold claims."
+        ),
+    }

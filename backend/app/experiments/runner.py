@@ -668,6 +668,65 @@ def run_repeated_round_surface_code(config: dict, seed: int) -> dict:
         artifacts={"table": table}, notes=notes)
 
 
+def run_surface_code_circuit_level(config: dict, seed: int) -> dict:
+    """Circuit-level surface-code Monte Carlo decoding study.
+
+    Config: distances (odd, e.g. [3,5]), rounds, p_gate, p_readout, p_reset,
+    p_prep, trials_per_point.
+    """
+    from ..qec import simulate_circuit_level_mc
+
+    distances = [int(d) for d in config.get("distances", [3, 5])]
+    if not distances:
+        raise ValueError("distances must be a non-empty list.")
+    rounds = int(config.get("rounds", 4))
+    p_gate = float(config.get("p_gate", 0.005))
+    p_readout = float(config.get("p_readout", 0.005))
+    p_reset = float(config.get("p_reset", 0.003))
+    p_prep = float(config.get("p_prep", 0.003))
+    trials = int(config.get("trials_per_point", 2000))
+    if trials <= 0:
+        raise ValueError("trials_per_point must be positive.")
+    table = []
+    for di, d in enumerate(distances):
+        point_seed = seed + 1000 + di * 7919
+        res = simulate_circuit_level_mc(
+            d, rounds, p_gate, p_readout, p_reset, p_prep,
+            trials=trials, seed=point_seed)
+        table.append({
+            "d": res["d"], "rounds": res["rounds"], "p_gate": res["p_gate"],
+            "p_readout": res["p_readout"], "p_reset": res["p_reset"],
+            "p_prep": res["p_prep"],
+            "logical_error_rate": res["logical_error_rate"],
+            "logical_failures": res["logical_failures"],
+            "ci95_low": res["ci95"][0], "ci95_high": res["ci95"][1],
+            "hook_error_events": res.get("hook_error_events"),
+            "trials": res["trials"], "seed": res["seed"],
+        })
+    metrics = {
+        "distances": distances, "rounds": rounds, "p_gate": p_gate,
+        "p_readout": p_readout, "p_reset": p_reset, "p_prep": p_prep,
+        "points": len(table), "trials_per_point": trials,
+        "trials_total": sum(t["trials"] for t in table),
+        "lowest_logical_error_rate": min(
+            (t["logical_error_rate"] for t in table), default=None),
+    }
+    notes = [
+        "Circuit-level surface-code decoding: explicit ancilla stabilizer "
+        "circuits (reset/prep/CNOT/measure) with gate, readout, reset, and "
+        "preparation noise, decoded by the repeated-round MWPM. Ideal final "
+        "round readout; single-qubit gates ideal.",
+        "p_L is the logical error rate (Wilson 95% interval); distinct from "
+        "the four physical noise probabilities.",
+        "Correlated hook errors from ancilla faults are modeled; the naive "
+        "schedule does not exhibit distance suppression at d=3 (documented). "
+        "No hardware or threshold claims.",
+    ]
+    return make_result_document(
+        "surface_code_circuit_level", metrics,
+        artifacts={"table": table}, notes=notes)
+
+
 def run_surface_code_mwpm(config: dict, seed: int) -> dict:
     """Monte Carlo threshold-style study: rotated planar surface code decoded
     by exact MWPM (code capacity, perfect syndrome).
@@ -781,6 +840,7 @@ RUNNER_REGISTRY = {
     "distributed_circuit": run_distributed_circuit,
     "surface_code_mwpm": run_surface_code_mwpm,
     "repeated_round_surface_code": run_repeated_round_surface_code,
+    "surface_code_circuit_level": run_surface_code_circuit_level,
     "process_probe": run_process_probe,
 }
 

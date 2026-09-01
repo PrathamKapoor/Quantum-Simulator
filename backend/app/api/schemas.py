@@ -338,6 +338,28 @@ class RepeatedRoundSimulateRequest(BaseModel):
     seed: int = 5
 
 
+class CircuitLevelDecodeRequest(BaseModel):
+    d: int = Field(default=3, ge=3, le=7)
+    rounds: int = Field(default=4, ge=1, le=64)
+    p_gate: float = Field(default=0.005, ge=0, le=1)
+    p_readout: float = Field(default=0.005, ge=0, le=1)
+    p_reset: float = Field(default=0.003, ge=0, le=1)
+    p_prep: float = Field(default=0.003, ge=0, le=1)
+    seed: int = 5
+    include_layout: bool = True
+
+
+class CircuitLevelSimulateRequest(BaseModel):
+    d: int = Field(default=3, ge=3, le=7)
+    rounds: int = Field(default=4, ge=1, le=64)
+    p_gate: float = Field(default=0.005, ge=0, le=1)
+    p_readout: float = Field(default=0.005, ge=0, le=1)
+    p_reset: float = Field(default=0.003, ge=0, le=1)
+    p_prep: float = Field(default=0.003, ge=0, le=1)
+    trials: int = Field(default=3000, ge=100, le=200_000)
+    seed: int = 5
+
+
 class RemoteCNOTRequest(BaseModel):
     control_qubit: int = Field(ge=0, le=63)
     target_qubit: int = Field(ge=0, le=63)

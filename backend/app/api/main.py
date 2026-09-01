@@ -700,6 +700,42 @@ def repeated_round_simulate(req: schemas.RepeatedRoundSimulateRequest):
     return res
 
 
+@app.post("/api/qec/rotated-surface-code/circuit-level/decode")
+def circuit_level_decode(req: schemas.CircuitLevelDecodeRequest):
+    """Sample + decode one circuit-level error history (ancilla circuits)."""
+    from ..qec import RotatedSurfaceCode, simulate_circuit_level, decode_circuit_level
+
+    try:
+        code = RotatedSurfaceCode.build(req.d)
+        ex, ez, hooks, obs = simulate_circuit_level(
+            code, req.rounds, req.p_gate, req.p_readout, req.p_reset, req.p_prep,
+            seed=req.seed)
+        result = decode_circuit_level(
+            code, req.rounds, req.p_gate, req.p_readout, req.p_reset, req.p_prep,
+            data_error_x=ex, data_error_z=ez, observed_syndromes=obs,
+            hook_events=hooks, seed=req.seed)
+    except ValueError as e:
+        raise http_error(400, "VALIDATION_ERROR", str(e))
+    body = result.to_dict()
+    if req.include_layout:
+        body["layout"] = code.layout()
+    return body
+
+
+@app.post("/api/qec/rotated-surface-code/circuit-level/simulate")
+def circuit_level_simulate(req: schemas.CircuitLevelSimulateRequest):
+    """Circuit-level Monte Carlo logical-error estimate."""
+    from ..qec import simulate_circuit_level_mc
+
+    try:
+        res = simulate_circuit_level_mc(
+            req.d, req.rounds, req.p_gate, req.p_readout, req.p_reset,
+            req.p_prep, trials=req.trials, seed=req.seed)
+    except ValueError as e:
+        raise http_error(400, "VALIDATION_ERROR", str(e))
+    return res
+
+
 @app.post("/api/network/route")
 def network_route(req: schemas.NetworkSimulateRequest):
     """Route explanation endpoint: returns chosen path + why (§197)."""

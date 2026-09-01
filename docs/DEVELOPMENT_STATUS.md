@@ -4,7 +4,7 @@
 > work MUST read this file first, then ROADMAP.md, ARCHITECTURE.md,
 > SCIENTIFIC_MODELS.md, LIMITATIONS.md (directive §320).
 >
-> Last updated: 2026-08-31 (session 9 final checkpoint)
+> Last updated: 2026-08-31 (session 10 final checkpoint)
 
 ## Current state
 
@@ -61,7 +61,7 @@ Run it: `dev.bat backend` + `dev.bat frontend` → http://localhost:5173
 
 ## Tests & validation
 
-- Fast suite: **664 passed** (session 9; was 630).
+- Fast suite: **704 passed** (session 10; was 664).
   Session 5 added: `test_werner_state.py` (40: trace/Hermiticity/PSD,
   target-fidelity = F at seven F values, F = 1/0/0.25/0.5 limit cases,
   q-parameterization consistency, ordering convention, negativity/concurrence
@@ -357,6 +357,35 @@ Classification: VERIFIED = exercised in this session's automated runs.
   pixel-level inspection was NOT performed; rendering is verified by
   assertion, and prior sessions' "screenshots inspected" claims were made on
   the same DOM-assertion basis — recorded here for honesty.
+
+## Session 10 — circuit-level surface-code simulation
+
+Classification: VERIFIED = exercised this session's automated runs.
+
+- VERIFIED — scientific model: explicit ancilla stabilizer circuits (reset /
+  prepare / CNOT schedule / measure) with four independent noise channels
+  (gate, readout, reset, preparation) and orientation-aware Pauli-frame
+  propagation; hook errors emerge from the schedule and are recorded.
+- VERIFIED — independent validation: CNOT propagation equals an independent
+  4x4 matrix CNOT for every Pauli; noiseless schedule syndrome equals the
+  algebraic syndrome_of for every single-qubit error (d=3/5).
+- VERIFIED — channels distinct: reset/readout saturate to all-ones outcomes in
+  non-final rounds; clean (p=0) gives zero events/failures; single data error
+  decodes CORRECTED; logical string (zero syndrome) is LOGICAL_Z; stabilizer
+  is CORRECTED; hook emergence demonstrated.
+- VERIFIED — Monte Carlo: p=0 zero failures; increasing gate noise increases
+  failures; reproducibility exact; low noise converges to zero. Documented:
+  the naive schedule does NOT suppress with distance (hook errors beat d=3).
+- VERIFIED — integration: two API endpoints (decode + simulate); a
+  surface_code_circuit_level experiment through the process-isolated worker
+  (create/execute/result/reproduce EXACT_MATCH); QecLab CircuitLevelPanel;
+  2 Playwright tests (decode + Monte Carlo) against the real backend.
+- VERIFIED — regression: backend 704/704 (664 + circuit-level suites);
+  TypeScript + vite build clean.
+- Bug found and resolved: the initial space-time "temporal-end" handling of a
+  noisy final round over-corrected data errors into false logical failures;
+  reverted to the proven ideal-final-round decoder and moved the modeling
+  burden to the simulator (ideal final readout), the documented convention.
 
 ### Browser-discovered defects fixed at root
 

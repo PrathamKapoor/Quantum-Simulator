@@ -343,3 +343,35 @@ single-shot decoder — not as a second framework.
    with difference detection is made explicit and testable. (c) A new matcher
    or graph framework — unnecessary; the existing DP matcher's complete-graph
    + boundary-copy interface suffices for the space-time graph.
+
+## AD-017 — Circuit-level QEC is a Pauli-frame simulator feeding the repeated-round MWPM
+
+**Decision.** Circuit-level surface-code noise is modeled by a Pauli
+(Gottesman-Knill) frame simulator over data qubits + disposable ancillas,
+driving the EXISTING repeated-round decoder — not by a second decoder or a
+second graph.
+
+1. **Frame simulation, not density matrices** (§44): only Clifford gates
+   (H, CNOT, reset, Z-measure) and Pauli noise appear, so the whole noisy
+   circuit is tracked exactly as a Pauli frame. CNOT propagation (control X ->
+   target X; target Z -> control Z) is validated against an independent 4x4
+   matrix CNOT.
+2. **Hook errors emerge, never inject:** ancilla faults propagate through the
+   schedule's remaining CNOTs onto data qubits; recorded explicitly. No
+   separate "hook-error" random variable exists.
+3. **Decoder reuse:** the syndrome history + net data frame feed the existing
+   two-stage repeated-round decoder; circuit-level hook correlation is NOT
+   folded into a bespoke matching graph (documented limitation — the
+   follow-on milestone).
+4. **Ideal final round + ideal single-qubit gates:** modeling choices so the
+   final syndrome is the clean net data syndrome (consistent with
+   decode_repeated's contract) and to bound scope.
+5. **Channel separation:** gate / readout / reset / preparation noise are four
+   independent configurable probabilities, never conflated.
+
+**Rejected alternatives.** (a) A dedicated circuit-level matching graph — out
+of scope for this milestone and would duplicate decoding logic (§M). (b)
+Modeling a final-round measurement flip as a data error heuristically —
+rejected; the ideal-final-round convention is cleaner and documented.
+(c) Folding reset into preparation or gate noise — rejected; the milestone
+requires them distinct.

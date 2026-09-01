@@ -558,3 +558,58 @@ DOM-assertion basis; corrected in DEVELOPMENT_STATUS.)
 Circuit-level QEC noise (ancilla preparation, gate, reset, measurement
 channels) is the natural next scientific extension (§45-§50, now explicitly
 deferred). Reread roadmap + handoff first.
+
+# Session 10 — Circuit-level surface-code simulation (2026-08-31)
+
+Directive (milestone 11): replace the phenomenological syndrome generator with
+a real stabilizer-measurement circuit simulator (ancillas, schedules, gate /
+reset / prep / readout noise, hook errors), feeding the existing repeated-round
+MWPM.
+
+## Phases
+
+1. Reconnaissance: reused RotatedSurfaceCode geometry, syndrome_of, the
+   repeated-round decoder (decode_repeated), the matcher, wilson_interval.
+2. Design (AD-017): a Pauli (Gottesman-Knill) frame simulator over data qubits
+   + disposable ancillas. Schedules validated against syndrome_of; CNOT
+   propagation validated against an independent 4x4 matrix. Four noise
+   channels kept distinct. Hook errors emerge from the schedule.
+3. Implementation (qec/circuit_level.py) + a 24-case deterministic test matrix
+   (propagation oracle, noiseless-syndrome equality, channel saturation, hook
+   emergence, decoder integration, Monte Carlo) + 8 API/experiment tests +
+   2 Playwright tests.
+4. Integration: API endpoints, surface_code_circuit_level experiment (through
+   the process-isolated worker), QecLab CircuitLevelPanel, Playwright.
+
+## Bug found and resolved at root
+
+- The first attempt to handle a NOISY final round added a "temporal-end"
+  boundary to decode_repeated, which made the cheaper measurement-fault
+  interpretation swallow genuine final-layer data errors, regressing the
+  proven phenomenological decoder. Root understanding: the final-round
+  ambiguity is real; reverted decode_repeated to its proven ideal-final-round
+  form and modeled the final round's readout as IDEAL in the circuit simulator
+  (documented convention), keeping gate faults + hooks in the final round.
+- Also fixed a sampling bug: the initial depolarizing sampler returned "I" 75%
+  of the time AFTER a separate p-gate, giving an effective error probability of
+  p/12 instead of the established I/(p/3)/.. convention. Corrected to the
+  canonical channel and re-validated.
+
+## Scientific findings
+
+- The naive schedule's hook errors (one ancilla fault -> 2..4 data qubits) are
+  uncorrectable at d=3, so distance suppression is NOT observed — a real,
+  documented property (the follow-on is a hook-optimised schedule / the full
+  circuit-level matching graph). Weight-1 data errors and measurement-flip
+  histories decode correctly.
+
+## Regression
+
+Backend 704/704; TypeScript + vite build clean; circuit-level Playwright 2/2;
+existing repeated-round and phenom suites remain green.
+
+## Next milestone
+
+Hook-optimised schedule and/or the circuit-level matching graph (so correlated
+hooks become decodable and distance suppression is recoverable); or coherent /
+biased noise channels. Reread roadmap + handoff first.

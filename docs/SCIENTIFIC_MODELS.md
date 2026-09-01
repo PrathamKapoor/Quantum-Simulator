@@ -566,3 +566,38 @@ measurement; logical string at zero syndrome; stabilizer equivalence; Y
 errors in both sectors; reproducibility) pass before any Monte Carlo. Monte
 Carlo reuses `wilson_interval`; p=0 gives zero failures; p_L increases with
 noise; larger distance suppresses p_L as evidence (not a threshold claim).
+
+## Session-10 additions
+
+### Circuit-level surface-code simulation (fault-tolerant stabilizer circuits)
+
+Replaces the PHENOMENOLOGICAL symptom "measurement flip per round" with an
+explicit ancilla stabilizer-measurement circuit per check, tracking a Pauli
+(Gottesman-Knill) frame:
+
+- **Ancillas**: one disposable ancilla per stabilizer per round, no logical
+  information.
+- **Schedules (deterministic)** — Z-check: reset |0>; CNOT(data_q -> ancilla);
+  measure Z. X-check: reset |0>; H; CNOT(ancilla -> data_q); H; measure Z.
+  Both directions validated against syndrome_of.
+- **Noise channels (all independent, seeded)**: gate (depolarizing on each of
+  the two qubits at every CNOT, p_gate); readout (measured-bit flip, p_readout);
+  reset (ancilla X, p_reset); preparation (ancilla depolarizing, p_prep);
+  single-qubit H is ideal.
+- **Pauli frames**: CNOT propagates control X forward to target and target Z
+  back to control (validated against an independent 4x4 matrix CNOT).
+- **Hook errors**: an ancilla fault propagates through the remaining CNOTs of
+  its schedule onto MULTIPLE data qubits => correlated multi-qubit data errors
+  (orientation-aware). Recorded explicitly, never injected.
+
+Output (measured syndrome history + net data frame) feeds the existing
+repeated-round decoder (decode_repeated). The final round uses an IDEAL readout
+so the syndrome equals the net data syndrome, honoring that decoder's
+documented ideal-final-round contract.
+
+**Honest finding**: with the naive schedule, a single ancilla fault hooks to
+2..4 data qubits, which distance 3 cannot correct — so distance suppression is
+NOT observed in this first circuit-level model (documented, not hidden). This
+is a real property of naive circuit-level schedules + phenomenological MWPM,
+not a decoder defect; the standard remedy (a hook-optimised schedule and/or a
+circuit-level matching graph) is the follow-on milestone.

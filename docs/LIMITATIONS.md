@@ -237,3 +237,22 @@ layout, process-isolated workers.
   optimal beyond the stated model).
 - **No threshold / hardware claims:** distance and round trends are bounded
   evidence, not threshold estimates; the model is a simulator.
+
+## Circuit-level surface-code simulation
+
+- **Naive schedule, no distance suppression at d=3:** correlated hook errors
+  (one ancilla fault -> 2..4 data qubits) exceed the distance-3 correction
+  radius, so p_L(d=5) is not lower than p_L(d=3) in this model. This is a real
+  physical property, reported, not a decoder defect.
+- **Decoder is the phenomenological MWPM:** the circuit-generated detection
+  events are decoded by the existing repeated-round MWPM (per the milestone's
+  "do not duplicate decoding logic"). It is not the full circuit-level
+  matching graph, so optimal decoding of general correlated hooks is not
+  provided.
+- **Ideal final-round readout** (and ideal single-qubit H gates): documented
+  modeling choices so the final syndrome equals the net data syndrome.
+- **Phenomenological noise channels only:** no coherent errors, no
+  frequency/timing dependence, no hardware-realistic gate-level Pauli-twirled
+  noise beyond the stated depolarizing channels.
+- **Bounded scope:** rounds 1..64, distances 3/5/7; matcher capacity guard
+  retained; no threshold/hardware claims.

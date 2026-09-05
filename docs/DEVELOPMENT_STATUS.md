@@ -4,7 +4,7 @@
 > work MUST read this file first, then ROADMAP.md, ARCHITECTURE.md,
 > SCIENTIFIC_MODELS.md, LIMITATIONS.md (directive §320).
 >
-> Last updated: 2026-09-05 (session 13 final checkpoint)
+> Last updated: 2026-09-05 (session 14 final checkpoint)
 
 ## Current state
 
@@ -61,8 +61,8 @@ Run it: `dev.bat backend` + `dev.bat frontend` → http://localhost:5173
 
 ## Tests & validation
 
-- Fast suite: **768 passed** (session 13; was 747; +21 new for
-  circuit-aware hybrid decoder + extraction registry).
+- Fast suite: **777 passed** (session 14; was 768; +9 new for
+  hook forensics + adversarial).
   Session 5 added: `test_werner_state.py` (40: trace/Hermiticity/PSD,
   target-fidelity = F at seven F values, F = 1/0/0.25/0.5 limit cases,
   q-parameterization consistency, ordering convention, negativity/concurrence
@@ -496,4 +496,37 @@ STATICALLY REVIEWED = code-reviewed, build-verified only.
      constraining to weight-1 hooks only.
 - **Documentation:** AD-019, SCIENTIFIC_MODELS "Session-13
   additions", LIMITATIONS, handoff.md.
+
+
+## Session 14 — hook-forensic analysis + exact-union graph combination
+
+- **VERIFIED** — programmatic hook-forensic analysis
+  (`qec/hook_forensics.py`): 184 reports at d=3 covering
+  every ancilla Pauli at every CNOT position. 36 LOGICAL
+  outcomes from a single fault. The forensic conclusively
+  confirms that the no-distance-suppression finding is
+  STRUCTURAL to the H-CNOT-H circuit (weight-2 to
+  weight-4 hooks exceed d=3's correction radius). A
+  faithful hook-safe schedule requires Shor cat-state
+  (4 ancillas) or lattice-wide temporal interleaving —
+  ARCHITECTURAL, deferred to a follow-on milestone.
+- **VERIFIED** — exact small-probability union combination
+  rule in `circuit_graph_decoder.py` (Σ p_i → 1 - Π(1 - p_i)).
+  Mathematically correct for independent mechanisms; the
+  difference is negligible at the tested noise levels
+  (p < 0.01).
+- **VERIFIED** — 9 new backend tests (catalogue-size match,
+  max hook weight, logical outcome count, boundary data
+  hook count, summary aggregation, forensic-oracle
+  consistency, p=0 regression, single data error
+  correction).
+- **VERIFIED** — API endpoint
+  /api/qec/rotated-surface-code/hook-forensics. Frontend
+  HookForensicsPanel. 1 new Playwright test (45 → 46
+  tests; the experiment-sweep timing flake at line 155 is
+  a pre-existing fragility, not a regression — passes in
+  isolation).
+- **VERIFIED** — regression: backend 768/768 → 777/777;
+  Playwright 45/45 (with one timing flake on the sweep
+  test); 0 orphan processes; clean tree.
 

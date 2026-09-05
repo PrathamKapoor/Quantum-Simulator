@@ -812,3 +812,48 @@ biased noise channels. Reread roadmap + handoff first.
 - **Regression:** 747/742 → 768/768 backend (+21 new).
   Playwright 43/43 → 44/44 (+1 new). 0 orphan processes.
 
+
+## Session 14 — hook-forensic analysis + exact-union graph combination
+
+- **Phase A (reconnaissance):** verified baseline 768/768 green,
+  clean tree, 3 commits from session 13.
+- **Phase B (forensic hook analysis):** added
+  `qec/hook_forensics.py` with programmatic enumeration of every
+  ancilla Pauli at every CNOT position. d=3 produces 184
+  reports; 36 LOGICAL outcomes from a single fault; max hook
+  weight 4; interior 4-data-qubit stabilizers are the most
+  dangerous (X1: 9 logical-risk reports). The forensic
+  CONCLUSIVELY confirms that the no-distance-suppression finding
+  is structural to the H-CNOT-H circuit: weight-2 to weight-4
+  hooks from a single ancilla fault exceed d=3's correction
+  radius. The proper fix (Shor cat-state with 4 ancillas OR
+  lattice-wide temporal interleaving) is ARCHITECTURAL and
+  deferred to a follow-on milestone.
+- **Phase F-G (graph improvements):** the combination rule in
+  `circuit_graph_decoder.py` was upgraded from the linear
+  approximation (Σ p_i) to the exact small-probability union
+  (1 - Π(1 - p_i)). The difference is negligible at the tested
+  noise levels (p < 0.01) but is the mathematically correct
+  combination rule for independent mechanisms.
+- **Phase C (hook-optimized schedule):** under the existing
+  H-CNOT-H circuit the schedule is provably degenerate. A
+  faithful hook-safe schedule requires Shor cat-state (4
+  ancillas) or lattice-wide temporal interleaving. The
+  forensic report is the EVIDENCE BASE for any future
+  implementation. Implementation is deferred.
+- **Phase E (deterministic adversarial):** 9 new tests
+  (catalogue-size match, max hook weight, logical outcome
+  count, boundary data hook count, summary aggregation,
+  forensic-oracle consistency, p=0 regression, single data
+  error correction). 777/777 backend green.
+- **Phase M (API):** GET
+  /api/qec/rotated-surface-code/hook-forensics?d=N&round=N
+  returns the per-stabilizer forensic report.
+- **Phase N (frontend):** HookForensicsPanel with distance +
+  round controls; per-stabilizer data hook / logical risk
+  table; metric cards.
+- **Phase O (Playwright):** 1 new test (forensic analysis
+  renders per-stabilizer table).
+- **Regression:** backend 768/768 → 777/777 (+9 new); Playwright
+  pending final run.
+

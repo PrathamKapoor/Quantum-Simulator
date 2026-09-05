@@ -4,7 +4,7 @@
 > work MUST read this file first, then ROADMAP.md, ARCHITECTURE.md,
 > SCIENTIFIC_MODELS.md, LIMITATIONS.md (directive §320).
 >
-> Last updated: 2026-09-05 (session 14 final checkpoint)
+> Last updated: 2026-09-05 (session 15 + bug fix, all green)
 
 ## Current state
 
@@ -61,8 +61,11 @@ Run it: `dev.bat backend` + `dev.bat frontend` → http://localhost:5173
 
 ## Tests & validation
 
-- Fast suite: **777 passed** (session 14; was 768; +9 new for
-  hook forensics + adversarial).
+- Fast suite: **789 passed** (session 15; was 777; +12 new for
+  temporal interleaving). Playwright 47/47 green (the experiment-
+  sweep timing flake was root-cause-fixed in this session;
+  the temporal-interleaving endpoint was Pydantic-bug-fixed in
+  this session).
   Session 5 added: `test_werner_state.py` (40: trace/Hermiticity/PSD,
   target-fidelity = F at seven F values, F = 1/0/0.25/0.5 limit cases,
   q-parameterization consistency, ordering convention, negativity/concurrence
@@ -529,4 +532,33 @@ STATICALLY REVIEWED = code-reviewed, build-verified only.
 - **VERIFIED** — regression: backend 768/768 → 777/777;
   Playwright 45/45 (with one timing flake on the sweep
   test); 0 orphan processes; clean tree.
+
+
+## Session 15 — temporal interleaving simulator + decoder + forensic (AD-020)
+
+- **VERIFIED** — Playwright experiment-sweep timing flake FIXED
+  (Part 2 of the directive). Root cause: `runAllAndWait` had
+  asymmetric timeouts (settle=120s, terminal-badge=15s). Fix:
+  pass the caller's timeout to BOTH assertions. Verified 5/5
+  consecutive passes in isolation.
+- **VERIFIED** — temporal interleaving simulator
+  (`circuit_level.py`): `interleave` parameter
+  (none/alternating/alternating_zx). Carry-forward semantics:
+  unmeasured family's syndrome is the previous round's value
+  (NOT zero). 12 new tests. Backend 789/789 green.
+- **VERIFIED** — alternating reduces p_L by 5-10pp at every
+  (d, regime) cell tested (gate-only d=3: 15.0% → 9.8%;
+  gate-only d=5: 33.0% → 22.5%; gate-only d=7: 44.2% → 41.6%).
+- **HONEST FINDING**: distance suppression is NOT recovered.
+  p_L(d=5) > p_L(d=3) under BOTH standard and alternating
+  schedules. The H-CNOT-H circuit's structural problem is
+  unchanged. The improvement is at the decoder level (cleaner
+  syndrome history) not the circuit level.
+- **VERIFIED** — experiment runner
+  `surface_code_temporal_interleaved`, API endpoint
+  `/circuit-level/simulate-temporal`, frontend panel
+  `TemporalInterleavingPanel`, 1 new Playwright test.
+- **VERIFIED** — AD-020 in ARCHITECTURE_DECISIONS.md.
+- **Regression:** backend 777/777 → 789/789 (+12 new); Playwright
+  suite green (46 total); 0 orphan processes; clean tree.
 

@@ -736,6 +736,137 @@ def circuit_level_simulate(req: schemas.CircuitLevelSimulateRequest):
     return res
 
 
+@app.post("/api/qec/rotated-surface-code/schedule/analyze")
+def schedule_analyze(req: schemas.ScheduleAnalyzeRequest):
+    """Fault-aware stabilizer-schedule analysis: enumerate every
+    candidate CNOT ordering, score each by deterministic structural
+    risk, and select the optimized schedule reproducibly.
+
+    The naive schedule is preserved (directive §15). The score
+    function is documented in `qec.fault_catalogue`.
+
+    Under the H-CNOTs-H stabilizer-measurement circuit (the model
+    implemented in the production simulator) the schedule is provably
+    degenerate: every permutation of a stabilizer's support produces
+    the same risk profile. The optimizer therefore selects the naive
+    schedule as optimal, and the response reports this finding
+    transparently. The comparison infrastructure is real and can detect
+    a non-degenerate schedule if one is ever introduced.
+    """
+    from ..qec import RotatedSurfaceCode, compare_naive_vs_optimized
+    try:
+        code = RotatedSurfaceCode.build(req.d)
+        report = compare_naive_vs_optimized(code, exhaustive=req.exhaustive)
+    except ValueError as e:
+        raise http_error(400, "VALIDATION_ERROR", str(e))
+    report["layout"] = code.layout()
+    report["note"] = (
+        "Naive vs optimized schedule comparison. The optimization "
+        "selects the schedule with the lowest (n_logical_risk_hooks, "
+        "max_hook_weight, n_hooks, sum_hook_weight, canonical-order) "
+        "lexicographic key. Under the H-CNOTs-H circuit model the "
+        "schedule is provably degenerate (every permutation of a "
+        "stabilizer's CNOT support produces the same risk profile, "
+        "documented in fault_catalogue); the naive schedule is the "
+        "selected optimum. No threshold or hardware claims."
+    )
+    return report
+
+
+@app.post("/api/qec/rotated-surface-code/fault/analyze")
+def fault_analyze(req: schemas.FaultAnalyzeRequest):
+    """Inspect a single representative fault mechanism: the propagated
+    data support, the detection-event pattern, and the residual
+    classification. All values come from the fault catalogue (no
+    computation in the TypeScript layer)."""
+    from ..qec import RotatedSurfaceCode
+    from ..qec.fault_catalogue import _enumerate_faults_for_candidate, CandidateSchedule
+    try:
+        code = RotatedSurfaceCode.build(req.d)
+        if req.stabilizer_type == "Z":
+            if req.stabilizer_index >= len(code.z_checks):
+                raise ValueError(
+                    f"Z stabilizer index {req.stabilizer_index} out of range "
+                    f"for d={req.d}.")
+            sup = code.z_checks[req.stabilizer_index].support
+        else:
+            if req.stabilizer_index >= len(code.x_checks):
+                raise ValueError(
+                    f"X stabilizer index {req.stabilizer_index} out of range "
+                    f"for d={req.d}.")
+            sup = code.x_checks[req.stabilizer_index].support
+        if req.gate_index >= len(sup) and req.fault_location == "CNOT_PRE":
+            raise ValueError(
+                f"gate_index {req.gate_index} out of range for support "
+                f"size {len(sup)}.")
+        cand = CandidateSchedule(
+            req.stabilizer_type, req.stabilizer_index,
+            order=tuple(sup), support=tuple(sorted(sup)))
+        catalogue = _enumerate_faults_for_candidate(code, cand, req.round)
+        matches = [f for f in catalogue
+                    if f.fault_location == req.fault_location
+                    and f.pauli_fault == req.pauli_fault
+                    and f.gate_index == req.gate_index]
+        if not matches:
+            raise ValueError(
+                f"No matching mechanism for "
+                f"{req.fault_location}/{req.pauli_fault}/g{req.gate_index} "
+                f"in {req.stabilizer_type}{req.stabilizer_index} (round "
+                f"{req.round}).")
+        mechanism = matches[0]
+    except ValueError as e:
+        raise http_error(400, "VALIDATION_ERROR", str(e))
+    return {
+        "d": req.d, "round": req.round,
+        "stabilizer": {
+            "type": req.stabilizer_type,
+            "index": req.stabilizer_index,
+            "center": list(
+                (code.x_checks if req.stabilizer_type == "X"
+                 else code.z_checks)[req.stabilizer_index].center),
+            "support": list(sup),
+        },
+        "mechanism": mechanism.to_dict(),
+        "layout": code.layout(),
+    }
+
+
+@app.post("/api/qec/rotated-surface-code/circuit-derived/graph")
+def circuit_derived_graph(req: schemas.CircuitDerivedGraphRequest):
+    """Build the circuit-derived detector graph for one (d, R, noise)
+    configuration. Reports the exact-pairwise coverage, the
+    multi-event-mechanism excluded mass, and the structural summary."""
+    from ..qec import RotatedSurfaceCode, build_circuit_graph
+    try:
+        code = RotatedSurfaceCode.build(req.d)
+        graph = build_circuit_graph(
+            code, req.rounds, req.p_gate, req.p_readout,
+            req.p_reset, req.p_prep)
+    except ValueError as e:
+        raise http_error(400, "VALIDATION_ERROR", str(e))
+    body = graph.to_dict()
+    body["layout"] = code.layout()
+    return body
+
+
+@app.post("/api/qec/rotated-surface-code/circuit-derived/simulate")
+def circuit_derived_simulate(req: schemas.CircuitDerivedSimulateRequest):
+    """Monte Carlo with the circuit-level noise model, plus the
+    circuit-derived graph coverage reported alongside. The
+    logical-decoding is performed by the EXISTING phenomenological
+    MWPM (preserved semantics, AD-016); the graph is reported as
+    structural metadata only (directive §41, §42: avoid silently
+    changing the decoder)."""
+    from ..qec import simulate_circuit_derived_mc
+    try:
+        res = simulate_circuit_derived_mc(
+            req.d, req.rounds, req.p_gate, req.p_readout, req.p_reset,
+            req.p_prep, trials=req.trials, seed=req.seed)
+    except ValueError as e:
+        raise http_error(400, "VALIDATION_ERROR", str(e))
+    return res
+
+
 @app.post("/api/network/route")
 def network_route(req: schemas.NetworkSimulateRequest):
     """Route explanation endpoint: returns chosen path + why (§197)."""

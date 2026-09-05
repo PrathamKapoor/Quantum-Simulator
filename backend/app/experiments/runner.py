@@ -727,6 +727,107 @@ def run_surface_code_circuit_level(config: dict, seed: int) -> dict:
         artifacts={"table": table}, notes=notes)
 
 
+def run_surface_code_fault_aware(config: dict, seed: int) -> dict:
+    """Fault-aware + circuit-derived comparison study (AD-018, milestone 12).
+
+    Runs two complementary experiments at the same (d, R, noise) points:
+      (a) phenomenological repeated-round MWPM (the LEGACY decoder;
+          unchanged, AD-016, AD-017);
+      (b) the same noise history fed to the same decoder (logical-error
+          classification is preserved) WITH the circuit-derived graph
+          coverage reported as structural metadata (the graph itself is
+          NOT the decoder — directrive §41, §42).
+
+    The fault-catalogue optimizer is run for every distance and its
+    schedule selection is reported. The naive schedule is preserved as
+    a separate reference. A structural graph-coverage report is
+    produced for each distance, including the exact-pairwise coverage
+    ratio and the multi-event-mechanism excluded mass.
+    """
+    from ..qec import (
+        RotatedSurfaceCode, simulate_circuit_derived_mc,
+    )
+    from ..qec.fault_catalogue import compare_naive_vs_optimized
+    from ..qec.circuit_graph_decoder import build_circuit_graph
+    distances = [int(d) for d in config.get("distances", [3, 5])]
+    if not distances:
+        raise ValueError("distances must be a non-empty list.")
+    rounds = int(config.get("rounds", 4))
+    if rounds < 1:
+        raise ValueError("rounds must be >= 1.")
+    p_gate = float(config.get("p_gate", 0.005))
+    p_readout = float(config.get("p_readout", 0.005))
+    p_reset = float(config.get("p_reset", 0.003))
+    p_prep = float(config.get("p_prep", 0.003))
+    trials = int(config.get("trials_per_point", 2000))
+    if trials <= 0:
+        raise ValueError("trials_per_point must be positive.")
+    table: list[dict] = []
+    schedule_reports: list[dict] = {}
+    for di, d in enumerate(distances):
+        point_seed = seed + 1000 + di * 7919
+        res = simulate_circuit_derived_mc(
+            d, rounds, p_gate, p_readout, p_reset, p_prep,
+            trials=trials, seed=point_seed)
+        code = RotatedSurfaceCode.build(d)
+        sched_cmp = compare_naive_vs_optimized(code, exhaustive=False)
+        graph = build_circuit_graph(
+            code, rounds, p_gate, p_readout, p_reset, p_prep)
+        schedule_reports[str(d)] = {
+            "naive_total_hooks": sched_cmp["naive_total_hooks"],
+            "optimized_total_hooks": sched_cmp["optimized_total_hooks"],
+            "stabilizers_with_changed_schedule":
+                sched_cmp["stabilizers_with_changed_schedule"],
+            "stabilizers_total": len(sched_cmp["per_stabilizer"]),
+            "graph_coverage_ratio": graph.coverage.coverage_ratio,
+            "graph_excluded_ratio": graph.coverage.excluded_ratio,
+            "graph_n_vertices": len(graph.vertex_index),
+            "graph_n_edges": len(graph.pair_weights),
+            "graph_n_exits": len(graph.exit_weights),
+        }
+        table.append({
+            "d": res["d"], "rounds": res["rounds"],
+            "p_gate": res["p_gate"], "p_readout": res["p_readout"],
+            "p_reset": res["p_reset"], "p_prep": res["p_prep"],
+            "logical_error_rate": res["logical_error_rate"],
+            "logical_failures": res["logical_failures"],
+            "ci95_low": res["ci95"][0], "ci95_high": res["ci95"][1],
+            "graph_coverage_ratio": graph.coverage.coverage_ratio,
+            "graph_excluded_ratio": graph.coverage.excluded_ratio,
+            "trials": res["trials"], "seed": res["seed"],
+        })
+    metrics = {
+        "distances": distances, "rounds": rounds, "p_gate": p_gate,
+        "p_readout": p_readout, "p_reset": p_reset, "p_prep": p_prep,
+        "points": len(table), "trials_per_point": trials,
+        "trials_total": sum(t["trials"] for t in table),
+        "lowest_logical_error_rate": min(
+            (t["logical_error_rate"] for t in table), default=None),
+        "schedule_reports": schedule_reports,
+    }
+    notes = [
+        "Fault-aware + circuit-derived comparison study. Logical-error "
+        "classification uses the EXISTING phenomenological MWPM "
+        "(preserved semantics, AD-016/AD-017); the circuit-derived "
+        "graph is reported as structural metadata only — the graph "
+        "is the deterministic single-fault-mechanism summary, not a "
+        "replacement decoder (directive §41, §42).",
+        "Schedule analysis: under the H-CNOTs-H stabilizer-measurement "
+        "circuit, the schedule is provably degenerate (every permutation "
+        "of a stabilizer's CNOT support produces the same risk profile); "
+        "the optimizer therefore selects the naive schedule as optimal.",
+        "Graph coverage: the exact pairwise-MWPM fraction of the "
+        "single-fault probability mass; the remainder is multi-event "
+        "correlations, reported as graph_excluded_ratio (Approach A).",
+        "p_L is the logical error rate (Wilson 95% interval); distinct "
+        "from the four physical noise probabilities. No threshold or "
+        "hardware claims.",
+    ]
+    return make_result_document(
+        "surface_code_fault_aware", metrics,
+        artifacts={"table": table}, notes=notes)
+
+
 def run_surface_code_mwpm(config: dict, seed: int) -> dict:
     """Monte Carlo threshold-style study: rotated planar surface code decoded
     by exact MWPM (code capacity, perfect syndrome).
@@ -841,6 +942,7 @@ RUNNER_REGISTRY = {
     "surface_code_mwpm": run_surface_code_mwpm,
     "repeated_round_surface_code": run_repeated_round_surface_code,
     "surface_code_circuit_level": run_surface_code_circuit_level,
+    "surface_code_fault_aware": run_surface_code_fault_aware,
     "process_probe": run_process_probe,
 }
 

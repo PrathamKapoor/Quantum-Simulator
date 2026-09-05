@@ -54,6 +54,26 @@ from .circuit_level import (
     decode_circuit_level,
     simulate_circuit_level_mc,
 )
+from .fault_catalogue import (
+    FaultMechanism,
+    CandidateSchedule,
+    ScheduleRiskReport,
+    enumerate_candidates,
+    score_candidate,
+    select_optimized_schedules,
+    get_naive_schedules,
+    compare_naive_vs_optimized,
+    build_catalogue_for_stabilizer,
+)
+from .circuit_graph_decoder import (
+    MechanismSummary,
+    GraphCoverage,
+    CircuitDerivedGraph,
+    CircuitDecoderResult,
+    build_circuit_graph,
+    decode_circuit_derived,
+    simulate_circuit_derived_mc,
+)
 
 __all__ = [
     "QECode", "BIT_FLIP_3", "PHASE_FLIP_3", "SHOR_9", "STEANE_7", "FIVE_QUBIT",
@@ -72,4 +92,12 @@ __all__ = [
     "RepeatedRoundResult", "RepeatedDetectionEvent", "RepeatedMatch",
     "cnot_propagate", "extract_syndrome_noiseless", "simulate_circuit_level",
     "decode_circuit_level", "simulate_circuit_level_mc",
+    "FaultMechanism", "CandidateSchedule", "ScheduleRiskReport",
+    "enumerate_candidates", "score_candidate",
+    "select_optimized_schedules", "get_naive_schedules",
+    "compare_naive_vs_optimized", "build_catalogue_for_stabilizer",
+    "MechanismSummary", "GraphCoverage", "CircuitDerivedGraph",
+    "CircuitDecoderResult",
+    "build_circuit_graph", "decode_circuit_derived",
+    "simulate_circuit_derived_mc",
 ]

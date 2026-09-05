@@ -360,6 +360,53 @@ class CircuitLevelSimulateRequest(BaseModel):
     seed: int = 5
 
 
+class ScheduleAnalyzeRequest(BaseModel):
+    """Fault-aware schedule analysis (directive §16-§34)."""
+    d: int = Field(default=3, ge=3, le=7)
+    exhaustive: bool = Field(
+        default=False,
+        description="If true, exhaustively enumerate all permutations up to "
+                    "weight 7 (5040 for d=5 boundary stabilizers). For d=3 "
+                    "the search is always exhaustive.",
+    )
+
+
+class FaultAnalyzeRequest(BaseModel):
+    """Inspect a single representative fault mechanism (directive §42-§44)."""
+    d: int = Field(default=3, ge=3, le=7)
+    stabilizer_type: Literal["X", "Z"] = "X"
+    stabilizer_index: int = Field(default=0, ge=0)
+    fault_location: Literal[
+        "ANCILLA_RESET", "ANCILLA_PREP", "CNOT_PRE", "READOUT"
+    ] = "ANCILLA_RESET"
+    pauli_fault: Literal["X", "Y", "Z"] = "X"
+    gate_index: int = Field(default=0, ge=0)
+    round: int = Field(default=1, ge=1, le=64)
+
+
+class CircuitDerivedGraphRequest(BaseModel):
+    """Build the circuit-derived detector graph (directive §17-§22)."""
+    d: int = Field(default=3, ge=3, le=7)
+    rounds: int = Field(default=4, ge=1, le=64)
+    p_gate: float = Field(default=0.005, ge=0, le=1)
+    p_readout: float = Field(default=0.005, ge=0, le=1)
+    p_reset: float = Field(default=0.003, ge=0, le=1)
+    p_prep: float = Field(default=0.003, ge=0, le=1)
+
+
+class CircuitDerivedSimulateRequest(BaseModel):
+    """Monte Carlo with circuit-level noise + circuit-derived graph
+    coverage reported alongside (directive §33)."""
+    d: int = Field(default=3, ge=3, le=7)
+    rounds: int = Field(default=4, ge=1, le=64)
+    p_gate: float = Field(default=0.005, ge=0, le=1)
+    p_readout: float = Field(default=0.005, ge=0, le=1)
+    p_reset: float = Field(default=0.003, ge=0, le=1)
+    p_prep: float = Field(default=0.003, ge=0, le=1)
+    trials: int = Field(default=3000, ge=100, le=200_000)
+    seed: int = 5
+
+
 class RemoteCNOTRequest(BaseModel):
     control_qubit: int = Field(ge=0, le=63)
     target_qubit: int = Field(ge=0, le=63)

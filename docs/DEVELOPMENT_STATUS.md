@@ -4,7 +4,7 @@
 > work MUST read this file first, then ROADMAP.md, ARCHITECTURE.md,
 > SCIENTIFIC_MODELS.md, LIMITATIONS.md (directive §320).
 >
-> Last updated: 2026-09-04 (session 11 final checkpoint)
+> Last updated: 2026-09-05 (session 12 final checkpoint)
 
 ## Current state
 
@@ -61,7 +61,8 @@ Run it: `dev.bat backend` + `dev.bat frontend` → http://localhost:5173
 
 ## Tests & validation
 
-- Fast suite: **742 passed** (session 11; was 704).
+- Fast suite: **747 passed** (session 12; was 742; +5 new for
+  schedule_mode + regimes + d5-d3 distance tests).
   Session 5 added: `test_werner_state.py` (40: trace/Hermiticity/PSD,
   target-fidelity = F at seven F values, F = 1/0/0.25/0.5 limit cases,
   q-parameterization consistency, ordering convention, negativity/concurrence

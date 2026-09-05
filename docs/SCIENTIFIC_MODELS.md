@@ -643,6 +643,17 @@ fault sites is independent of the order. The optimizer therefore
 selects the naive schedule as optimal; the comparison report shows
 `stabilizers_with_changed_schedule = 0` for every distance (d=3, 5).
 
+**Empirical confirmation (session 12, milestone 12 follow-on):**
+the naive and optimized schedules are bit-identical at every tested
+configuration — at d=3 and d=5, the phenomenological-MWPM p_L is the
+same to four decimal places (verified across gate-only, readout-only,
+reset-only, prep-only, and combined noise regimes; trial counts up
+to 1500 per cell). The decoder is syndrome-driven: the decoder
+sees the SAME detection-event set regardless of which specific data
+qubits are affected, so the p_L is invariant under schedule choice.
+The schedule is therefore REPORTED but does not change the result
+— a documented, not hidden, property of the model.
+
 ## Circuit-derived decoder graph (AD-018)
 
 For every (d, R, noise) configuration the graph builder:
@@ -677,3 +688,40 @@ fraction; `excluded_ratio = 1 − coverage_ratio` is the multi-event
 fraction. At the default noise (p_gate = p_readout = 0.005, p_reset =
 p_prep = 0.003), d=3 shows ~87% exact pairwise coverage and ~13%
 excluded; d=5 shows ~77% and ~23%.
+
+## Distance-scaling investigation (session 12 follow-on)
+
+Per-noise-regime Monte Carlo (d=3, 5, 7) at single-channel and
+combined noise:
+
+```
+regime              d=3         d=5         d=7
+gate-low        2.6%        6.5%       11.5%
+gate-mid       13.7%       30.3%       45.7%
+gate-high      48.7%       68.7%       73.9%
+combined-low    3.0%        5.9%       10.1%
+combined-mid   17.7%       27.7%       39.5%
+combined-high  28.4%       46.5%       55.9%
+```
+
+**Honest finding (directive §32: do not claim distance suppression
+without evidence):** at every tested noise regime, p_L(d=3) ≤
+p_L(d=5) ≤ p_L(d=7). The circuit-level model with the H-CNOTs-H
+stabilizer-measurement template and the phenomenological MWPM
+decoder does NOT exhibit distance suppression. The cause is
+documented: hook errors from a single ancilla fault land on 2-4
+data qubits, exceeding the d=3 correction radius and being
+incorrectly decoded at d=5/7 as a chain that completes a logical
+operator.
+
+**Regime-specific findings (single-channel noise, d=3):**
+  - readout-only: p_L = 0.0% (95% CI upper 1.88%) — the temporal
+    MWPM handles pure measurement flips perfectly.
+  - reset-only: p_L = 0.0% — the simulator's reset-X model
+    produces only bit-flip on the ancilla, no data hook.
+  - prep-only: p_L = 0.0% — same reason (model extension Y/Z
+    prep mechanisms have probability 0 in the production model).
+  - gate-only: p_L > 0% (the dominant failure source).
+
+**No threshold is claimed.** This is a bounded simulator study,
+not a threshold determination.

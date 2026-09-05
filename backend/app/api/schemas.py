@@ -358,6 +358,7 @@ class CircuitLevelSimulateRequest(BaseModel):
     p_prep: float = Field(default=0.003, ge=0, le=1)
     trials: int = Field(default=3000, ge=100, le=200_000)
     seed: int = 5
+    schedule_mode: Literal["naive", "optimized"] = "naive"
 
 
 class ScheduleAnalyzeRequest(BaseModel):

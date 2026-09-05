@@ -169,11 +169,29 @@ class ScheduleRiskReport:
                               qubit.
       sum_hook_weight       — total data-qubit support across all hooks
                               (proxy for the "average" multi-data impact).
+                              NOTE: this quantity is order-invariant under
+                              the H-CNOTs-H circuit (sum_{k} k = const);
+                              it is documented for transparency but does
+                              not distinguish schedules.
       avg_logical_distance  — mean additional-weight-to-logical across hooks.
+      event_count_variance  — sum over (n_events − 1)² for non-boundary
+                              mechanisms; distinguishes schedules because
+                              the IDENTITY (not the COUNT) of data qubits
+                              affected at each gate_index changes the
+                              syndrome pattern. Documented as a structural
+                              signal; empirically it does NOT translate to a
+                              better phenomenological-MWPM p_L at d=3 (the
+                              decoder's behavior is determined by syndrome
+                              patterns, not by which specific data qubits
+                              are involved at each gate_index, modulo
+                              boundary effects). Reported for transparency.
+      multi_event_mass      — count of mechanisms with ≥3 detection events.
       primary_key           — tuple for deterministic ordering (lex lower is
                               better). Order: (n_logical_risk_hooks,
                               max_hook_weight, n_hooks, sum_hook_weight,
-                              canonical-tuple of order).
+                              canonical-tuple of order) — the schedule
+                              selection is therefore based on the proven
+                              order-INVARIANT structural signals.
     """
     candidate: CandidateSchedule
     n_hooks: int
@@ -184,6 +202,8 @@ class ScheduleRiskReport:
     boundary_sensitive_hooks: int
     sum_hook_weight: int
     avg_logical_distance: float
+    event_count_variance: float
+    multi_event_mass: int
     primary_key: tuple
 
     def to_dict(self) -> dict:
@@ -197,6 +217,8 @@ class ScheduleRiskReport:
             "boundary_sensitive_hooks": self.boundary_sensitive_hooks,
             "sum_hook_weight": self.sum_hook_weight,
             "avg_logical_distance": self.avg_logical_distance,
+            "event_count_variance": self.event_count_variance,
+            "multi_event_mass": self.multi_event_mass,
         }
 
 
@@ -1033,6 +1055,32 @@ def score_candidate(code, candidate: CandidateSchedule,
     boundary_hooks = sum(1 for f in hooks
                          if any(q in boundary for q in f.affected_qubits))
     avg_ld = (sum(f.logical_distance for f in hooks) / len(hooks)) if hooks else 0.0
+    # Event-count variance: a position-aware score that distinguishes
+    # schedules whose data hooks at different gate indices flip
+    # different Z-checks (and therefore produce different syndrome
+    # patterns). The sum_hook_weight is order-invariant under the
+    # H-CNOTs-H circuit (every k-subset of a size-k support sums to
+    # k(k-1)/2), but the IDENTITY of the data qubits at each
+    # gate_index IS order-dependent, and the event count distribution
+    # reflects that.
+    variance = 0.0
+    multi_event_mass = 0
+    for f in faults:
+        n = len(f.detection_events)
+        if n == 0:
+            continue
+        # Exclude READOUT/ANCILLA_RESET single-event boundary
+        # mechanisms (they are not correlated hooks).
+        if f.fault_location in (FAULT_READOUT, FAULT_ANCILLA_RESET):
+            continue
+        if f.fault_location == FAULT_ANCILLA_PREP and n == 1:
+            continue
+        # Unit weight per mechanism (the actual noise probability
+        # scales this in the Monte Carlo; here we want a
+        # deterministic structural score).
+        variance += float((n - 1) ** 2)
+        if n >= 3:
+            multi_event_mass += 1
     primary = (n_logical_risk, max_hook_weight, n_hooks, sum_hook_weight,
                candidate.order)
     return ScheduleRiskReport(
@@ -1045,6 +1093,8 @@ def score_candidate(code, candidate: CandidateSchedule,
         boundary_sensitive_hooks=boundary_hooks,
         sum_hook_weight=sum_hook_weight,
         avg_logical_distance=avg_ld,
+        event_count_variance=variance,
+        multi_event_mass=multi_event_mass,
         primary_key=primary,
     )
 

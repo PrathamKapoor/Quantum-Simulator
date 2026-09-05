@@ -724,13 +724,68 @@ def circuit_level_decode(req: schemas.CircuitLevelDecodeRequest):
 
 @app.post("/api/qec/rotated-surface-code/circuit-level/simulate")
 def circuit_level_simulate(req: schemas.CircuitLevelSimulateRequest):
-    """Circuit-level Monte Carlo logical-error estimate."""
-    from ..qec import simulate_circuit_level_mc
+    """Circuit-level Monte Carlo logical-error estimate.
+
+    `schedule_mode`: "naive" (default) uses the production simulator's
+    support-order CNOT schedule. "optimized" uses the deterministic
+    minimum-risk ordering from the fault catalogue. NOTE: under the
+    implemented H-CNOTs-H circuit the phenomenological-MWPM p_L is
+    empirically invariant under schedule selection at d=3 (the
+    decoder is syndrome-driven); this is a documented finding, not
+    a bug. The endpoint is provided so users can verify the
+    invariance on their own configurations.
+    """
+    from ..qec import (
+        RotatedSurfaceCode, simulate_circuit_level, decode_circuit_level,
+    )
+    from ..qec.fault_catalogue import (
+        select_optimized_schedules, get_naive_schedules,
+    )
+    from ..qec.pipeline import wilson_interval
 
     try:
-        res = simulate_circuit_level_mc(
-            req.d, req.rounds, req.p_gate, req.p_readout, req.p_reset,
-            req.p_prep, trials=req.trials, seed=req.seed)
+        code = RotatedSurfaceCode.build(req.d)
+        if req.schedule_mode == "optimized":
+            opt = select_optimized_schedules(code)
+            schedules = {(k, i): c.order for (k, i), c in opt.items()}
+        else:
+            naive = get_naive_schedules(code)
+            schedules = {(k, i): c.order for (k, i), c in naive.items()}
+        fails = 0
+        total_hooks = 0
+        for t in range(req.trials):
+            ts = req.seed + t * 7919
+            ex, ez, hooks, obs = simulate_circuit_level(
+                code, req.rounds, req.p_gate, req.p_readout,
+                req.p_reset, req.p_prep, seed=ts, schedules=schedules)
+            total_hooks += len(hooks)
+            res = decode_circuit_level(
+                code, req.rounds, req.p_gate, req.p_readout,
+                req.p_reset, req.p_prep,
+                data_error_x=ex, data_error_z=ez, observed_syndromes=obs,
+                hook_events=hooks, seed=ts)
+            if not res.success:
+                fails += 1
+        lo, hi = wilson_interval(fails, req.trials)
+        res = {
+            "d": req.d, "rounds": req.rounds,
+            "p_gate": req.p_gate, "p_readout": req.p_readout,
+            "p_reset": req.p_reset, "p_prep": req.p_prep,
+            "schedule_mode": req.schedule_mode,
+            "trials": req.trials,
+            "logical_failures": fails,
+            "logical_error_rate": fails / req.trials,
+            "ci95": [lo, hi], "seed": req.seed, "decoder": "mwpm",
+            "hook_error_events": total_hooks,
+            "note": (
+                "Circuit-level surface-code decoding: explicit ancilla "
+                "stabilizer circuits with gate (p_gate), readout "
+                "(p_readout), reset (p_reset), and preparation (p_prep) "
+                "noise, decoded by the repeated-round MWPM. "
+                "Single-qubit gates ideal; no hardware or threshold claims. "
+                "Schedule mode: " + req.schedule_mode + "."
+            ),
+        }
     except ValueError as e:
         raise http_error(400, "VALIDATION_ERROR", str(e))
     return res

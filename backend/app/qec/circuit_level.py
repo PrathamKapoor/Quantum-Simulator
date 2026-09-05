@@ -67,11 +67,18 @@ def _sample_pauli_depolarizing(rng, p: float) -> tuple[int, int]:
 
 
 def _measure_one_check(code, check, kind, ax, az, rng, p_gate, p_reset,
-                       p_prep, p_readout):
+                       p_prep, p_readout, support_order=None):
     """Run one stabilizer's noisy measurement circuit on the shared data frame.
 
     Mutates ax/az in place (data-frame propagation for hook errors); returns
-    (outcome_bit, hooked_flag)."""
+    (outcome_bit, hooked_flag).
+
+    `support_order`: optional tuple of data qubits specifying the CNOT
+    schedule (which qubit is visited first, etc.). Defaults to
+    `check.support` (the production ordering).
+    """
+    if support_order is None:
+        support_order = check.support
     aa_x, aa_z = 0, 0
     hooked = False
     if p_reset > 0 and rng.random() < p_reset:
@@ -82,7 +89,7 @@ def _measure_one_check(code, check, kind, ax, az, rng, p_gate, p_reset,
         ex, ez = _sample_pauli_depolarizing(rng, p_prep)
         aa_x ^= ex
         aa_z ^= ez
-    for q in check.support:
+    for q in support_order:
         if p_gate > 0:
             for is_anc in (False, True):
                 ex, ez = _sample_pauli_depolarizing(rng, p_gate)
@@ -112,10 +119,14 @@ def _measure_one_check(code, check, kind, ax, az, rng, p_gate, p_reset,
     return outcome, hooked
 
 
-def extract_syndrome_noiseless(code, ex, ez):
+def extract_syndrome_noiseless(code, ex, ez, schedules=None):
     """Run the NOISELESS stabilizer circuits on a known data error and return
     (x_check_bits, z_check_bits). Exists as the independent validation oracle:
-    must equal RotatedSurfaceCodeDecoder.syndrome(ex, ez)."""
+    must equal RotatedSurfaceCodeDecoder.syndrome(ex, ez).
+
+    `schedules` is an optional {(kind, index): order_tuple} override; the
+    noiseless syndrome must equal the algebraic `syndrome_of` for ANY
+    schedule (directive §12: schedule validity)."""
     n = code.d * code.d
     ax = [1 if (ex >> q) & 1 else 0 for q in range(n)]
     az = [1 if (ez >> q) & 1 else 0 for q in range(n)]
@@ -126,15 +137,22 @@ def extract_syndrome_noiseless(code, ex, ez):
     x_out, z_out = [], []
     for kind, checks in (("X", code.x_checks), ("Z", code.z_checks)):
         for check in checks:
+            order = None if schedules is None else schedules.get(
+                (kind, check.index))
             out, _ = _measure_one_check(code, check, kind, ax, az, _NoRng(),
-                                        0.0, 0.0, 0.0, 0.0)
+                                        0.0, 0.0, 0.0, 0.0,
+                                        support_order=order)
             (x_out if kind == "X" else z_out).append(out)
     return tuple(x_out), tuple(z_out)
 
 
 def simulate_circuit_level(code, rounds, p_gate, p_readout, p_reset, p_prep,
-                           *, seed):
+                           *, seed, schedules=None):
     """Run R rounds of noisy stabilizer-measurement circuits.
+
+    `schedules` is an optional {(kind, index): order_tuple} override
+    specifying the CNOT ordering for each stabilizer; default None uses
+    the production `check.support` ordering (the naive schedule).
 
     Returns (data_error_x, data_error_z, hook_events, observed_syndromes).
     """
@@ -165,9 +183,11 @@ def simulate_circuit_level(code, rounds, p_gate, p_readout, p_reset, p_prep,
         r_readout = 0.0 if is_final else p_readout
         for kind, checks in (("X", code.x_checks), ("Z", code.z_checks)):
             for check in checks:
+                order = None if schedules is None else schedules.get(
+                    (kind, check.index))
                 outcome, hooked = _measure_one_check(
                     code, check, kind, ax, az, rng, p_gate, r_reset, r_prep,
-                    r_readout)
+                    r_readout, support_order=order)
                 (x_out if kind == "X" else z_out).append(outcome)
                 if hooked:
                     hook_events.append((_round, kind, check.index))

@@ -120,3 +120,74 @@ class TestFaultAwareExperiment:
         # Original is immutable: still COMPLETED.
         run0 = svc.get_run(run_ids[0])
         assert run0["status"] == "COMPLETED"
+
+    def test_schedule_mode_naive_default(self):
+        """Default schedule_mode is 'naive'; the row records this."""
+        out = run_surface_code_fault_aware(
+            {"distances": [3], "rounds": 4, "p_gate": 0.005,
+             "p_readout": 0.005, "p_reset": 0.003, "p_prep": 0.003,
+             "trials_per_point": 100}, seed=5)
+        for row in out["artifacts"]["table"]:
+            assert row["schedule_mode"] == "naive"
+
+    def test_schedule_mode_optimized_recorded(self):
+        """schedule_mode='optimized' runs the same MC; at d=3 the p_L
+        is empirically equal to naive (the H-CNOTs-H circuit is
+        syndrome-driven; this is the documented finding)."""
+        naive = run_surface_code_fault_aware(
+            {"distances": [3], "rounds": 4, "p_gate": 0.005,
+             "p_readout": 0.005, "p_reset": 0.003, "p_prep": 0.003,
+             "trials_per_point": 200, "schedule_mode": "naive"}, seed=5)
+        optimized = run_surface_code_fault_aware(
+            {"distances": [3], "rounds": 4, "p_gate": 0.005,
+             "p_readout": 0.005, "p_reset": 0.003, "p_prep": 0.003,
+             "trials_per_point": 200, "schedule_mode": "optimized"}, seed=5)
+        n_row = naive["artifacts"]["table"][0]
+        o_row = optimized["artifacts"]["table"][0]
+        assert n_row["schedule_mode"] == "naive"
+        assert o_row["schedule_mode"] == "optimized"
+        # Empirically: p_L equal at d=3 (deterministic same seed).
+        assert n_row["logical_error_rate"] == o_row["logical_error_rate"]
+
+    def test_invalid_schedule_mode_rejected(self):
+        with pytest.raises(ValueError, match="schedule_mode"):
+            run_surface_code_fault_aware(
+                {"distances": [3], "rounds": 4, "trials_per_point": 10,
+                 "schedule_mode": "fancy"}, seed=5)
+
+    def test_regimes_sweep_separate_experiments(self):
+        """The 'regimes' config runs separate experiments for each
+        (regime, distance); gate-only vs combined vs readout-only
+        should produce different failure rates (readout-only=0,
+        gate-only>0, combined>0)."""
+        regimes = [
+            {"label": "gate-only", "p_gate": 0.005},
+            {"label": "readout-only", "p_readout": 0.005},
+            {"label": "combined", "p_gate": 0.005, "p_readout": 0.005,
+             "p_reset": 0.003, "p_prep": 0.003},
+        ]
+        out = run_surface_code_fault_aware(
+            {"distances": [3], "rounds": 4, "trials_per_point": 200,
+             "regimes": regimes, "schedule_mode": "naive"}, seed=7)
+        rows = out["artifacts"]["table"]
+        by_regime = {r["regime"]: r for r in rows}
+        # Readout-only noise produces zero logical failures (the
+        # decoder handles pure measurement flips perfectly).
+        assert by_regime["readout-only"]["logical_failures"] == 0
+        # Gate-only and combined have nonzero failures.
+        assert by_regime["gate-only"]["logical_failures"] > 0
+        assert by_regime["combined"]["logical_failures"] > 0
+
+    def test_d5_dominates_d3_at_gate_dominated_regime(self):
+        """Documented: under the H-CNOTs-H circuit with the
+        phenomenological MWPM, d=5 does NOT show distance
+        suppression vs d=3 at gate-dominated noise. This test
+        asserts the negative finding honestly (do not bury it)."""
+        out = run_surface_code_fault_aware(
+            {"distances": [3, 5], "rounds": 4, "p_gate": 0.005,
+             "p_readout": 0.005, "p_reset": 0.003, "p_prep": 0.003,
+             "trials_per_point": 500, "schedule_mode": "naive"}, seed=11)
+        rows = {r["d"]: r for r in out["artifacts"]["table"]}
+        # Documented property (directive §32: do not claim distance
+        # suppression without evidence).
+        assert rows[5]["logical_error_rate"] >= rows[3]["logical_error_rate"]

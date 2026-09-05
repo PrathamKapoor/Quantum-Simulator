@@ -301,6 +301,11 @@ def decode_circuit_aware(code: RotatedSurfaceCode, rounds: int,
     if graph is None:
         graph = build_decoder_graph(
             code, rounds, p_gate, p_readout, p_reset, p_prep)
+    # The graph's edge_prob and exit_prob are exact small-
+    # probability union values (1 - prod(1 - p_i)). For the
+    # cir candidate we convert these to integer-quantized
+    # negative log-likelihoods and feed them to decode_repeated
+    # as the effective p_data / p_measurement.
 
     # Candidate 1: the phenomenological MWPM (decode_repeated).
     # This uses the FULL 2-stage reconstruction (temporal + final

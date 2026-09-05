@@ -312,12 +312,16 @@ def build_circuit_graph(code: RotatedSurfaceCode, rounds: int,
             coverage.boundary_mechanisms += 1
             coverage.covered_probability_mass += s.probability
             ev = s.event_a
-            exit_prob[ev] = exit_prob.get(ev, 0.0) + s.probability
+            prev = exit_prob.get(ev, 0.0)
+            # Exact small-probability union: p_combined = 1 - Π(1 - p_i)
+            exit_prob[ev] = 1.0 - (1.0 - prev) * (1.0 - s.probability)
         elif s.category == "EDGE":
             coverage.edge_mechanisms += 1
             coverage.covered_probability_mass += s.probability
             key = (s.event_a, s.event_b)
-            edge_prob[key] = edge_prob.get(key, 0.0) + s.probability
+            prev = edge_prob.get(key, 0.0)
+            # Exact small-probability union.
+            edge_prob[key] = 1.0 - (1.0 - prev) * (1.0 - s.probability)
         else:
             coverage.multi_event_mechanisms += 1
             coverage.excluded_probability_mass += s.probability

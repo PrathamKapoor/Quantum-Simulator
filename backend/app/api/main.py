@@ -947,6 +947,43 @@ def circuit_aware_simulate(req: schemas.CircuitAwareSimulateRequest):
     return res
 
 
+@app.get("/api/qec/rotated-surface-code/hook-forensics")
+def hook_forensics(d: int = 3, round: int = 1):
+    """Hook-error forensic analysis (milestone 14, Phase B).
+
+    Programmatically enumerates every ancilla Pauli at every CNOT
+    position for every stabilizer, propagates it through the
+    actual circuit, and reports the data-side hook support with
+    a danger classification. This is the EVIDENCE GATHERING step
+    for hook-safe schedule design (Phase C)."""
+    from ..qec import RotatedSurfaceCode
+    from ..qec.hook_forensics import run_hook_forensics, summarize_forensics
+    try:
+        code = RotatedSurfaceCode.build(d)
+        reports = run_hook_forensics(code, round_index=round)
+        summary = summarize_forensics(reports)
+        return {
+            "d": d, "round": round,
+            "summary": summary,
+            "reports": [r.to_dict() for r in reports],
+            "note": (
+                "Forensic report: every elementary ancilla fault "
+                "with a data hook or a single-event boundary, "
+                "classified as SAFE / STABILIZER_EQUIVALENT / "
+                "DATA_HOOK / LOGICAL_RISK / LOGICAL. The "
+                "interior 4-data-qubit stabilizers are the most "
+                "dangerous (max hook weight 4 at d=3). The schedule "
+                "order does NOT change the total hook-weight "
+                "distribution under H-CNOT-H (degeneracy finding, "
+                "AD-018, AD-019); a faithful hook-safe schedule "
+                "requires Shor cat-state (4 ancillas) or "
+                "lattice-wide temporal interleaving (architectural)."
+            ),
+        }
+    except ValueError as e:
+        raise http_error(400, "VALIDATION_ERROR", str(e))
+
+
 @app.post("/api/network/route")
 def network_route(req: schemas.NetworkSimulateRequest):
     """Route explanation endpoint: returns chosen path + why (§197)."""

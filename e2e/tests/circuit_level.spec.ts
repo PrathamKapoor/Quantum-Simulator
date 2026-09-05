@@ -29,4 +29,17 @@ test.describe("Circuit-level surface code", () => {
     await expect(panel.getByText(/Wilson 95% CI/)).toBeVisible();
     monitor.assertClean();
   });
+
+  test("Schedule selector runs MC with optimized schedule", async ({ page }) => {
+    const monitor = ErrorMonitor.attach(page);
+    await gotoPage(page, "Error Correction");
+    const panel = page.locator(".panel", { hasText: "Circuit-level surface code" });
+    await panel.getByLabel("MC trials").fill("200");
+    await panel.getByLabel("Schedule").selectOption("optimized");
+    await panel.getByRole("button", { name: "Run Monte Carlo (circuit-level)" }).click();
+    await expect(panel.getByText(/logical error rate p_L/)).toBeVisible({
+      timeout: 90_000,
+    });
+    monitor.assertClean();
+  });
 });

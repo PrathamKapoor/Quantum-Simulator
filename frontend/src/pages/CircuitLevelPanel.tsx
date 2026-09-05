@@ -13,6 +13,7 @@ export default function CircuitLevelPanel() {
   const [pPrep, setPPrep] = useState(0.003);
   const [seed, setSeed] = useState(1);
   const [mcTrials, setMcTrials] = useState(2000);
+  const [scheduleMode, setScheduleMode] = useState<"naive" | "optimized">("naive");
   const [decoded, setDecoded] = useState<any>(null);
   const [sim, setSim] = useState<any>(null);
   const [busy, setBusy] = useState(false);
@@ -32,7 +33,7 @@ export default function CircuitLevelPanel() {
     try {
       setSim(await post("/api/qec/rotated-surface-code/circuit-level/simulate", {
         d, rounds, p_gate: pGate, p_readout: pReadout, p_reset: pReset,
-        p_prep: pPrep, seed, trials: mcTrials,
+        p_prep: pPrep, seed, trials: mcTrials, schedule_mode: scheduleMode,
       }));
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
@@ -73,6 +74,12 @@ export default function CircuitLevelPanel() {
         <label className="field">Seed
           <input type="number" value={seed} onChange={(e) => setSeed(+e.target.value || 0)}
                  style={{ width: 80 }} />
+        </label>
+        <label className="field">Schedule
+          <select value={scheduleMode} onChange={(e) => setScheduleMode(e.target.value as any)}>
+            <option value="naive">naive (production)</option>
+            <option value="optimized">optimized (catalogue)</option>
+          </select>
         </label>
         <button className="btn" disabled={busy} onClick={decode}>
           {busy ? "Simulating…" : "Decode circuit-level"}

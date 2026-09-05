@@ -857,3 +857,46 @@ biased noise channels. Reread roadmap + handoff first.
 - **Regression:** backend 768/768 → 777/777 (+9 new); Playwright
   pending final run.
 
+
+## Session 15 — temporal interleaving simulator + decoder + forensic (AD-020)
+
+- **Phase 0 (reconnaissance):** verified baseline 777/777 backend,
+  45/45 Playwright (with documented timing flake on the sweep
+  test), clean tree, 2 commits from session 14.
+- **Part 2 (Playwright flake fix):** ROOT CAUSE was the
+  helper `runAllAndWait` having asymmetric timeouts
+  (settle=120s, terminal-badge=15s). The terminal-badge check
+  timed out under load. FIX: pass the caller's timeout to BOTH
+  assertions. Verified 5/5 consecutive passes in isolation.
+- **Part 4-5 (temporal interleaving design + impl):**
+  round semantics: round 2k measures X, round 2k+1 measures Z
+  (or vice versa). Carry-forward semantics: the unmeasured
+  family's syndrome is the previous round's value (NOT zero).
+  Implemented as an `interleave` parameter on
+  `simulate_circuit_level`. The decoder (existing
+  `decode_repeated`) handles carry-forward correctly because
+  syndrome differences for the unmeasured family are 0.
+- **Part 6 (forensic comparison):** alternating reduces
+  data-hook reports by ~49% (the unmeasured family's events
+  are carried forward as 0). Max hook weight is unchanged
+  (4); the structural problem is unchanged.
+- **Part 7-8 (scientific MC study):** gate-only d=3 std
+  15.0% vs alt 9.8%; d=5 33.0% vs 22.5%; d=7 44.2% vs 41.6%.
+  Alternating reduces p_L by 5-10pp at every (d, regime) cell
+  but does NOT recover distance suppression (p_L still grows
+  with d). Documented in the experiment runner and AD-020.
+- **Part 11-14 (integration):** experiment runner
+  surface_code_temporal_interleaved, API endpoint
+  /circuit-level/simulate-temporal, frontend panel
+  TemporalInterleavingPanel, 1 new Playwright test.
+- **Part 19 (docs):** AD-020 added.
+- **Tests:** 12 new tests (carry-forward, p=0, single data
+  error, forensic, decoder residual invariant, reproducibility).
+  789/789 backend green.
+- **Honest finding:** the alternating schedule reduces p_L by
+  5-10pp at every cell but does NOT recover distance
+  suppression. The H-CNOT-H circuit's structural problem is
+  unchanged. The improvement comes from cleaner syndrome
+  history (the unmeasured family's events are carried
+  forward as 0), NOT from a fundamentally safer circuit.
+

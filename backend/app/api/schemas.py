@@ -420,6 +420,19 @@ class CircuitAwareSimulateRequest(BaseModel):
     seed: int = 5
 
 
+class CircuitLevelSimulateTemporalRequest(BaseModel):
+    """Temporal-interleaving Monte Carlo (milestone 15, AD-020)."""
+    d: int = Field(default=3, ge=3, le=7)
+    rounds: int = Field(default=4, ge=1, le=64)
+    p_gate: float = Field(default=0.005, ge=0, le=1)
+    p_readout: float = Field(default=0.005, ge=0, le=1)
+    p_reset: float = Field(default=0.003, ge=0, le=1)
+    p_prep: float = Field(default=0.003, ge=0, le=1)
+    trials: int = Field(default=1000, ge=100, le=200_000)
+    seed: int = 5
+    interleave: Literal["none", "alternating"] = "alternating"
+
+
 class ExtractionModelsResponse(BaseModel):
     """List of supported extraction models (milestone 13)."""
     models: list[dict] = Field(default_factory=list)

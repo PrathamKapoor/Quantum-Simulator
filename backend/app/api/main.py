@@ -947,21 +947,12 @@ def circuit_aware_simulate(req: schemas.CircuitAwareSimulateRequest):
     return res
 
 
-class CircuitLevelSimulateTemporalRequest(BaseModel):
-    """Temporal-interleaving Monte Carlo (milestone 15, AD-020)."""
-    d: int = Field(default=3, ge=3, le=7)
-    rounds: int = Field(default=4, ge=1, le=64)
-    p_gate: float = Field(default=0.005, ge=0, le=1)
-    p_readout: float = Field(default=0.005, ge=0, le=1)
-    p_reset: float = Field(default=0.003, ge=0, le=1)
-    p_prep: float = Field(default=0.003, ge=0, le=1)
-    trials: int = Field(default=1000, ge=100, le=200_000)
-    seed: int = 5
-    interleave: Literal["none", "alternating"] = "alternating"
+class CircuitLevelSimulateTemporalRequest(schemas.CircuitLevelSimulateTemporalRequest):
+    pass
 
 
 @app.post("/api/qec/rotated-surface-code/circuit-level/simulate-temporal")
-def circuit_level_simulate_temporal(req: CircuitLevelSimulateTemporalRequest):
+def circuit_level_simulate_temporal(req: schemas.CircuitLevelSimulateTemporalRequest):
     """Run the circuit-level simulator with the chosen
     interleave schedule; report the phenomenological p_L with
     Wilson 95% CI. Used by the Temporal Interleaving panel."""

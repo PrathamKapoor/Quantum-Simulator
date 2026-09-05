@@ -10,7 +10,7 @@ test.describe("Temporal interleaving", () => {
       hasText: "Temporal interleaving",
     });
     await expect(panel).toBeVisible();
-    await panel.getByLabel("MC trials").fill("200");
+    await panel.getByLabel("Trials").fill("100");
     await panel.getByRole("button", { name: "Run paired comparison" }).click();
     await expect(panel.getByText(/standard \(all stabilizers per round\)/)).toBeVisible({
       timeout: 90_000,

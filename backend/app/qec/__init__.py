@@ -74,6 +74,20 @@ from .circuit_graph_decoder import (
     decode_circuit_derived,
     simulate_circuit_derived_mc,
 )
+from .circuit_extraction import (
+    EXTRACTION_BASELINE,
+    SUPPORTED_EXTRACTIONS,
+    ExtractionModel,
+    MODELS,
+    get_extraction_model,
+    list_extraction_models,
+)
+from .circuit_aware_decoder import (
+    decode_circuit_aware,
+    simulate_circuit_aware_mc,
+    build_decoder_graph,
+    CircuitAwareDecoderResult,
+)
 
 __all__ = [
     "QECode", "BIT_FLIP_3", "PHASE_FLIP_3", "SHOR_9", "STEANE_7", "FIVE_QUBIT",
@@ -100,4 +114,8 @@ __all__ = [
     "CircuitDecoderResult",
     "build_circuit_graph", "decode_circuit_derived",
     "simulate_circuit_derived_mc",
+    "EXTRACTION_BASELINE", "SUPPORTED_EXTRACTIONS", "ExtractionModel",
+    "MODELS", "get_extraction_model", "list_extraction_models",
+    "decode_circuit_aware", "simulate_circuit_aware_mc",
+    "build_decoder_graph", "CircuitAwareDecoderResult",
 ]

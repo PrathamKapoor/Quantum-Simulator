@@ -707,7 +707,7 @@ def circuit_level_decode(req: schemas.CircuitLevelDecodeRequest):
 
     try:
         code = RotatedSurfaceCode.build(req.d)
-        ex, ez, hooks, obs = simulate_circuit_level(
+        ex, ez, hooks, obs, _mf = simulate_circuit_level(
             code, req.rounds, req.p_gate, req.p_readout, req.p_reset, req.p_prep,
             seed=req.seed)
         result = decode_circuit_level(
@@ -755,7 +755,7 @@ def circuit_level_simulate(req: schemas.CircuitLevelSimulateRequest):
         total_hooks = 0
         for t in range(req.trials):
             ts = req.seed + t * 7919
-            ex, ez, hooks, obs = simulate_circuit_level(
+            ex, ez, hooks, obs, _mf = simulate_circuit_level(
                 code, req.rounds, req.p_gate, req.p_readout,
                 req.p_reset, req.p_prep, seed=ts, schedules=schedules)
             total_hooks += len(hooks)
@@ -945,6 +945,58 @@ def circuit_aware_simulate(req: schemas.CircuitAwareSimulateRequest):
     except ValueError as e:
         raise http_error(400, "VALIDATION_ERROR", str(e))
     return res
+
+
+class CircuitLevelSimulateTemporalRequest(BaseModel):
+    """Temporal-interleaving Monte Carlo (milestone 15, AD-020)."""
+    d: int = Field(default=3, ge=3, le=7)
+    rounds: int = Field(default=4, ge=1, le=64)
+    p_gate: float = Field(default=0.005, ge=0, le=1)
+    p_readout: float = Field(default=0.005, ge=0, le=1)
+    p_reset: float = Field(default=0.003, ge=0, le=1)
+    p_prep: float = Field(default=0.003, ge=0, le=1)
+    trials: int = Field(default=1000, ge=100, le=200_000)
+    seed: int = 5
+    interleave: Literal["none", "alternating"] = "alternating"
+
+
+@app.post("/api/qec/rotated-surface-code/circuit-level/simulate-temporal")
+def circuit_level_simulate_temporal(req: CircuitLevelSimulateTemporalRequest):
+    """Run the circuit-level simulator with the chosen
+    interleave schedule; report the phenomenological p_L with
+    Wilson 95% CI. Used by the Temporal Interleaving panel."""
+    from ..qec import RotatedSurfaceCode
+    from ..qec.circuit_level import simulate_circuit_level, decode_circuit_level
+    from ..qec.pipeline import wilson_interval
+    try:
+        code = RotatedSurfaceCode.build(req.d)
+        fails = 0
+        for t in range(req.trials):
+            ts = req.seed + t * 7919
+            ex, ez, hooks, obs, _mf = simulate_circuit_level(
+                code, req.rounds, req.p_gate, req.p_readout,
+                req.p_reset, req.p_prep, seed=ts, interleave=req.interleave)
+            res = decode_circuit_level(
+                code, req.rounds, req.p_gate, req.p_readout,
+                req.p_reset, req.p_prep,
+                data_error_x=ex, data_error_z=ez,
+                observed_syndromes=obs, hook_events=hooks, seed=ts)
+            if not res.success:
+                fails += 1
+        lo, hi = wilson_interval(fails, req.trials)
+        return {
+            "d": req.d, "rounds": req.rounds,
+            "interleave": req.interleave,
+            "p_gate": req.p_gate, "p_readout": req.p_readout,
+            "p_reset": req.p_reset, "p_prep": req.p_prep,
+            "trials": req.trials,
+            "logical_failures": fails,
+            "logical_error_rate": fails / req.trials,
+            "ci95": [lo, hi], "seed": req.seed,
+            "decoder": "phenomenological_mwpm",
+        }
+    except ValueError as e:
+        raise http_error(400, "VALIDATION_ERROR", str(e))
 
 
 @app.get("/api/qec/rotated-surface-code/hook-forensics")

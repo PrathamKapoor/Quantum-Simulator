@@ -143,13 +143,17 @@ def _classify_danger(code, data_x: int, data_z: int) -> tuple[str, int]:
     return "DATA_HOOK", code.d
 
 
-def run_hook_forensics(code, round_index: int = 1):
+def run_hook_forensics(code, round_index: int = 1,
+                        interleave: str = "none"):
     """Enumerate every ancilla fault in the current extraction
     model and produce a per-fault report.
 
-    Returns a list of HookReport entries (one per elementary
-    fault mechanism with a non-trivial data support or a single-event
-    boundary mechanism)."""
+    `interleave`: "none" (default, all stabilizers every round) or
+    "alternating" (only X in odd rounds, only Z in even rounds).
+    The forensic is per-round; the round index selects which round
+    the fault is injected at. In alternating mode, X-faults are
+    only reported in odd rounds and Z-faults in even rounds.
+    """
     boundary = _boundary_data_qubits(code)
     out: list[HookReport] = []
     for kind, checks in (("X", code.x_checks), ("Z", code.z_checks)):
@@ -158,20 +162,21 @@ def run_hook_forensics(code, round_index: int = 1):
                 code, kind, ch.index, round_index=round_index,
                 total_rounds=round_index)
             for f in cat:
-                # We focus on faults that have a data-side hook
-                # OR a single-event boundary event (relevant for
-                # the graph construction).
+                # If alternating, only report faults for the family
+                # that is measured this round.
+                if interleave == "alternating":
+                    if round_index % 2 == 1 and kind != "X":
+                        continue
+                    if round_index % 2 == 0 and kind != "Z":
+                        continue
                 has_data_hook = (f.propagated_data_x != 0
                                  or f.propagated_data_z != 0)
                 if not has_data_hook and len(f.detection_events) != 1:
                     continue
-                # Count Z/X checks fired.
                 z_fired = sum(1 for ev in f.detection_events if ev[1] == "Z")
                 x_fired = sum(1 for ev in f.detection_events if ev[1] == "X")
                 danger, ld = _classify_danger(
                     code, f.propagated_data_x, f.propagated_data_z)
-                # The local syndrome: which check was flipped on
-                # THIS stabilizer.
                 local_event = None
                 for ev in f.detection_events:
                     if ev[1] == ("X" if kind == "Z" else "Z"):
@@ -209,9 +214,48 @@ def run_hook_forensics(code, round_index: int = 1):
                     is_boundary=is_b,
                     logical_distance=ld,
                     weight=w,
-                    notes=(""),
+                    notes=(f"interleave={interleave}"),
                 ))
     return out
+
+
+def compare_forensic_modes(code):
+    """Compare the forensic report under STANDARD vs
+    TEMPORAL_INTERLEAVED for the SAME (d, round) configuration.
+    The interleaving halves the number of measured stabilizers
+    per round; this should be visible as a halving of the
+    detection-event count per fault and a different
+    logical-outcome distribution.
+
+    Returns a dict with the comparison summary."""
+    std_reports = run_hook_forensics(code, round_index=1, interleave="none")
+    alt_reports = run_hook_forensics(code, round_index=1, interleave="alternating")
+    std_summary = summarize_forensics(std_reports)
+    alt_summary = summarize_forensics(alt_reports)
+    return {
+        "d": code.d, "round": 1,
+        "standard": {
+            "summary": std_summary,
+            "n_reports": len(std_reports),
+        },
+        "alternating": {
+            "summary": alt_summary,
+            "n_reports": len(alt_reports),
+        },
+        "delta_logical_risk": (
+            alt_summary["logical_risk_count"]
+            - std_summary["logical_risk_count"]),
+        "delta_data_hook": (
+            alt_summary["data_hook_count"]
+            - std_summary["data_hook_count"]),
+        "note": (
+            "Per-round comparison: alternating measures only ONE "
+            "stabilizer family per round. A fault at round 1 in "
+            "alternating mode fires only X-related events. The "
+            "data-side hook is the same; the detection-event "
+            "distribution differs."
+        ),
+    }
 
 
 def summarize_forensics(reports: list[HookReport]) -> dict:
@@ -251,4 +295,5 @@ def summarize_forensics(reports: list[HookReport]) -> dict:
 
 __all__ = [
     "HookReport", "run_hook_forensics", "summarize_forensics",
+    "compare_forensic_modes",
 ]

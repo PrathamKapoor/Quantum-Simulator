@@ -543,3 +543,70 @@ the information that the decoder could use. (c) A heavier
 hypergraph decoder — out of scope for the current architecture
 and unnecessary given that the v1 hybrid is competitive.
 
+
+## AD-020 — Lattice-wide temporal interleaving for circuit-level QEC (milestone 15)
+
+**Decision.** Add a round-level temporal interleaving mode to the
+circuit-level stabilizer-measurement simulator. In alternating mode,
+X-checks are measured in odd rounds and Z-checks in even rounds (or
+vice versa). The unmeasured family's syndrome is carried forward
+(its value is the same as the previous round) and contributes 0
+detection events.
+
+1. **Round semantics.** A "round" is a single layer of stabilizer
+   measurements. Under the standard mode ("none"), every round
+   measures all X and Z checks. Under the alternating mode, every
+   round measures only ONE stabilizer family; the OTHER family's
+   syndrome is carried forward.
+
+2. **Carry-forward semantics.** The unmeasured family's syndrome
+   value at round t equals its value at round t-1. The measured
+   family's syndrome is computed normally. This is EXPLICIT
+   observation semantics, not "unmeasured = zero" (which would
+   introduce a silent error mode). The carry-forward is implemented
+   in `simulate_circuit_level` (the simulator), not in the
+   decoder; the decoder's `decode_repeated` correctly handles the
+   carried-forward syndrome (its syndrome-difference construction
+   gives 0 detection events for the carry-forward family).
+
+3. **Empirical findings (milestone 15).** Under the same (d, R,
+   noise) configuration with the same seed stream:
+   - Gate-only d=3: standard 15.0% → alternating 9.8% (-5.2pp)
+   - Gate-only d=5: standard 33.0% → alternating 22.5% (-10.5pp)
+   - Gate-only d=7: standard 44.2% → alternating 41.6% (-2.6pp)
+   The improvement is real at every (d, regime) cell tested. The
+   forensic shows alternating reduces data-hook reports by ~49%
+   (the unmeasured family's events are carried forward as 0).
+
+4. **Distance suppression is NOT recovered.** At every tested
+   noise regime, p_L(d=5) > p_L(d=3) under both standard AND
+   alternating. The alternating schedule improves absolute p_L
+   but does not change the underlying scaling. The hook error
+   structural problem is unchanged.
+
+5. **Decoder compatibility.** `decode_repeated` is reused
+   unchanged. The 2-stage temporal + final-residual decoder
+   correctly handles the carry-forward: syndrome differences
+   for the unmeasured family are 0, so no spurious detection
+   events are generated for it.
+
+6. **Honest limitations.** Alternating reduces measurement
+   density by 50% (one family is not measured per round). This
+   may be acceptable for the phenomenological MWPM (which uses
+   the carried-forward syndromes correctly) but could affect
+   more sophisticated decoders that rely on dense temporal
+   information.
+
+7. **Trade-off territory.** The alternating schedule trades
+   measurement density for better decoding on the measured
+   family. The improvement comes from cleaner syndrome history,
+   NOT from a fundamentally safer circuit. The H-CNOT-H circuit
+   is unchanged.
+
+**Rejected alternatives.** (a) Shor cat-state extraction (4
+ancillas per stabilizer) — requires multi-ancilla architecture,
+deferred. (b) Per-stabilizer schedule permutation — provably
+degenerate under H-CNOT-H (AD-018, AD-019). (c) 3-cycle temporal
+interleaving (X, Y, Z per round) — Y is not measured in CSS
+surface codes; not applicable.
+

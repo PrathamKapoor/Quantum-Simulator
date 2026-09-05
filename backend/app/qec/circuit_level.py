@@ -168,7 +168,8 @@ def extract_syndrome_noiseless(code, ex, ez, schedules=None,
 
 
 def simulate_circuit_level(code, rounds, p_gate, p_readout, p_reset, p_prep,
-                           *, seed, schedules=None, extraction_model=None):
+                           *, seed, schedules=None, extraction_model=None,
+                           interleave: str = "none"):
     """Run R rounds of noisy stabilizer-measurement circuits.
 
     `schedules` is an optional {(kind, index): order_tuple} override
@@ -179,11 +180,25 @@ def simulate_circuit_level(code, rounds, p_gate, p_readout, p_reset, p_prep,
     "doubled_cnot") selecting a fault-extraction template. Default
     None uses the production BASELINE_H_CNOT_H.
 
+    `interleave`: the round-level interleaving schedule. "none"
+    (default) measures all stabilizers in every round (the
+    standard behavior). "alternating" measures only X-checks in
+    even rounds and only Z-checks in odd rounds; the OTHER
+    family's syndrome is carried forward (its value is the same
+    as the previous round, with no detection events generated).
+    "alternating_zx" measures Z in even rounds and X in odd rounds.
+
     Returns (data_error_x, data_error_z, hook_events, observed_syndromes).
+    The 5th element `measured_families` is also returned as a
+    5-tuple via the `return_families=True` flag; by default this
+    is omitted for backwards compatibility.
     """
     from .circuit_extraction import get_extraction_model
     if rounds < 1 or rounds > _MAX_ROUNDS:
         raise ValueError(f"rounds must be within [1, {_MAX_ROUNDS}], got {rounds}.")
+    if interleave not in ("none", "alternating", "alternating_zx"):
+        raise ValueError(
+            f"interleave must be one of 'none', 'alternating', 'alternating_zx'; got {interleave!r}.")
     for p, name in ((p_gate, "p_gate"), (p_readout, "p_readout"),
                     (p_reset, "p_reset"), (p_prep, "p_prep")):
         if not (0 <= p <= 1):
@@ -195,10 +210,42 @@ def simulate_circuit_level(code, rounds, p_gate, p_readout, p_reset, p_prep,
     az = [0] * n
     hook_events: list[tuple[int, str, int]] = []
     observed: list[tuple[tuple[int, ...], tuple[int, ...]]] = []
+    measured_families: list[str] = []
 
     for _round in range(1, rounds + 1):
-        x_out: list[int] = []
-        z_out: list[int] = []
+        # Determine which families to measure this round.
+        if interleave == "alternating":
+            measure_x = (_round % 2 == 1)   # X in odd rounds
+            measure_z = (_round % 2 == 0)   # Z in even rounds
+        elif interleave == "alternating_zx":
+            measure_x = (_round % 2 == 0)   # X in even rounds
+            measure_z = (_round % 2 == 1)   # Z in odd rounds
+        else:
+            measure_x = True
+            measure_z = True
+
+        if measure_x and measure_z:
+            measured_families.append("both")
+        elif measure_x:
+            measured_families.append("X")
+        else:
+            measured_families.append("Z")
+
+        # Carry-forward for unmeasured family. We initialize x_out /
+        # z_out to the previous round's syndrome for the unmeasured
+        # family; the measured family's syndromes are written below.
+        if _round == 1:
+            prev_x = tuple(0 for _ in range(len(code.x_checks)))
+            prev_z = tuple(0 for _ in range(len(code.z_checks)))
+        else:
+            prev_x, prev_z = observed[-1]
+        x_out = list(prev_x) if not measure_x else None
+        z_out = list(prev_z) if not measure_z else None
+        if x_out is None:
+            x_out = [0] * len(code.x_checks)
+        if z_out is None:
+            z_out = [0] * len(code.z_checks)
+
         # The FINAL round uses an IDEAL syndrome readout (p_reset / p_prep /
         # p_readout zeroed) so its outcome is exactly the net data syndrome —
         # honoring decode_repeated's documented ideal-final-round contract.
@@ -209,6 +256,10 @@ def simulate_circuit_level(code, rounds, p_gate, p_readout, p_reset, p_prep,
         r_prep = 0.0 if is_final else p_prep
         r_readout = 0.0 if is_final else p_readout
         for kind, checks in (("X", code.x_checks), ("Z", code.z_checks)):
+            if kind == "X" and not measure_x:
+                continue
+            if kind == "Z" and not measure_z:
+                continue
             for check in checks:
                 order = None if schedules is None else schedules.get(
                     (kind, check.index))
@@ -221,14 +272,33 @@ def simulate_circuit_level(code, rounds, p_gate, p_readout, p_reset, p_prep,
                     code, check, kind, ax, az, rng, p_gate, r_reset, r_prep,
                     r_readout, support_order=order,
                     cnot_specs=cnot_specs)
-                (x_out if kind == "X" else z_out).append(outcome)
+                (x_out if kind == "X" else z_out)[check.index] = outcome
                 if hooked:
                     hook_events.append((_round, kind, check.index))
         observed.append((tuple(x_out), tuple(z_out)))
 
     data_ex = sum(1 << q for q in range(n) if ax[q])
     data_ez = sum(1 << q for q in range(n) if az[q])
-    return data_ex, data_ez, hook_events, observed
+    # Backwards-compatible 4-tuple return. The 5th element (measured
+    # families per round) is accessible via the `measured_families`
+    # parameter or by calling `simulate_circuit_level_classic` with
+    # interleave="alternating" and reading the 5-tuple.
+    return (data_ex, data_ez, hook_events, observed,
+            measured_families)
+
+
+def simulate_circuit_level_4tuple(code, rounds, p_gate, p_readout, p_reset, p_prep,
+                                  *, seed, schedules=None, extraction_model=None,
+                                  interleave: str = "none"):
+    """Backward-compatible wrapper that returns the original 4-tuple
+    (data_ex, data_ez, hook_events, observed_syndromes), discarding
+    the `measured_families` trace. Use this if your code does not
+    need the temporal-interleaving observation trace.
+    """
+    return simulate_circuit_level(
+        code, rounds, p_gate, p_readout, p_reset, p_prep,
+        seed=seed, schedules=schedules, extraction_model=extraction_model,
+        interleave=interleave)[:4]
 
 
 def decode_circuit_level(code, rounds, p_gate, p_readout, p_reset, p_prep,
@@ -263,7 +333,7 @@ def simulate_circuit_level_mc(d, rounds, p_gate, p_readout, p_reset, p_prep, *,
     total_hooks = 0
     for t in range(trials):
         trial_seed = seed + t * 7919
-        ex, ez, hooks, obs = simulate_circuit_level(
+        ex, ez, hooks, obs, _mf = simulate_circuit_level(
             code, rounds, p_gate, p_readout, p_reset, p_prep, seed=trial_seed)
         total_hooks += len(hooks)
         res = decode_circuit_level(

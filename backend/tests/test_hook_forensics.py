@@ -144,7 +144,7 @@ class TestAdversarialDeterministic:
         from app.qec.circuit_level import simulate_circuit_level, decode_circuit_level
         fails = 0
         for _ in range(20):
-            ex, ez, hooks, obs = simulate_circuit_level(
+            ex, ez, hooks, obs, _mf = simulate_circuit_level(
                 code3, 4, 0.0, 0.0, 0.0, 0.0, seed=1)
             res = decode_circuit_level(
                 code3, 4, 0.0, 0.0, 0.0, 0.0,

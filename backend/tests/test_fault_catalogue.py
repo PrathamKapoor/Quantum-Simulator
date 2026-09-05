@@ -209,7 +209,7 @@ class TestScheduleOptimization:
 class TestHookAndAdversarial:
     def test_gate_noise_produces_hooks(self, code3):
         from app.qec.circuit_level import simulate_circuit_level
-        ex, ez, hooks, obs = simulate_circuit_level(
+        ex, ez, hooks, obs, _mf = simulate_circuit_level(
             code3, 4, 1.0, 0.0, 0.0, 0.0, seed=7)
         assert (ex != 0 or ez != 0)
         assert len(hooks) > 0
@@ -221,13 +221,13 @@ class TestHookAndAdversarial:
         to data (the X component of the ancilla is the measured bit,
         not a data Pauli). This documents the model boundary."""
         from app.qec.circuit_level import simulate_circuit_level
-        ex, ez, hooks, obs = simulate_circuit_level(
+        ex, ez, hooks, obs, _mf = simulate_circuit_level(
             code3, 4, 0.0, 0.0, 0.0, 0.0, seed=1)
         # Noiseless: zero.
         assert ex == 0 and ez == 0 and hooks == []
         # Saturated reset: data stays clean (the fault is on the
         # ancilla only) and the syndromes (rounds 1..R-1) are all-ones.
-        ex, ez, hooks, obs = simulate_circuit_level(
+        ex, ez, hooks, obs, _mf = simulate_circuit_level(
             code3, 4, 0.0, 0.0, 1.0, 0.0, seed=1)
         assert ex == 0 and ez == 0
         # Rounds 1..R-1: all-ones syndromes.
@@ -242,28 +242,28 @@ class TestHookAndAdversarial:
         """p_readout=1 (in non-final rounds) flips every bit, so the
         observed syndromes are all-ones except the ideal final round."""
         from app.qec.circuit_level import simulate_circuit_level
-        _, _, _, obs = simulate_circuit_level(
+        _, _, _, obs, _mf = simulate_circuit_level(
             code3, 2, 0.0, 1.0, 0.0, 0.0, seed=2)
         assert all(x == 1 for x in obs[0][0])
         assert all(z == 1 for z in obs[0][1])
 
     def test_pure_reset_saturates_to_all_ones(self, code3):
         from app.qec.circuit_level import simulate_circuit_level
-        _, _, _, obs = simulate_circuit_level(
+        _, _, _, obs, _mf = simulate_circuit_level(
             code3, 2, 0.0, 0.0, 1.0, 0.0, seed=2)
         assert all(x == 1 for x in obs[0][0])
         assert all(z == 1 for z in obs[0][1])
 
     def test_pure_gate_saturates_data(self, code3):
         from app.qec.circuit_level import simulate_circuit_level
-        ex, ez, hooks, obs = simulate_circuit_level(
+        ex, ez, hooks, obs, _mf = simulate_circuit_level(
             code3, 3, 1.0, 0.0, 0.0, 0.0, seed=3)
         assert (ex != 0 or ez != 0)
         assert len(hooks) > 0
 
     def test_pure_prep_reaches_data(self, code3):
         from app.qec.circuit_level import simulate_circuit_level
-        ex, ez, hooks, obs = simulate_circuit_level(
+        ex, ez, hooks, obs, _mf = simulate_circuit_level(
             code3, 3, 0.0, 0.0, 0.0, 1.0, seed=3)
         assert (ex != 0 or ez != 0)
 

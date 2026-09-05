@@ -6,6 +6,7 @@ import CircuitLevelPanel from "./CircuitLevelPanel";
 import FaultAwarePanel from "./FaultAwarePanel";
 import CircuitAwarePanel from "./CircuitAwarePanel";
 import HookForensicsPanel from "./HookForensicsPanel";
+import TemporalInterleavingPanel from "./TemporalInterleavingPanel";
 
 export default function QecLab() {
   const [codes, setCodes] = useState<any[]>([]);
@@ -119,6 +120,8 @@ export default function QecLab() {
       <CircuitAwarePanel />
 
       <HookForensicsPanel />
+
+      <TemporalInterleavingPanel />
 
       <div className="panel">
         <h3>Toric surface code (educational simulator)</h3>

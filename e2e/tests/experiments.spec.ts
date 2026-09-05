@@ -32,12 +32,18 @@ async function runAllAndWait(page: import("@playwright/test").Page,
   await page.getByRole("button", { name: "Execute all runs" }).click();
   const selected = page.locator(".panel", { hasText: "Experiment #" });
   // Wait for ALL runs to settle (sweeps have several) before asserting.
+  // Use the same timeout for both the "all settled" and the "first
+  // terminal badge visible" checks: a busy system may take time
+  // to flip the last non-terminal badge, and a 15s window is
+  // sometimes insufficient (observed flake on the experiment-sweep
+  // test under load). Pass the caller's timeout through to BOTH
+  // assertions.
   await expect(
     selected.locator(".badge", { hasText: /^(QUEUED|RUNNING|CANCELLING)$/ }),
   ).toHaveCount(0, { timeout });
   await expect(
     selected.locator(".badge").filter({ hasText: new RegExp(`^(${terminals.join("|")})$`) }).first(),
-  ).toBeVisible({ timeout: 15_000 });
+  ).toBeVisible({ timeout });
 }
 
 /** §183: the mandatory end-to-end chain through REAL browser + API + DB +

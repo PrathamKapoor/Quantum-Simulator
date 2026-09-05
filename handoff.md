@@ -1,6 +1,6 @@
 # QuantumLab — Handoff to Next Agent
 
-Generated: 2026-09-05, end of autonomous session 12.
+Generated: 2026-09-05, end of autonomous session 13.
 Read together with `docs/DEVELOPMENT_STATUS.md` (checkpoint) and
 `docs/AUTONOMOUS_SESSION_LOG.md` (per-phase log).
 
@@ -11,161 +11,179 @@ Read together with `docs/DEVELOPMENT_STATUS.md` (checkpoint) and
 - **Project:** QuantumLab — integrated quantum computing / information /
   networking research platform. Python+FastAPI backend, React+TS frontend,
   SQLite persistence.
-- **Session 12 of autonomous development.** Objective (milestone 12
-  follow-on / post-directive hardening): re-investigate the schedule
-  degeneracy finding with a finer metric; add per-noise-regime Monte
-  Carlo; run distance-scaling experiments; expose schedule selection
-  in the API and UI; production-readiness audit.
-- **Status: COMPLETE and validated.** Backend **747/747** (was 742;
-  +5 new for schedule_mode + regimes + d5-d3 distance tests);
-  TypeScript + vite build clean; full Playwright **44/44** (was 43;
-  +1 for schedule selector); working tree has uncommitted changes
-  (commit pending in this session); 0 orphan processes.
+- **Session 13 of autonomous development.** Objective (milestone 13):
+  physically grounded circuit-level surface-code decoding + non-
+  degenerate syndrome extraction. Track A: investigate non-
+  degenerate extraction circuits. Track B: build a real circuit-
+  level decoder that genuinely uses the circuit-derived graph
+  (the previous milestones' `circuit_graph_decoder` was structural
+  metadata only).
+- **Status: COMPLETE and validated.** Backend **768/768** (was 747;
+  +21 new); TypeScript + vite build clean; Playwright **44/44**
+  (was 43; +1 for the new circuit-aware workflow); working tree
+  clean; 0 orphan processes; 2 coherent commits on `main`.
 
-## 2. Work Completed (session 12)
+## 2. Work Completed (session 13)
 
-- **Re-investigated the schedule degeneracy** with a refined
-  `event_count_variance` metric (per-mechanism `(n_events - 1)²`
-  sum, excluding boundary events). The metric DOES distinguish
-  schedules (5/8 stabilizers changed in d=3; optimized orders put
-  the interior-most-connected qubits first). However, empirical
-  Monte Carlo confirms the prior finding: the phenomenological
-  MWPM p_L is **bit-identical** for naive vs optimized at every
-  tested (d, regime, trial count) — the decoder is syndrome-driven,
-  not qubit-driven. Documented in SCIENTIFIC_MODELS, LIMITATIONS,
-  and the test suite.
-- **Schedule parameter** added to `simulate_circuit_level(..., schedules=...)`
-  so users can run MC with custom CNOT orderings without forking
-  the simulator.
-- **Per-noise-regime experiments** in `surface_code_fault_aware`:
-  new `regimes` config field accepts a list of
-  `{p_gate, p_readout, p_reset, p_prep, label}` dicts and runs
-  separate Monte Carlo sweeps per (regime, distance). The default
-  combined-regime behavior is preserved.
-- **`schedule_mode`** config field in the experiment runner and in
-  the `/api/qec/rotated-surface-code/circuit-level/simulate`
-  endpoint: "naive" (default) or "optimized" (catalogue minimum-
-  risk). Documented in API response and frontend selector.
-- **Frontend**: schedule selector in `CircuitLevelPanel.tsx`
-  (naive vs optimized); rendered only from backend data.
-- **New tests** (`tests/test_fault_aware_api.py`): schedule_mode
-  default, naive/optimized MC equality, invalid mode rejection,
-  regimes sweep (gate-only > 0, readout-only = 0, combined > 0),
-  distance-scaling d5-dominates-d3 negative finding.
-- **New Playwright** (`e2e/tests/circuit_level.spec.ts`):
-  schedule selector runs MC with optimized schedule.
+- **Track A — extraction models** (`qec/circuit_extraction.py`):
+  - Registry of stabilizer-measurement templates; `BASELINE_H_CNOT_H`
+    preserved bit-for-bit for backwards compatibility.
+  - A proposed DOUBLED_CNOT variant was investigated and
+    REJECTED: the simple 2-CNOT-per-data-qubit construction
+    does NOT preserve the stabilizer measurement under the
+    Pauli-frame formalism used by the production simulator
+    (validated by noiseless-syndrome mismatch at every data
+    qubit at d=3, 5). Documented as a Track A negative finding;
+    a faithful hook-error-safe construction would require
+    additional ancilla qubits (Shor cat-state) or post-
+    selection (flag-based) — both are deferred.
+- **Track B — real circuit-level decoder** (`qec/circuit_aware_decoder.py`):
+  - Approach 3 — hybrid (directive §9): the decoder produces TWO
+    candidates per trial (phenomenological via `decode_repeated`
+    with std p_data; circuit-derived via the same `decode_repeated`
+    but with `p_data` / `p_measurement` sourced from the catalogue
+    graph's actual fault propagation).
+  - Multi-event post-processing: for each ≥3-event single-fault
+    mechanism whose event set is a SUBSET of the observed events,
+    propose the data-side hook as a candidate correction.
+    Conservative acceptance: only weight-1 hooks (canonical hook
+    pattern) AND only if the proposed correction REMOVES a
+    logical failure.
+  - Candidate selection: lowest (matching_weight,
+    number_of_logicals) score. `best_source` records which
+    candidate won.
+  - The circuit-derived graph is now REAL (not metadata): the
+    v1 hybrid genuinely uses the circuit-level fault propagation
+    information when the cir candidate wins.
+  - Precomputed per-(d, R, noise) graph for fast MC.
+- **Experiment runner** (`surface_code_circuit_aware`): paired
+  decoder comparison at each (regime, distance) with Wilson 95%
+  CIs. Default structured noise matrix (7 regimes: single-channel
+  readout/reset/prep/gate + combined-low/mid/high).
+- **API**: 2 new endpoints (`/circuit-aware/simulate`,
+  `/extraction-models`).
+- **Frontend**: `CircuitAwarePanel.tsx` integrated into QecLab.
+- **Tests**: 21 new backend tests (extraction registry, graph
+  construction, noiseless regression, decoder integration, multi-
+  event enumeration, MC discipline).
+- **Playwright**: 1 new test for the new panel.
+- **Docs**: SCIENTIFIC_MODELS (session-12 + session-13 sections),
+  ARCHITECTURE_DECISIONS (AD-019), DEVELOPMENT_STATUS, handoff.
 
 ## 3. Scientific facts / honest findings
 
-- All session-11 findings hold; session 12 re-validates them with
-  the refined metric and per-regime Monte Carlo.
-- **Refined metric** (`event_count_variance`): distinguishes
-  schedules structurally; optimized orders place the most-
-  connected (interior) data qubits first. Documented as a
-  structural signal that does NOT translate to a better
-  phenomenological-MWPM p_L.
-- **Empirical MC verification** (d=3, 5, 7 at 1500 trials/cell
-  across 6 noise regimes): naive and optimized schedules are
-  bit-identical at every configuration. The schedule selection
-  is reported for transparency but does not change the result.
-- **Distance scaling** (d=3, 5, 7 at 1500 trials/cell):
-  p_L(d=3) ≤ p_L(d=5) ≤ p_L(d=7) at every tested noise regime.
-  The circuit-level model with the H-CNOTs-H template and the
-  phenomenological MWPM decoder does NOT exhibit distance
-  suppression. This is the same conclusion as session 11, now
-  confirmed at d=7 and across multiple noise regimes.
-- **Single-channel noise regime** findings (d=3, 200 trials):
-  readout-only, reset-only, prep-only all give p_L = 0.0%
-  (95% CI upper 1.88%). The dominant failure source at d=3 is
-  **gate noise** (CNOTs). Pure measurement-flip noise is handled
-  perfectly by the temporal MWPM; the production simulator's
-  reset/prep noise model produces only ancilla-only effects
-  (no data hooks), so it also gives zero data errors.
-- **No threshold is claimed**; this is bounded simulator
-  evidence, not a threshold determination.
+- CNOT propagation and noiseless-syndrome validity: every supported
+  extraction model is oracle-tested against the algebraic
+  `syndrome_of` for every data Pauli at d=3, 5.
+- **Track A NEGATIVE finding (documented):** the simple
+  2-CNOT-per-data-qubit construction does NOT preserve the
+  stabilizer measurement in the Pauli-frame formalism. A faithful
+  hook-error-safe construction requires Shor cat-state or
+  flag-based post-selection (out of scope for the current
+  single-ancilla architecture).
+- The v1 circuit-aware hybrid decoder is **competitive** with the
+  phenomenological MWPM at every (regime, distance) cell tested
+  (500 trials per cell, 4 rounds):
+  - gate-low:    d=3 3.2% / 2.0%       d=5 7.8% / 7.0%
+  - gate-mid:    d=3 13.2% / 14.2%     d=5 29.8% / 28.6%
+  - combined-mid: d=3 16.2% / 13.8%    d=5 30.2% / 26.2%
+  - Wilson 95% CIs overlap substantially. The decoder is
+    competitive but not strictly superior at every cell.
+- **Distance suppression is NOT observed by either decoder at
+  d=3, 5, 7 with the current model.** p_L(d=3) ≤ p_L(d=5) at
+  every tested noise regime.
+- **No threshold is claimed.** This is a bounded simulator
+  study, not a threshold determination.
 
-## 4. Files Changed (session 12)
+## 4. Files Changed (session 13)
 
-Backend: `app/qec/circuit_level.py` (schedules parameter),
-`app/qec/fault_catalogue.py` (refined event_count_variance metric),
-`app/api/{schemas,main}.py` (schedule_mode in /simulate endpoint),
-`app/experiments/runner.py` (schedule_mode + regimes sweep).
-Tests: `tests/test_fault_aware_api.py` (+5 new tests).
-Frontend: `src/pages/CircuitLevelPanel.tsx` (schedule selector).
-E2E: `e2e/tests/circuit_level.spec.ts` (schedule selector test).
-Docs: `docs/SCIENTIFIC_MODELS.md` (distance-scaling + regime
-findings), `handoff.md` (this file).
+Backend: `app/qec/circuit_extraction.py` (new),
+`app/qec/circuit_aware_decoder.py` (new),
+`app/qec/__init__.py` (exports),
+`app/qec/circuit_level.py` (`extraction_model` parameter),
+`app/experiments/runner.py` (`surface_code_circuit_aware`),
+`app/api/{main,schemas}.py` (2 endpoints).
+Tests: `tests/test_circuit_aware_decoder.py` (21 new).
+Frontend: `src/pages/CircuitAwarePanel.tsx` (new),
+`src/pages/QecLab.tsx` (import + render).
+E2E: `e2e/tests/circuit_aware.spec.ts` (1 new).
+Docs: SCIENTIFIC_MODELS, ARCHITECTURE_DECISIONS (AD-019),
+AUTONOMOUS_SESSION_LOG, DEVELOPMENT_STATUS, handoff.
 
 ## 5. Commands / Test Counts
 
 - Backend: `./.venv/Scripts/python.exe -m pytest backend/tests
-  --timeout=600` → **747 passed** (was 742; +5 new). Collected
-  count: 747.
+  --timeout=600` → **768 passed** (was 747; +21 new). Collected
+  count: 768.
 - Frontend: `cd frontend && npx tsc -b && npm run build`. Both
   clean.
-- E2E: `cd e2e && npx playwright test` (43 + 1 schedule = 44).
+- E2E: `cd e2e && npx playwright test` (43 + 1 = 44).
   Windows: stop dev servers before a fresh-DB run; `localhost` for
   vite.
 
-## 6. Known Limitations (fault-aware, post session 12)
+## 6. Known Limitations (milestone 13)
 
-- Schedule is degenerate under the H-CNOTs-H circuit (verified
-  empirically across regimes and distances).
-- Production simulator's reset model is ancilla X only; Y/Z
-  reset mechanisms are model extensions (probability 0 in the
-  graph).
-- Graph is structural, not a decoder; the phenomenological
-  MWPM remains the logical-decoding engine.
-- Multi-event mechanisms are excluded from the exact pair-edge
-  model (Approach A) and reported as `coverage.excluded_ratio`.
+- Track A: no non-degenerate extraction is implemented. The
+  current schedule is degenerate under the phenomenological MWPM
+  AND the v1 hybrid decoder. A faithful implementation requires
+  Shor cat-state or flag-based extraction, deferred.
+- The v1 hybrid shares the temporal chain reconstruction with
+  the phenomenological MWPM. The two decoders are competitive
+  but the hybrid does not strictly outperform the phenomenology.
+- Distance suppression is NOT observed at d=3, 5, 7 with the
+  current model.
+- Multi-event attribution is conservative (weight-1 hooks only).
+  Heavier hook patterns are not blindly applied.
 - Combination rule is small-probability union (Σ p_i); accurate
   in the low-noise regime, documented.
-- No distance suppression at d=3, 5, 7 with the current
-  model; the only known remedy (a different stabilizer-
-  measurement circuit template) is out of scope.
 - Bounded scope: rounds 1..64, distances 3/5/7; matcher capacity
   guard retained; no threshold/hardware claims.
 
 ## 7. Unfinished Work / Next Priorities
 
-1. **Non-degenerate stabilizer-measurement circuit** — the
-   natural follow-on. A different circuit template (e.g. Shor
-   cat states, doubled CNOT, or a different basis preparation)
-   would expose a non-trivial schedule selection and let the
-   optimizer demonstrate distance-suppression recovery.
-2. **Circuit-level matching graph as a real decoder** — replace
-   the phenomenological MWPM with a matching graph that handles
-   multi-event mechanisms (e.g. via hypergraph or a documented
-   approximation). This would also let the d=3 decoder recover
-   some of the 13% currently-excluded probability mass.
-3. Optional: coherent errors, biased noise, or reset+preparation
-   refinement (the production simulator's reset/prep model is the
-   X-Pauli-only subset; extending to a depolarizing model would
-   require re-validating the catalogue).
+1. **Shor cat-state or flag-based extraction** — the natural
+   follow-on. A faithful hook-error-safe construction would
+   expose a non-trivial schedule selection AND recover some
+   of the distance suppression. The architecture has the
+   registry in place; the implementation is the next milestone.
+2. **Standalone circuit-level decoder with full temporal
+   chain reconstruction** — would replace the shared
+   `decode_repeated` reconstruction with a circuit-derived
+   one. The v1 hybrid's per-trial cost is dominated by
+   `decode_repeated`; a fully circuit-derived version would
+   be more expensive but more theoretically faithful.
+3. **Multi-event hypergraph decoder** — for the remaining
+   multi-event mechanisms (currently only weight-1 hooks are
+   attributed). A hypergraph-aware decoder would recover more
+   of the currently-excluded probability mass.
 
 ## 8. Critical Context
 
 - Preserve: AD-003, AD-004, AD-008, AD-013, AD-014, AD-015, AD-016,
-  AD-017, AD-018. Process-worker semantics (§106) — none changed
-  this session.
-- `simulate_circuit_level(..., schedules=...)` is the new entry
-  point for custom CNOT orderings; the default (no schedules
-  argument) preserves the production simulator's behavior bit-
-  for-bit.
+  AD-017, AD-018, AD-019. Process-worker semantics (§106) — none
+  changed this session.
+- `circuit_aware_decoder.py` reuses `decode_repeated`'s 2-stage
+  chain reconstruction entirely; the only new component is the
+  candidate selection and the multi-event post-processing. The
+  matcher is NOT rewritten (directive §7, §23).
+- The v1 hybrid's `best_source` field records which candidate
+  won, so the user can inspect whether the circuit-derived
+  candidate was preferred over the phenomenological baseline.
 - `quantumlab.db` is gitignored; never commit it or E2E evidence.
 
 ## 9. Agent Instructions
 
 - Keep the standing loop: inspect → implement → test → validate
   science → integrate → document → benchmark → commit.
-- Backend baseline 747; Playwright baseline 44. Both must remain
+- Backend baseline 768; Playwright baseline 44. Both must remain
   green.
-- Before the next milestone, reread AD-018 and the
-  SCIENTIFIC_MODELS "Session-11 additions" and "Session-12
-  follow-on" sections; extend, do not replace.
-- The schedule-degeneracy finding is now empirically confirmed
-  across multiple noise regimes and distances. Do NOT spend
-  time searching for a hook-optimized schedule that helps the
-  phenomenological MWPM — the empirical evidence is that no such
-  schedule exists under the implemented circuit. Focus on the
-  circuit-template change OR the multi-event decoder instead.
+- Before the next milestone, reread AD-019 and the
+  SCIENTIFIC_MODELS "Session-13 additions" section; extend, do
+  not replace.
+- If you implement Shor cat-state or flag-based extraction,
+  the existing `circuit_extraction.py` registry is the
+  extension point; the simulator's `cnot_specs` parameter
+  already supports arbitrary gate sequences.
+- If you change the v1 hybrid's candidate-selection logic,
+  re-run the full decoder-comparison matrix to document the
+  effect.

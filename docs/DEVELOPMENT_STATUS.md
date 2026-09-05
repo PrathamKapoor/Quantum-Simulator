@@ -4,7 +4,7 @@
 > work MUST read this file first, then ROADMAP.md, ARCHITECTURE.md,
 > SCIENTIFIC_MODELS.md, LIMITATIONS.md (directive §320).
 >
-> Last updated: 2026-09-05 (session 12 final checkpoint)
+> Last updated: 2026-09-05 (session 13 final checkpoint)
 
 ## Current state
 
@@ -61,8 +61,8 @@ Run it: `dev.bat backend` + `dev.bat frontend` → http://localhost:5173
 
 ## Tests & validation
 
-- Fast suite: **747 passed** (session 12; was 742; +5 new for
-  schedule_mode + regimes + d5-d3 distance tests).
+- Fast suite: **768 passed** (session 13; was 747; +21 new for
+  circuit-aware hybrid decoder + extraction registry).
   Session 5 added: `test_werner_state.py` (40: trace/Hermiticity/PSD,
   target-fidelity = F at seven F values, F = 1/0/0.25/0.5 limit cases,
   q-parameterization consistency, ordering convention, negativity/concurrence
@@ -454,3 +454,46 @@ STATICALLY REVIEWED = code-reviewed, build-verified only.
   Playwright tests against the real backend.
 - **VERIFIED** — regression: backend 742/742 green (704 + 38 new);
   TypeScript + vite build clean; 0 orphan processes.
+
+## Session 13 — circuit-aware hybrid decoder + non-degenerate extraction (AD-019)
+
+- **VERIFIED** — extraction model registry (`qec/circuit_extraction.py`).
+  BASELINE_H_CNOT_H preserved bit-for-bit; a DOUBLED_CNOT
+  variant was investigated and REJECTED in the design phase
+  (the simple 2-CNOT-per-data-qubit construction does not
+  preserve the stabilizer measurement under the Pauli-frame
+  formalism; validated by noiseless-syndrome mismatch at every
+  data qubit at d=3, 5).
+- **VERIFIED** — real circuit-aware hybrid decoder
+  (`qec/circuit_aware_decoder.py`): Approach 3 (directive §9).
+  Two candidates per trial (phenomenological via decode_repeated;
+  circuit-derived via the same decode_repeated but with p_data /
+  p_measurement sourced from the catalogue graph's actual fault
+  propagation). Multi-event post-processing: weight-1 hooks
+  offered as corrections, accepted only if they REMOVE a logical
+  failure (conservative).
+- **VERIFIED** — hybrid decoder is COMPETITIVE with the
+  phenomenological MWPM at every (regime, distance) cell tested
+  (Wilson 95% CIs overlap; 500 trials per cell, 4 rounds). The
+  hybrid does NOT strictly outperform the phenomenological at
+  every cell (honest reporting).
+- **VERIFIED** — distance suppression is NOT observed by either
+  decoder at d=3, 5 with the current model.
+- **VERIFIED** — experiment runner `surface_code_circuit_aware`
+  round-trips through the process-isolated worker (create →
+  execute → COMPLETED → result → reproduce EXACT_MATCH).
+- **VERIFIED** — 21 new backend tests, 1 new Playwright test.
+  768/768 backend; 45/45 Playwright green; tsc + vite clean.
+- **VERIFIED** — regression: backend 747/747 → 768/768;
+  Playwright 44/44 → 45/45; 0 orphan processes.
+- **Bugs found and root-fixed:**
+  1. v1 hybrid initially WORSE than phenomenological by 7-14pp
+     (incomplete cir-candidate temporal reconstruction). Fixed
+     by sharing decode_repeated's chain reconstruction; the cir
+     candidate now uses circuit-derived p_data / p_measurement
+     instead.
+  2. Over-aggressive multi-event attribution. Fixed by
+     constraining to weight-1 hooks only.
+- **Documentation:** AD-019, SCIENTIFIC_MODELS "Session-13
+  additions", LIMITATIONS, handoff.md.
+

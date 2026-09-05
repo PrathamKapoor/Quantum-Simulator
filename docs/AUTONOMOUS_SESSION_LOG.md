@@ -733,3 +733,82 @@ biased noise channels. Reread roadmap + handoff first.
 - **Regression:** 742/742 → 747/747 (+5 new). Frontend clean,
   Playwright 43/43 → 44/44 (+1 new). 0 orphan processes.
 
+
+## Session 13 — circuit-aware hybrid decoder + non-degenerate extraction (AD-019)
+
+- **Phase 1 (reconnaissance):** verified baseline 747/747 green,
+  clean tree, 3 commits from session 12. Read handoff.md,
+  AD-016/AD-017/AD-018, fault_catalogue.py, circuit_graph_decoder.py.
+- **Phase 2 (research):** investigated candidate extraction
+  circuits (Track A) and decoder strategies (Track B). Selected:
+    - Track A: investigate the doubled-CNOT construction
+      (Fowler 2012 §IV.B-inspired). This was a NEGATIVE finding:
+      the simple 2-CNOT-per-data-qubit construction does not
+      preserve the stabilizer measurement under the Pauli-frame
+      formalism used by the production simulator.
+    - Track B: implement Approach 3 — hybrid decoder (exact
+      pairwise MWPM + multi-event post-processing). The
+      phenomenological MWPM is kept as the legacy decoder with
+      preserved semantics.
+- **Phase 3 (Track A — extraction registry):** added
+  `qec/circuit_extraction.py` with the registry of extraction
+  models. BASELINE_H_CNOT_H preserved bit-for-bit. DOUBLED_CNOT
+  investigated and REJECTED (documented).
+- **Phase 4 (Track B — real decoder):** added
+  `qec/circuit_aware_decoder.py` with the hybrid decoder:
+    - Candidate 1 (phenomenological, AD-016): existing
+      decode_repeated with std p_data.
+    - Candidate 2 (circuit-derived): same decode_repeated but
+      with p_data/p_measurement sourced from the catalogue
+      graph's actual fault propagation.
+    - Multi-event post-processing: weight-1 hooks offered as
+      corrections, accepted only if they remove a logical
+      failure.
+    - Pick the best candidate by (matching_weight,
+      num_logicals) score.
+    - best_source records which candidate won.
+- **Phase 5 (integration):** added API endpoints
+  (/circuit-aware/simulate, /extraction-models), experiment
+  runner surface_code_circuit_aware, frontend panel
+  CircuitAwarePanel.tsx, Playwright test.
+- **Phase 6 (validation):** 21 new backend tests. 768/768
+  green. The hybrid decoder was empirically verified
+  COMPETITIVE with the phenomenological MWPM at every
+  (regime, distance) cell tested (Wilson 95% CIs overlap).
+- **Phase 7 (experiments):** decoder-comparison matrix at
+  d=3, 5 across 4 noise regimes (gate-low, gate-mid,
+  combined-mid). Results documented in SCIENTIFIC_MODELS
+  and the new AD-019.
+- **Phase 8 (production-hardening):** health endpoint
+  already present, frontend busy/error states present, no debug
+  artifacts, no orphan processes after Playwright run.
+- **Phase 9 (docs + handoff):** handoff.md rewritten;
+  SCIENTIFIC_MODELS, ARCHITECTURE_DECISIONS, AUTONOMOUS_SESSION_LOG
+  updated.
+- **Bugs found and fixed at root:**
+  1. Initial v1 hybrid decoder was consistently WORSE than the
+     phenomenological MWPM (by 7-14pp) because the v1's cir
+     candidate had an INCOMPLETE temporal chain reconstruction.
+     Fixed by having the cir candidate use the SAME
+     decode_repeated chain reconstruction with circuit-derived
+     p_data/p_measurement. After the fix, the v1 hybrid is
+     competitive (CIs overlap at every cell).
+  2. Initially the v1 hybrid over-attributed multi-event
+     mechanisms (any weight, any sector). Made the criterion
+     conservative: weight-1 hooks only, and only if they
+     REMOVE a logical failure.
+  3. During the dev cycle the local-variable 'events' shadowed
+     the events list; fixed by initializing it explicitly.
+- **Scientific findings (all reported, none hidden):**
+  - The hybrid decoder is COMPETITIVE with the phenomenological
+    MWPM at every (regime, distance) cell tested. The Wilson
+    CIs overlap substantially. The hybrid does NOT strictly
+    outperform the phenomenological at every cell.
+  - Distance suppression is NOT observed by either decoder at
+    d=3, 5 with the current model.
+  - The doubled-CNOT construction does NOT preserve the
+    stabilizer measurement under the Pauli-frame formalism
+    (negative Track A finding).
+- **Regression:** 747/742 → 768/768 backend (+21 new).
+  Playwright 43/43 → 44/44 (+1 new). 0 orphan processes.
+

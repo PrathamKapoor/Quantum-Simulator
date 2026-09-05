@@ -613,3 +613,57 @@ existing repeated-round and phenom suites remain green.
 Hook-optimised schedule and/or the circuit-level matching graph (so correlated
 hooks become decodable and distance suppression is recoverable); or coherent /
 biased noise channels. Reread roadmap + handoff first.
+
+## Session 11 — fault-aware scheduling & circuit-derived decoder graph
+
+- **Phase 1 (reconnaissance):** verified baseline 704/704 green,
+  inspected `qec.circuit_level`, `qec.repeated_round`, MWPM,
+  RotatedSurfaceCode; read AD-017 (circuit-level) and AD-016
+  (repeated-round); no code changes.
+- **Phase 2 (fault catalogue):** built `qec/fault_catalogue.py`
+  with `FaultMechanism` dataclass, 24-candidate enumeration per
+  stabilizer, deterministic risk score. Discovered KEY FINDING
+  (H-CNOTs-H circuit: schedule is provably degenerate) and
+  documented it instead of hiding it.
+- **Phase 3 (circuit-derived graph):** built
+  `qec/circuit_graph_decoder.py`: per-mechanism classification,
+  small-probability union, honest multi-event coverage; adapts
+  into the existing MWPM without modification.
+- **Phase 4 (API + experiments):** four new endpoints + the
+  `surface_code_fault_aware` experiment through the process-
+  isolated worker with reproduction EXACT_MATCH.
+- **Phase 5 (frontend + Playwright):** `FaultAwarePanel.tsx`
+  integrated into QecLab; 3 Playwright tests.
+- **Phase 6 (regression + audit):** 742/742 backend green; tsc +
+  vite clean; 0 orphan processes.
+- **Bugs found and fixed at root:**
+  1. p=0 edge weight bloat: `_quantize(0)` returned `_INF` and
+     added INF-weighted edges; fixed by skipping p == 0 in graph
+     construction.
+  2. READOUT was enumerated for the ideal final round (inconsistent
+     with the simulator's `p_readout=0` convention); added
+     `total_rounds` parameter to suppress it in the final round.
+  3. Test expectation drift on `test_ancilla_reset_reaches_data`
+     (asserted data error at p_reset=1; the simulator's reset
+     model is ancilla X only, so data stays clean at p_reset=1);
+     fixed the test to assert the actual simulator semantics
+     (all-ones syndromes, zero data).
+  4. `_all_detection_events_from_data` was missing; the per-
+     mechanism detection-event set was limited to the local
+     syndrome change. Fixed by adding the cross-check enumeration
+     for X-check data-X hooks (the dominant case for
+     correlated-hook emergence).
+- **Scientific findings (all reported, none hidden):**
+  - Schedule is degenerate under the implemented H-CNOTs-H
+    circuit (the optimizer selects the naive schedule as
+    optimal at every distance).
+  - Multi-event mechanisms (≥3 events from one fault) account
+    for ~13% (d=3) to ~23% (d=5) of the single-fault probability
+    mass at the default noise; these are excluded from the exact
+    pair-edge model and reported as `coverage.excluded_ratio`.
+  - Production simulator's reset model is ancilla X only; the
+    catalogue's Y/Z reset entries are model extensions with
+    probability 0 (documented).
+- **Regression:** 704/704 → 742/742 (38 new tests: 18 fault
+  catalogue, 11 circuit graph decoder, 9 API/experiment).
+  Frontend clean, Playwright 43/43 (40 + 3 new fault-aware).

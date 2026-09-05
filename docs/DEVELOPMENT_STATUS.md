@@ -4,7 +4,7 @@
 > work MUST read this file first, then ROADMAP.md, ARCHITECTURE.md,
 > SCIENTIFIC_MODELS.md, LIMITATIONS.md (directive §320).
 >
-> Last updated: 2026-08-31 (session 10 final checkpoint)
+> Last updated: 2026-09-04 (session 11 final checkpoint)
 
 ## Current state
 
@@ -61,7 +61,7 @@ Run it: `dev.bat backend` + `dev.bat frontend` → http://localhost:5173
 
 ## Tests & validation
 
-- Fast suite: **704 passed** (session 10; was 664).
+- Fast suite: **742 passed** (session 11; was 704).
   Session 5 added: `test_werner_state.py` (40: trace/Hermiticity/PSD,
   target-fidelity = F at seven F values, F = 1/0/0.25/0.5 limit cases,
   q-parameterization consistency, ordering convention, negativity/concurrence
@@ -404,3 +404,52 @@ Classification: VERIFIED = exercised this session's automated runs.
    no comparison view (the compare endpoint existed with no UI). Added a
    per-run Cancel button (queued/running) and a "Compare last two completed
    runs" panel driven by the existing compare endpoint.
+
+## Session 11 — fault-aware scheduling & circuit-derived decoder graph
+
+Classification: VERIFIED = exercised in this session's automated runs;
+STATICALLY REVIEWED = code-reviewed, build-verified only.
+
+- **VERIFIED** — scientific model explicit: a per-fault catalogue
+  (`qec/fault_catalogue.py`) enumerates every elementary fault
+  mechanism in the stabilizer-measurement circuit (ancilla reset,
+  ancilla prep, every CNOT, readout) and computes the propagated
+  data support, the FULL detection-event set, the residual
+  classification, and the minimum additional-fault count to
+  complete a logical operator.
+- **VERIFIED** — independent validation: CNOT propagation oracle
+  (separate code path) matches the production `cnot_propagate`;
+  every candidate schedule (24 perms of a weight-4 stabilizer)
+  preserves the stabilizer's noiseless syndrome (matches
+  `syndrome_of`).
+- **VERIFIED** — DOCUMENTED FINDING: under the H-CNOTs-H circuit,
+  the schedule is provably degenerate (every permutation of a
+  stabilizer's CNOT support produces the same risk profile). The
+  optimizer therefore selects the naive schedule as optimal; the
+  comparison report shows `stabilizers_with_changed_schedule = 0`
+  for every distance. Not a UI simplification, not a bug — a real
+  property of the model. The optimizer is generic over the catalogue.
+- **VERIFIED** — circuit-derived decoder graph: per-mechanism
+  classification into ZERO_EVENT / BOUNDARY / EDGE /
+  MULTI_EVENT_APPROXIMATED; small-probability-union combination
+  rule; honest `coverage.excluded_ratio` reporting; graph adapts
+  into the existing exact MWPM via the standard defect-set +
+  boundary-exit interface.
+- **VERIFIED** — decoder semantics preserved: the graph is reported
+  as STRUCTURAL metadata; the phenomenological MWPM remains the
+  logical-decoding engine (AD-016, AD-017). No experiment uses the
+  graph as a decoder.
+- **VERIFIED** — coverage at the default noise (p_gate=p_readout=
+  0.005, p_reset=p_prep=0.003): d=3 ~87% exact pairwise / ~13%
+  multi-event-excluded; d=5 ~77% / ~23%.
+- **VERIFIED** — integration: four new endpoints
+  (`/api/qec/rotated-surface-code/schedule/analyze`,
+  `/fault/analyze`, `/circuit-derived/graph`,
+  `/circuit-derived/simulate`); `surface_code_fault_aware`
+  experiment through the process-isolated worker (create →
+  execute → COMPLETED → result → reproduce EXACT_MATCH, original
+  immutable); QecLab `FaultAwarePanel` (schedule comparison +
+  fault inspection + graph coverage + MC with graph); 3
+  Playwright tests against the real backend.
+- **VERIFIED** — regression: backend 742/742 green (704 + 38 new);
+  TypeScript + vite build clean; 0 orphan processes.

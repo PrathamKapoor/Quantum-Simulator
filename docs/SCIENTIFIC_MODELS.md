@@ -601,3 +601,79 @@ NOT observed in this first circuit-level model (documented, not hidden). This
 is a real property of naive circuit-level schedules + phenomenological MWPM,
 not a decoder defect; the standard remedy (a hook-optimised schedule and/or a
 circuit-level matching graph) is the follow-on milestone.
+
+# Session-11 additions: fault-aware scheduling & circuit-derived decoder graph
+
+## Fault catalogue (qec.fault_catalogue)
+
+For every stabilizer-measurement circuit in every round, the catalogue
+enumerates the elementary fault mechanisms and computes, for each:
+the propagated data support, the FULL detection-event set
+(local + cross-checks via CSS anticommutation), the residual
+classification (STABILIZER / DATA_HOOK / LOGICAL_X / LOGICAL_Z /
+MEASUREMENT_FLIP), and the minimum additional-fault count to
+complete a logical operator of the same sector.
+
+Mechanisms enumerated (per round, per stabilizer):
+  - ANCILLA_RESET on the ancilla (production simulator: X only; the
+    Y/Z entries are model extensions with probability 0).
+  - ANCILLA_PREP (depolarizing on the ancilla AFTER the initial H
+    for X-checks; the per-Pauli entries each carry p_prep/3).
+  - CNOT_PRE: every CNOT in the schedule, every Pauli on the control
+    and the target, before the gate.
+  - READOUT: the measurement-bit flip (BOUNDARY class, 1 event).
+
+CNOT propagation is the existing project `cnot_propagate` (validated
+against an independent 4x4 matrix CNOT in test_circuit_level_qec).
+
+## Schedule optimization (AD-018)
+
+For every stabilizer, every candidate ordering of its CNOT support is
+enumerated (24 permutations for weight-4, 120 for weight-5, 5040 for
+weight-7 stabilizers). The risk score is the lexicographic composite
+`(n_logical_risk_hooks, max_hook_weight, n_hooks, sum_hook_weight,
+canonical-order)`. The lowest composite wins.
+
+**Documented finding: under the H-CNOTs-H stabilizer-measurement
+circuit the schedule is provably degenerate.** Every permutation of
+a stabilizer's support produces the same risk profile because
+ancilla X (or Y, Z) faults propagate through every CNOT to every
+data qubit in the support, so the sum of hook weights over all
+fault sites is independent of the order. The optimizer therefore
+selects the naive schedule as optimal; the comparison report shows
+`stabilizers_with_changed_schedule = 0` for every distance (d=3, 5).
+
+## Circuit-derived decoder graph (AD-018)
+
+For every (d, R, noise) configuration the graph builder:
+
+1. Enumerates the catalogue.
+2. Classifies each mechanism into:
+     ZERO_EVENT (no detection event, e.g. a STABILIZER fault),
+     BOUNDARY (1 event, e.g. RESET/READOUT),
+     EDGE (2 events, a graph-edge candidate),
+     MULTI_EVENT_APPROXIMATED (≥3 events, excluded from the exact
+     pair-edge model and reported as `coverage.excluded_ratio`).
+3. Combines independent mechanism probabilities for the same
+   detector pair using the small-probability union
+   `p_combined ≈ Σ p_i` (AD-016 integer-quantized 1e-6 LLR).
+4. Builds a complete graph on the union of event vertices with
+   edge weights = combined LLR and exit weights = sum of
+   BOUNDARY mechanism probabilities.
+5. Adapts into the EXISTING exact MWPM via the same defect-set +
+   boundary-exit interface (no matcher changes).
+
+The graph is reported as STRUCTURAL metadata. Decoder semantics
+are preserved: the phenomenological MWPM remains the
+logical-decoding engine (AD-016, AD-017). No experiment uses the
+graph as a decoder.
+
+## Coverage accounting
+
+`GraphCoverage` records: `total_mechanisms`, `zero_event`,
+`boundary`, `edge`, `multi_event_mechanisms`, and probability-mass
+totals. `coverage_ratio = covered / total` is the exact-pairwise
+fraction; `excluded_ratio = 1 − coverage_ratio` is the multi-event
+fraction. At the default noise (p_gate = p_readout = 0.005, p_reset =
+p_prep = 0.003), d=3 shows ~87% exact pairwise coverage and ~13%
+excluded; d=5 shows ~77% and ~23%.

@@ -375,3 +375,103 @@ Modeling a final-round measurement flip as a data error heuristically —
 rejected; the ideal-final-round convention is cleaner and documented.
 (c) Folding reset into preparation or gate noise — rejected; the milestone
 requires them distinct.
+
+## AD-018 — Fault-aware scheduling and circuit-derived decoder graph (milestone 12)
+
+**Decision.** The circuit-level QEC subsystem gains a fault-catalogue
+infrastructure, a deterministic schedule optimizer, and a
+circuit-derived detector graph that is reported as STRUCTURAL metadata
+alongside the EXISTING phenomenological MWPM decoder. Decoder
+semantics are unchanged (the graph is not a replacement decoder);
+the schedule optimizer is reproducible and, under the implemented
+H-CNOTs-H circuit model, selects the naive schedule as optimal
+(documented degenerate finding).
+
+1. **Single-fault propagation catalogue** (`qec/fault_catalogue.py`)
+   enumerates every elementary fault mechanism in the actual
+   stabilizer-measurement circuit for every round: ancilla reset,
+   ancilla prep, every CNOT (pre-gate, both qubits, all three Paulis),
+   and readout. For each mechanism the catalogue computes the
+   propagated data support, the syndrome delta on the affected
+   stabilizer, the FULL detection-event set (local + cross-checks),
+   the residual classification (STABILIZER / DATA_HOOK / LOGICAL_X /
+   LOGICAL_Z / MEASUREMENT_FLIP), and the minimum additional-fault
+   count to complete a logical. The CNOT propagation is the project's
+   existing `cnot_propagate` (already oracle-tested against the
+   independent 4x4 matrix CNOT); the catalogue's per-mechanism
+   event-set computation is a separate function
+   (`_all_detection_events_from_data`) so the test suite can
+   cross-check.
+
+2. **Schedule optimization is deterministic and documented.** Every
+   candidate ordering of a stabilizer's CNOT support is enumerated
+   (24 permutations for weight 4, 120 for weight 5, 5040 for
+   weight 7). For each candidate, the catalogue is built and a
+   composite risk score is computed: (n_logical_risk_hooks,
+   max_hook_weight, n_hooks, sum_hook_weight, canonical-order).
+   The lowest lexicographic key wins.
+
+3. **KEY FINDING (documented, not hidden):** under the H-CNOTs-H
+   stabilizer-measurement circuit (the model implemented in the
+   production simulator), the schedule is provably degenerate — every
+   permutation of a stabilizer's CNOT support produces the same
+   `n_logical_risk_hooks`, `max_hook_weight`, `n_hooks`, and
+   `sum_hook_weight` (the order of faults shifts the `gate_index`
+   labels but the data-side support is invariant). The optimizer
+   therefore selects the naive schedule as optimal and the
+   `compare_naive_vs_optimized` report shows
+   `stabilizers_with_changed_schedule = 0` for every distance.
+   This is a real and important property of the implemented model.
+   A non-degenerate circuit (e.g. a different stabilizer-measurement
+   template, or a noisy basis preparation) would expose a different
+   selection; the optimizer is generic over the catalogue.
+
+4. **Circuit-derived detector graph** (`qec/circuit_graph_decoder.py`):
+   the catalogue is converted to a matching graph by classifying each
+   mechanism into ZERO_EVENT / BOUNDARY (1 event) / EDGE (2 events) /
+   MULTI_EVENT_APPROXIMATED (≥3 events). Pair edges are weighted by
+   the combined probability of every independent mechanism mapping
+   to the same detector pair, using a small-probability union
+   (Σp_i, the documented combination rule). The graph adapts into
+   the EXISTING exact MWPM via the same defect-set + boundary-exit
+   interface (no matcher changes, no duplicate algorithm). Multi-event
+   mechanisms are excluded from the exact pair-edge model (Approach A
+   in the directive) and reported as `coverage.excluded_ratio` with
+   honest probability-mass accounting.
+
+5. **Decoder semantics are preserved.** The graph is reported as
+   STRUCTURAL metadata alongside the phenomenological MWPM, which
+   remains the logical-decoding engine. The Monte Carlo endpoint
+   (`circuit_derived_simulate`) and the experiment runner
+   (`surface_code_fault_aware`) report the graph coverage per
+   distance, the per-distance schedule report, and the
+   phenomenological-decoder logical-error rate (with Wilson
+   intervals). No experiment uses the graph as a logical decoder.
+
+6. **API + experiment integration.** Four new endpoints
+   (`/schedule/analyze`, `/fault/analyze`, `/circuit-derived/graph`,
+   `/circuit-derived/simulate`) follow the existing pydantic
+   validation pattern (directive §34, §35). The new
+   `surface_code_fault_aware` experiment uses the existing
+   `ExperimentService` lifecycle and reproduces EXACT_MATCH through
+   the process-isolated worker (directive §37, §38, AD-014).
+
+7. **Frontend.** A new `FaultAwarePanel` is integrated into QecLab
+   with explicit schedule-comparison, single-fault inspection, and
+   circuit-derived-graph coverage rendering. Every value comes from
+   the backend (directive §42: no scientific calculation in
+   TypeScript). The schedule-comparison section prominently
+   explains that "naive = optimized" is the implemented finding,
+   not a UI simplification.
+
+**Rejected alternatives.** (a) A different stabilizer-measurement
+template (e.g. Shor-style cat states, or a doubled CNOT schedule) —
+out of scope: the milestone is about adding FAULT-AWARENESS to the
+existing circuit, not redesigning the circuit. (b) Treating the
+graph itself as the decoder (replacing the phenomenological MWPM) —
+rejected: directive §41, §42 explicitly preserve decoder semantics
+and the graph is a structural diagnostic, not a replacement. (c)
+Sub-1e-3 floating-point probability combinations in the graph
+weights — rejected: the integer-quantized 1e-6 LLR convention
+(AD-016) is reused for determinism and to integrate with the
+existing matcher.

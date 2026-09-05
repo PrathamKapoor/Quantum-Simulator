@@ -256,3 +256,39 @@ layout, process-isolated workers.
   noise beyond the stated depolarizing channels.
 - **Bounded scope:** rounds 1..64, distances 3/5/7; matcher capacity guard
   retained; no threshold/hardware claims.
+
+## Fault-aware scheduling & circuit-derived decoder graph
+
+- **Schedule is provably degenerate under the implemented circuit.** The
+  H-CNOTs-H stabilizer-measurement template (the one implemented in the
+  production simulator) produces the same single-fault risk profile for
+  every permutation of a stabilizer's CNOT support. The optimizer
+  therefore selects the naive schedule as optimal and
+  `stabilizers_with_changed_schedule = 0` for every distance. This is
+  a real, documented property of the model — not a UI simplification.
+  A different circuit template (e.g. Shor-style cat states, a doubled
+  schedule, or a different basis preparation) would expose a non-trivial
+  selection; the optimizer is generic over the catalogue.
+- **Production-simulator reset model is X-only.** The production
+  simulator models reset noise as ancilla X (the ancilla starts as
+  `|1>`). The catalogue enumerates Y/Z reset mechanisms as
+  `p_reset_y_extension` / `p_reset_z_extension` with probability 0
+  (documented model extensions, not in the production model).
+- **Graph is structural, not a decoder.** The circuit-derived graph is
+  reported as metadata alongside the phenomenological MWPM (which
+  remains the logical-decoding engine). Multi-event mechanisms
+  (≥3 detection events from a single fault) are excluded from the
+  exact pair-edge model and reported as `coverage.excluded_ratio`
+  (Approach A in the directive, §21).
+- **Combination rule is small-probability union (Σ p_i).** For the
+  low-noise regime this is accurate; under high noise the exact
+  combination `1 − ∏(1 − p_i)` is more accurate but the deviation
+  is below the integer-quantization precision (1e-6) at the documented
+  noise levels.
+- **No distance-suppression investigation is implied.** The
+  schedule-optimization infrastructure is the foundation; whether
+  distance suppression RECOVERS under a non-degenerate circuit
+  template is the natural next milestone and is NOT claimed by
+  this work.
+- **Bounded scope:** rounds 1..64, distances 3/5/7; matcher capacity
+  guard retained; no threshold/hardware claims.

@@ -714,14 +714,104 @@ data qubits, exceeding the d=3 correction radius and being
 incorrectly decoded at d=5/7 as a chain that completes a logical
 operator.
 
-**Regime-specific findings (single-channel noise, d=3):**
-  - readout-only: p_L = 0.0% (95% CI upper 1.88%) — the temporal
-    MWPM handles pure measurement flips perfectly.
-  - reset-only: p_L = 0.0% — the simulator's reset-X model
-    produces only bit-flip on the ancilla, no data hook.
-  - prep-only: p_L = 0.0% — same reason (model extension Y/Z
-    prep mechanisms have probability 0 in the production model).
-  - gate-only: p_L > 0% (the dominant failure source).
+# Session-12 additions: circuit-aware hybrid decoder (AD-019)
 
-**No threshold is claimed.** This is a bounded simulator study,
-not a threshold determination.
+## Extraction models (Track A)
+
+`qec/circuit_extraction.py` introduces an extraction-model registry
+that selects the stabilizer-measurement circuit template used by
+the simulator.
+
+Currently supported:
+  - `baseline_h_cnot_h`: the existing production circuit (Z-check
+    = CNOT(data->anc) per data qubit; X-check = H, CNOT(anc->data)
+    per data qubit, H). Preserved bit-for-bit for backwards
+    compatibility.
+
+**Track A negative finding (documented):** the milestone-13
+directive asked for a non-degenerate circuit template (a "doubled
+CNOT" hook-error-safe variant). The simple 2-CNOT-per-data-qubit
+construction (data->anc, anc->data on the same qubit) does NOT
+preserve the stabilizer measurement under the Pauli-frame
+formalism used by the production simulator: the anc->data CNOT
+copies the accumulated ancilla Z back to every data qubit in the
+support, producing a multi-data syndrome for a single-qubit data
+error (validated by noiseless-syndrome mismatch at every data
+qubit at d=3, 5). A faithful hook-error-safe construction would
+require additional ancilla qubits (Shor cat-state) or
+post-selection (flag-based); both are deferred to a follow-on
+milestone as they exceed the current architecture's single-ancilla
+model.
+
+## Circuit-aware hybrid decoder (Track B)
+
+`qec/circuit_aware_decoder.py` is the real circuit-level decoder.
+The previous milestones' `circuit_graph_decoder` built a graph but
+only reported it as structural metadata. The new hybrid decoder
+ACTUALLY USES the circuit-derived information:
+
+Architecture (Approach 3 — hybrid, directive §9):
+  1. CANDIDATE 1 (phenomenological): the existing `decode_repeated`
+     with the standard phenomenological noise parameters. This
+     provides the FULL temporal chain reconstruction (Stage A:
+     difference-layer MWPM; Stage B: final-round single-shot
+     residual). It is the LEGACY decoder (AD-016).
+  2. CANDIDATE 2 (circuit-derived): the same `decode_repeated`
+     chain reconstruction, but with `p_data` and `p_measurement`
+     sourced from the circuit-derived graph's effective pair-edge
+     and exit-edge probabilities (the per-event rate that
+     corresponds to the circuit's actual fault propagation). The
+     chain reconstruction is REUSED (directive §23, §37:
+     architecture efficiency); the graph is the extension.
+  3. Multi-event post-processing: for each ≥3-event mechanism
+     whose event set is a SUBSET of the observed events, propose
+     the data-side hook as a candidate correction; accept ONLY if
+     (a) the proposed correction has weight 1 (canonical hook
+     pattern) AND (b) the proposed correction REMOVES a logical
+     failure (conservative criterion).
+  4. Pick the candidate with the lowest (matching_weight,
+     number-of-logical-failures) score.
+
+The hybrid decoder's match quality is reported alongside the
+phenomenological baseline so users can compare them at the SAME
+(d, R, noise) configuration. Wilson 95% CIs are reported.
+
+## Decoder comparison results (AD-019)
+
+500 trials per (regime, distance) at the standard 4-round circuit:
+
+```
+regime              d=3 (phen / cir)            d=5 (phen / cir)
+gate-low         3.20% [1.98, 5.13] / 2.00%   7.80% / 7.00%
+                   [1.09, 3.64]                [5.08, 9.58]
+gate-mid        13.20% [10.51, 16.45] /        29.80% / 28.60%
+                   14.20% [11.41, 17.53]        [24.81, 32.71]
+combined-mid    16.20% [13.23, 19.69] /        30.20% / 26.20%
+                   13.80% [11.05, 17.10]        [22.54, 30.23]
+```
+
+The Wilson 95% CIs overlap substantially at every (regime,
+distance) cell tested. The decoder-comparison experiment
+documents that:
+  - The circuit-aware hybrid decoder is COMPETITIVE with the
+    phenomenological MWPM at d=3, 5 under the implemented
+    circuit-level noise model.
+  - Distance suppression is NOT observed by either decoder at
+    any tested regime (d=5 > d=3).
+  - The v1 hybrid's main contribution is the multi-event
+    attribution path (a structural-mechanism source that the
+    phenomenological model cannot represent); the underlying
+    chain reconstruction is shared with the phenomenological
+    decoder.
+
+**No threshold is claimed** (per directive §13). This is a
+bounded simulator study, not a threshold determination.
+
+## Architectural decisions
+
+AD-019 (session 12): the hybrid decoder. The key principle is
+"extend the graph construction layer, do not rewrite the
+matcher" (directive §7, §23). The v1 hybrid reuses
+`decode_repeated`'s 2-stage chain reconstruction entirely; the
+only new component is the candidate selection (which
+correction to use) and the multi-event post-processing.

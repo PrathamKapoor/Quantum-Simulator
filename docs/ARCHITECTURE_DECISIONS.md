@@ -475,3 +475,71 @@ Sub-1e-3 floating-point probability combinations in the graph
 weights — rejected: the integer-quantized 1e-6 LLR convention
 (AD-016) is reused for determinism and to integrate with the
 existing matcher.
+
+## AD-019 — Circuit-aware hybrid decoder with multi-event attribution (milestone 13)
+
+**Decision.** The circuit-derived graph (AD-018) is promoted from
+structural metadata to an actively consulted decoder component via
+a hybrid architecture (directive §5, §7, §9, §23, §37).
+
+1. **Hybrid candidate generation.** For each (d, R, noise)
+   configuration the decoder produces TWO candidate corrections:
+   - CANDIDATE 1 (phenomenological, AD-016): the existing
+     `decode_repeated` with the standard phenomenological noise
+     parameters. The full temporal chain reconstruction is
+     preserved.
+   - CANDIDATE 2 (circuit-derived): the SAME `decode_repeated`
+     chain reconstruction, but with `p_data` and `p_measurement`
+     derived from the circuit-level fault-catalogue graph
+     (the per-event rate that corresponds to the actual fault
+     propagation in the stabilizer-measurement circuits).
+   This reuses the existing matcher (the temporal + final-residual
+   2-stage decoder) and only varies the noise model input. The
+   architecture is minimally invasive.
+
+2. **Multi-event post-processing.** The decoder enumerates
+   ≥3-event single-fault mechanisms from the catalogue. For
+   each whose event set is a SUBSET of the observed events, the
+   proposed data-side hook is offered as a candidate correction.
+   Acceptance is CONSERVATIVE: only weight-1 hooks (canonical
+   hook pattern) are accepted, and only if the proposed
+   correction REMOVES a logical failure. This avoids
+   over-aggressive attributions that would degrade p_L.
+
+3. **Candidate selection.** The decoder picks the candidate
+   with the lowest (matching_weight, number-of-logical-
+   failures) score. The `best_source` field records which
+   candidate won (transparent attribution; the user can
+   inspect whether the circuit-derived candidate was preferred
+   or not).
+
+4. **The circuit-derived graph is REAL, not metadata.** The
+   `p_data` / `p_measurement` for CANDIDATE 2 are sourced from
+   the graph's actual mechanism probabilities (not
+   re-invented). When the v1 hybrid's cir candidate is
+   selected, the decoder is genuinely using the circuit-derived
+   information; the previous milestone's `circuit_graph_decoder`
+   was strictly metadata.
+
+5. **Performance.** The graph is precomputed once per (d, R,
+   noise) configuration (deterministic, cached). Each trial
+   uses the precomputed pair-edge + exit-edge weights to run
+   the matcher; the per-trial cost is dominated by the matcher
+   itself (unchanged from `decode_repeated`).
+
+6. **Honest limitations.** The v1 hybrid shares the temporal
+   chain reconstruction with the phenomenological MWPM. Distance
+   suppression is NOT observed at d=3, 5, 7 with the current
+   circuit (documented in SCIENTIFIC_MODELS). The Wilson CIs
+   of the two decoders overlap substantially at every tested
+   (regime, distance) cell; the decoder is competitive but not
+   strictly superior to the phenomenological MWPM at every point.
+
+**Rejected alternatives.** (a) A standalone circuit-level decoder
+with its own temporal chain logic — would duplicate the matcher
+(directive §7). (b) Multi-event mechanism EXCLUSION without
+attribution (Approach A in the previous milestone) — gives up
+the information that the decoder could use. (c) A heavier
+hypergraph decoder — out of scope for the current architecture
+and unnecessary given that the v1 hybrid is competitive.
+

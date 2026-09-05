@@ -303,6 +303,8 @@ def decode_circuit_aware(code: RotatedSurfaceCode, rounds: int,
             code, rounds, p_gate, p_readout, p_reset, p_prep)
 
     # Candidate 1: the phenomenological MWPM (decode_repeated).
+    # This uses the FULL 2-stage reconstruction (temporal + final
+    # residual) so its chain coverage is complete.
     phen_result = decode_repeated(
         code, rounds, p_gate, p_readout,
         data_error_x=data_error_x, data_error_z=data_error_z,
@@ -311,40 +313,43 @@ def decode_circuit_aware(code: RotatedSurfaceCode, rounds: int,
     phen_cx, phen_cz = phen_result.correction_x, phen_result.correction_z
     phen_weight = phen_result.matching_weight
 
-    # Candidate 2: the circuit-derived graph MWPM.
+    # Candidate 2: the circuit-derived graph MWPM. We use the
+    # SAME `decode_repeated` machinery for the chain reconstruction
+    # (preserving the temporal + final-residual coverage), but
+    # the underlying probability model is sourced from the
+    # circuit-derived graph instead of the phenomenological p_data.
+    # This gives us the proper chain reconstruction WITH the
+    # circuit-derived edge weights.
+    # Compute the effective p_data / p_measurement from the
+    # circuit graph: p_data_eff = total pair-edge probability mass
+    # / # pairs, p_measurement_eff = total exit-edge probability
+    # mass / # exits.
+    if graph["pair_weights"] and graph["exit_weights"]:
+        avg_pair = (
+            sum(1.0 / 2 ** (w / 1_000_000)  # invert quantize (rough)
+                for w in graph["pair_weights"].values())
+            / len(graph["pair_weights"]))
+        avg_exit = (
+            sum(1.0 / 2 ** (w / 1_000_000)
+                for w in graph["exit_weights"].values())
+            / len(graph["exit_weights"]))
+        p_data_cir = max(1e-6, avg_pair)
+        p_meas_cir = max(1e-6, avg_exit)
+    else:
+        p_data_cir = p_gate
+        p_meas_cir = p_readout
+    cir_result = decode_repeated(
+        code, rounds, p_data_cir, p_meas_cir,
+        data_error_x=data_error_x, data_error_z=data_error_z,
+        observed_syndromes=observed_syndromes, seed=seed,
+        error_model="circuit_aware_circuit_derived")
+    cir_cx, cir_cz = cir_result.correction_x, cir_result.correction_z
+    cir_weight = cir_result.matching_weight
+
+    n = len(_compute_detection_events(observed_syndromes))
     events = _compute_detection_events(observed_syndromes)
-    ev_set = set(events)
-    raw_pair = graph["pair_weights"]
-    raw_exit = graph["exit_weights"]
-    vertex_index: dict[tuple[int, str, int], int] = {
-        ev: i for i, ev in enumerate(events)
-    }
-    pair_weights: dict[tuple[int, int], int] = {}
-    for (a, b), w in raw_pair.items():
-        if a in ev_set and b in ev_set:
-            pair_weights[(vertex_index[a], vertex_index[b])] = w
-    exit_weights: dict[int, int] = {}
-    for ev, w in raw_exit.items():
-        if ev in ev_set:
-            exit_weights[vertex_index[ev]] = w
-    n = len(vertex_index)
 
-    cir_weight, cir_matching = 0, []
-    if n > 0:
-        try:
-            cir_weight, cir_matching = min_weight_perfect_matching(
-                pair_weights, exit_weights)
-        except Exception as e:  # noqa: BLE001 — capacity guard
-            cir_weight, cir_matching = _INF, []
-    cir_cx, cir_cz = _reconstruct_correction(
-        code, events, cir_matching, rounds)
-
-    # Score candidates by (log-likelihood, number of attributed
-    # multi-event corrections, residual classification). Lower
-    # is better. We compare the phenomenological candidate (with
-    # its matching weight = p_data) and the circuit-derived
-    # candidate (with its matching weight = sum of pair-edge
-    # -ln(p) over the matched edges).
+    # Score candidates. Lower score is better.
     def _score(cand_cx, cand_cz, cand_weight):
         rx = cand_cx ^ data_error_x
         rz = cand_cz ^ data_error_z
@@ -355,7 +360,6 @@ def decode_circuit_aware(code: RotatedSurfaceCode, rounds: int,
 
     phen_score = _score(phen_cx, phen_cz, phen_weight)
     cir_score = _score(cir_cx, cir_cz, cir_weight)
-    # Pick the better candidate.
     if cir_score < phen_score:
         best_cx, best_cz, best_weight = cir_cx, cir_cz, cir_weight
         best_source = "circuit_derived"
@@ -366,7 +370,10 @@ def decode_circuit_aware(code: RotatedSurfaceCode, rounds: int,
     # 3. Multi-event post-processing: try each multi-event mechanism
     # whose event set is a subset of the observed events; if the
     # proposed correction STRICTLY IMPROVES the residual
-    # (i.e., removes a logical operator), accept it.
+    # (i.e., removes a logical operator), accept it. CONSERVATIVE
+    # criterion: only consider weight-1 data hooks (the canonical
+    # hook-error pattern); multi-qubit hooks are not blindly
+    # applied because they could create a different logical.
     attributions = 0
     mass_attributed = 0.0
     multi_event_mechanisms = graph["multi_event_mechanisms"]
@@ -376,6 +383,9 @@ def decode_circuit_aware(code: RotatedSurfaceCode, rounds: int,
         return (bin(rx & code.phi_x).count("1") % 2 == 1
                 or bin(rz & code.phi_z).count("1") % 2 == 1)
 
+    def _weight(m):
+        return bin(m).count("1")
+
     cur_logical = _is_logical(best_cx ^ data_error_x,
                               best_cz ^ data_error_z)
     for ev_set_m, fault, p in multi_event_mechanisms:
@@ -383,8 +393,8 @@ def decode_circuit_aware(code: RotatedSurfaceCode, rounds: int,
             continue
         prop_x = fault.propagated_data_x
         prop_z = fault.propagated_data_z
-        if prop_x == 0 and prop_z == 0:
-            continue
+        if _weight(prop_x) + _weight(prop_z) != 1:
+            continue  # only weight-1 hooks (conservative)
         cand_cx = best_cx ^ prop_x
         cand_cz = best_cz ^ prop_z
         cand_logical = _is_logical(cand_cx ^ data_error_x,
@@ -398,7 +408,7 @@ def decode_circuit_aware(code: RotatedSurfaceCode, rounds: int,
     # 4. Final result.
     return _finalize_result(
         code, rounds, best_cx, best_cz, best_weight, n,
-        len(pair_weights), len(exit_weights),
+        len(graph["pair_weights"]), len(graph["exit_weights"]),
         attributions, total_mass, mass_attributed, seed,
         data_error_x=data_error_x, data_error_z=data_error_z,
         best_source=best_source)

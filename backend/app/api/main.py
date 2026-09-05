@@ -922,6 +922,31 @@ def circuit_derived_simulate(req: schemas.CircuitDerivedSimulateRequest):
     return res
 
 
+@app.get("/api/qec/rotated-surface-code/extraction-models")
+def list_extraction_models_endpoint():
+    """List supported stabilizer-extraction models (milestone 13)."""
+    from ..qec import list_extraction_models
+    return {"models": list_extraction_models()}
+
+
+@app.post("/api/qec/rotated-surface-code/circuit-aware/simulate")
+def circuit_aware_simulate(req: schemas.CircuitAwareSimulateRequest):
+    """Circuit-AWARE hybrid decoder Monte Carlo (milestone 13, AD-019).
+
+    The decoder uses the circuit-derived pair-edge graph plus
+    multi-event post-processing (Approach 3, directive §9). It
+    ACTUALLY uses the multi-event mechanisms (not just coverage).
+    """
+    from ..qec import simulate_circuit_aware_mc
+    try:
+        res = simulate_circuit_aware_mc(
+            req.d, req.rounds, req.p_gate, req.p_readout, req.p_reset,
+            req.p_prep, trials=req.trials, seed=req.seed)
+    except ValueError as e:
+        raise http_error(400, "VALIDATION_ERROR", str(e))
+    return res
+
+
 @app.post("/api/network/route")
 def network_route(req: schemas.NetworkSimulateRequest):
     """Route explanation endpoint: returns chosen path + why (§197)."""

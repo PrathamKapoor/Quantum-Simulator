@@ -610,3 +610,122 @@ degenerate under H-CNOT-H (AD-018, AD-019). (c) 3-cycle temporal
 interleaving (X, Y, Z per round) — Y is not measured in CSS
 surface codes; not applicable.
 
+
+## AD-021 — Shor cat-state extraction: implemented, honestly measured, NOT recommended (milestone 17)
+
+**Decision.** The extraction registry gains a second, genuinely
+multi-ancilla template: `shor_cat_state`. For a weight-k check it
+prepares k ancillas in a GHZ cat state (H on a_0, CNOT fan-out),
+couples each ancilla to exactly ONE data qubit, measures all k
+ancillas, and defines the stabilizer outcome as the parity of the
+k measurement bits. Odd-weight supports are rejected loudly (the
+random GHZ measurement offset cancels only in the even-k parity;
+all rotated-code supports are weight 2 or 4). X-checks add an H
+layer before and after the data coupling (Z-GHZ -> X-GHZ -> Z
+basis). The construction was selected for measurement because the
+cleanup report identified hook-error confinement as the open
+scientific question; it is NOT adopted as a default and no
+existing behavior changes (the default remains
+`baseline_h_cnot_h`).
+
+**Circuit conventions** (all validated against the algebraic
+syndrome oracle — `RotatedSurfaceCodeDecoder.syndrome` — for every
+single-qubit data error at d=3 and d=5, 102 cases, 0 mismatches):
+CNOT frame rules identical to the baseline routine; H layers are
+frame swaps; the Z-basis outcome of an ancilla flips iff its frame
+carries an X component; reset/prep noise fires per ancilla; every
+CNOT (fan-out AND data coupling) takes gate noise on both
+participants; readout noise is an independent per-ancilla bit flip
+before the parity; H gates remain IDEAL (the existing documented
+contract).
+
+**Validation evidence (all deterministic, in
+`tests/test_shor_extraction.py`):**
+
+1. *Ideal correctness* — noiseless Shor syndrome equals the
+   algebraic syndrome for every single-qubit error, d = 3, 5.
+2. *Exhaustive single-fault enumeration* (408 faults at d=3, 1376
+   at d=5, driven through the PRODUCTION routine via a
+   deterministic `forced_faults` harness — the oracle is not a
+   second implementation of the circuit):
+   - the baseline's dominant failure mode (one ancilla fault
+     hooking to the FULL support, weight 4) is IMPOSSIBLE under
+     Shor extraction;
+   - the honest worst case is weight **2**, not the textbook
+     weight-1: a Y fault on ancilla a_1 back-propagates its Z
+     component through the fan-out to a_0 (target-Z -> control
+     rule); after the H layers both a_0's and a_1's X components
+     hook to two different data qubits. UNVERIFIED Shor extraction
+     does not achieve weight-1 confinement — cat-state
+     verification (an extra ancilla measuring the cat's parity
+     before coupling) is the identified missing ingredient and the
+     concrete next step;
+   - readout faults NEVER produce data errors (pure syndrome
+     errors — the data/measurement fault separation the repeated-
+     round decoder relies on);
+   - a fault injected for one check never leaks into another
+     check's circuit;
+   - unreachable forced faults fail loudly.
+3. *Genuine-cat signature* — a Z fault on a_0 immediately after
+   reset is completely benign (no data error, no hook, no syndrome
+   flip): it is equivalent to the all-legs-X stabilizer of the GHZ.
+   A degenerate product-state scheme would flip one measurement
+   bit here, so this test proves the cat state is real (this
+   mattered: an implementation bug that omitted the initial H(a_0)
+   silently produced the product-state scheme, which passes the
+   ideal-syndrome oracle — only this signature test and the
+   exhaustive enumeration distinguish the two).
+
+**Measured result: Shor extraction is NOT an improvement under
+this noise model and decoder.** Monte Carlo (2000 trials/point,
+rounds 4, Wilson 95% CIs, seeds 11/23):
+
+| regime        | d=3 baseline | d=3 Shor  | d=5 baseline | d=5 Shor |
+|---------------|--------------|-----------|--------------|----------|
+| gate-only     | 14.30%       | 21.40%    | 32.05%       | 44.65%   |
+| readout-only  | 0.00%        | 0.00%     | 0.00%        | 0.00%    |
+| reset-only    | 0.00%        | 0.70%     | 0.00%        | 0.20%    |
+| prep-only     | 0.00%        | 4.05%     | 0.00%        | 1.25%    |
+| combined-mid  | 14.10%       | 28.50%    | 28.35%       | 42.45%   |
+| combined-low  | 2.85%        | 5.65%     | 7.45%        | 9.95%    |
+
+Every non-zero regime shows Shor significantly WORSE (non-
+overlapping CIs). The mechanism is measured, not speculative:
+(1) gate exposure roughly doubles (2k-1 CNOTs vs k); reset/prep/
+readout exposure scales k-fold; (2) the phenomenological MWPM
+decoder cannot exploit hook confinement — it decodes the same
+syndrome history with the same spatial/temporal edges, so the
+weight-4-to-2 improvement buys nothing while the extra noise
+costs p_L directly. Per-channel nuance: baseline prep faults on
+X-checks propagate the check's own stabilizer (benign), whereas
+Shor prep faults land on cat ancillas and produce genuine weight-
+1/2 data errors — hence prep-only 0% vs 4.05%.
+
+Distance behavior: p_L(d=5) > p_L(d=3) for BOTH extractions in
+every regime with non-zero failures — no distance suppression for
+either, unchanged from AD-018/AD-019/AD-020 conclusions.
+
+**Performance** (measured, d=3, 4 rounds): baseline ~0.49 ms/trial,
+Shor ~1.26 ms/trial (~2.6x) at 2000 trials; d=5 ~1.44 vs ~3.94 ms.
+
+**Rejected alternatives.** (a) Adopting Shor as the default —
+prohibited by the measured result; the default is unchanged.
+(b) Adding cat-state verification in the same milestone — the
+verified construction needs an extra measured ancilla and a
+reject/retry (or flag) semantics that changes the Monte Carlo
+outcome space; deferred as the concrete follow-on with a precise
+prediction to test (restores weight-1 confinement at the cost of
+k+1 ancillas plus verification-gate noise). (c) Implementing the
+Shor circuit inside `fault_catalogue`'s enumeration — the
+catalogue is baseline-specific; the `forced_faults` harness is
+the honest equivalent for multi-ancilla circuits.
+
+**Scope.** `circuit_extraction.py` (+ Shor model, measure routine,
+forced-fault harness), `circuit_level.py` (single dispatch point
+`_run_check_measurement`, `forced_faults` round-1 test parameter,
+`extraction_model` on the MC entry point), API `extraction_model`
+on the two circuit-level endpoints (default = legacy behavior;
+invalid modes rejected by schema), experiment runner
+`extraction_model` config (validated, echoed in provenance),
+QecLab extraction selector with the measured caveat rendered
+from the AD.

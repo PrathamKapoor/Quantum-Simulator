@@ -900,3 +900,57 @@ biased noise channels. Reread roadmap + handoff first.
   history (the unmeasured family's events are carried
   forward as 0), NOT from a fundamentally safer circuit.
 
+
+## Session 17 — Shor cat-state extraction (AD-021)
+
+- **Phase 0:** verified clean post-cleanup state (HEAD = cleanup
+  commit; zero contamination; 789-test baseline).
+- **Phase 1 (design):** derived the cat-state circuit from frame
+  algebra before implementing: even-k parity requirement (GHZ
+  offset cancellation), Z/X-check op sequences, per-location noise
+  conventions, and the prediction that one-ancilla-one-data
+  coupling confines hooks. Wrote AD-021 alongside.
+- **Phase 2 (implementation):** `_measure_check_shor` in
+  circuit_extraction.py with a deterministic `forced_faults`
+  harness; single dispatch point `_run_check_measurement` in
+  circuit_level.py; extraction_model threaded through the MC
+  entry point, API schemas/endpoints, and the experiment runner.
+- **Bugs found and root-fixed during self-validation:**
+  1. Double-applied H layer (H-all fired both pre-gate and
+     post-gate) — caught by review before first run.
+  2. Fragile duplicate forced-fault key lookup that could consume
+     a fault with the wrong participant key — removed.
+  3. **Missing initial H(a_0):** the construction silently
+     degenerated to independent-ancilla parity extraction. The
+     ideal-syndrome oracle PASSES for both schemes (they measure
+     the same stabilizer ideally) — the bug was caught by a
+     single-fault smoke test (a reset fault that should hook
+     weight-1 produced nothing) and is now guarded by the
+     GHZ-signature test (reset-Z on a_0 must be completely
+     benign, which only holds for the genuine cat).
+  4. Forced faults leaked into every check (the list was passed
+     to all 8 check circuits) — fault tuples now carry
+     (kind, check_index) and each check consumes only its own;
+     a targeting smoke test (weight ≤ 2, not the 8-fault blowup)
+     guards it.
+- **Phase 3 (exhaustive fault analysis):** 408 faults (d=3) and
+  1376 (d=5) enumerated through the production routine. Findings:
+  weight-4 baseline hooks impossible under Shor; honest worst
+  case weight 2 (Y on a_1: Z back-propagates through the fan-out
+  then both legs hook); readout faults never produce data errors
+  (0/24, 0/80).
+- **Phase 5 (Monte Carlo):** full regime matrix at 2000
+  trials/point. Headline: Shor is significantly WORSE than
+  baseline in every non-zero regime (non-overlapping CIs) —
+  ~2× gate exposure + k-fold reset/prep/readout exposure, and a
+  decoder that cannot exploit hook confinement. Prep-only 0% vs
+  4.05% explained (baseline prep faults propagate the check's own
+  stabilizer). No distance suppression for either mode.
+- **Phase 11 (regression):** one test updated with documented
+  rationale (single-model registry premise superseded). Full
+  suite 819 pass; tsc + vite clean; circuit-level Playwright 4/4.
+- **Honest bottom line:** implemented and validated as directed;
+  measured result is negative for logical performance under the
+  current model/decoder; the falsifiable next experiment
+  (cat-state verification) is specified in AD-021 and
+  SCIENTIFIC_MODELS.

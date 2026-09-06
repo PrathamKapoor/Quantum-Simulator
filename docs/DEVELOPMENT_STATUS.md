@@ -561,3 +561,59 @@ STATICALLY REVIEWED = code-reviewed, build-verified only.
 - **VERIFIED** — AD-020 in ARCHITECTURE_DECISIONS.md.
 - **Regression:** backend 777/777 → 789/789 (+12 new); Playwright
   suite green (46 total); 0 orphan processes; clean tree.
+
+## Session 17 — Shor cat-state extraction: implemented, measured, honestly NOT recommended (AD-021)
+
+Classification: VERIFIED = exercised in this session's automated runs.
+
+- **VERIFIED** — genuine GHZ cat-state extraction in the registry
+  (`shor_cat_state`, AD-021): k cat ancillas per weight-k check,
+  each coupled to exactly ONE data qubit, stabilizer outcome =
+  parity of the k measurements; odd-weight supports rejected
+  loudly (the GHZ offset cancels only for even k; all real
+  supports are weight 2 or 4).
+- **VERIFIED** — ideal correctness: noiseless Shor syndrome equals
+  the algebraic syndrome for every single-qubit error at d=3, 5
+  (102 cases, 0 mismatches).
+- **VERIFIED** — exhaustive single-fault enumeration through the
+  PRODUCTION routine (deterministic `forced_faults` harness; 408
+  faults at d=3, 1376 at d=5): baseline's weight-4 hook mode is
+  IMPOSSIBLE; honest worst case is weight **2** (Y fault on a_1 —
+  unverified Shor does NOT achieve weight-1 confinement);
+  readout faults never touch data; per-check fault isolation and
+  loud failure on unreachable faults tested.
+- **VERIFIED** — genuine-cat signature: reset-Z on a_0 is
+  stabilizer-equivalent (zero data error, zero syndrome flip).
+  This test caught a real implementation bug: omitting the
+  initial H(a_0) silently degenerates the construction into
+  independent-ancilla parity extraction, which PASSES the
+  ideal-syndrome oracle — fixed, and the signature test now
+  guards it.
+- **VERIFIED — honest headline result: Shor extraction is NOT an
+  improvement under this noise model + phenomenological MWPM.**
+  2000-trial regime matrix (d=3, 5; gate/readout/reset/prep-only
+  + combined-low/mid): Shor is significantly worse in every
+  non-zero regime (e.g. combined-mid d=3: 28.5% vs 14.1%;
+  gate-only d=3: 21.4% vs 14.3%; non-overlapping CIs). Mechanism:
+  ~2× gate exposure (2k−1 vs k CNOTs), k-fold reset/prep/readout
+  exposure, and a decoder that cannot exploit hook confinement.
+  Per-channel nuance: baseline prep faults propagate the check's
+  own stabilizer (benign) while Shor prep faults produce genuine
+  weight-1/2 data errors. p_L(d=5) > p_L(d=3) for BOTH modes —
+  no distance suppression for either. Default extraction remains
+  `baseline_h_cnot_h`; no legacy behavior changed.
+- **VERIFIED** — integration: `extraction_model` on the two
+  circuit-level API endpoints (schema-validated, invalid modes →
+  422, default backward compatible) and on the
+  `surface_code_circuit_level` experiment (validated, echoed in
+  provenance, EXACT_MATCH reproduction semantics unchanged);
+  QecLab extraction selector with the measured AD-021 caveat
+  rendered; Playwright extraction-selector test.
+- **Performance (measured):** d=3 ~0.49 → 1.26 ms/trial (~2.6×);
+  d=5 ~1.44 → 3.94 ms.
+- **Regression:** one test updated with documented rationale
+  (`test_baseline_only` → `test_baseline_and_shor_registered`:
+  the single-model premise was superseded by the registry
+  extension; baseline remains the untouched default). Full suite:
+  819 tests, all pass (789 prior + 30 new). Frontend tsc + vite
+  clean; circuit-level Playwright 4/4.

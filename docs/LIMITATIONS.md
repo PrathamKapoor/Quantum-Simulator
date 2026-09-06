@@ -292,3 +292,37 @@ layout, process-isolated workers.
   this work.
 - **Bounded scope:** rounds 1..64, distances 3/5/7; matcher capacity
   guard retained; no threshold/hardware claims.
+
+## Shor cat-state extraction (AD-021)
+
+- **Not an improvement under the implemented model (measured):**
+  p_L is significantly worse than the baseline H-CNOT-H extraction
+  in every non-zero noise regime tested (e.g. combined-mid d=3:
+  28.5% vs 14.1%), because gate exposure roughly doubles (2k−1
+  CNOTs vs k), reset/prep/readout exposure scales k-fold, and the
+  phenomenological MWPM decoder cannot exploit hook confinement.
+  The mode ships as a comparison alternative, NOT a default; the
+  default is unchanged.
+- **Unverified cat state: weight-1 confinement is NOT achieved.**
+  The honest worst case is a weight-2 correlated data error
+  (Y fault on cat ancilla a_1: Z back-propagates through the
+  fan-out, both legs hook after the H layers). Canonical Shor
+  extraction includes cat-state verification, which is not
+  implemented; adding it is the identified follow-on with a
+  falsifiable prediction (restores weight-1 at k+1 ancillas plus
+  verification noise and flagged-shot semantics).
+- **Even-weight supports only:** the stabilizer outcome is the
+  parity of the k cat measurements, which cancels the random GHZ
+  offset only for even k. Odd-weight supports are rejected loudly.
+  All rotated-code supports (d=3,5,7) are weight 2 or 4, so no
+  real configuration is affected.
+- **H gates remain ideal** (including the cat-preparation H and
+  the X-check H layers): the simulator has no H noise channel
+  (pre-existing contract, unchanged). Real Shor FT analysis
+  includes H faults; this model does not.
+- **Preparation-noise convention differs from baseline:** Shor
+  prep noise is per-ancilla, applied right after reset (before
+  any H); baseline prep noise applies once, after its initial H.
+  Both are documented; neither is silently conflated.
+- Bounded scope: rounds 1..64, distances 3/5/7; no threshold or
+  hardware claims; the ideal-final-round contract is unchanged.

@@ -815,3 +815,100 @@ matcher" (directive §7, §23). The v1 hybrid reuses
 `decode_repeated`'s 2-stage chain reconstruction entirely; the
 only new component is the candidate selection (which
 correction to use) and the multi-event post-processing.
+
+# Session-17 additions: Shor cat-state extraction (AD-021)
+
+## Circuit definition
+
+For a weight-k check (k even — all rotated-code supports are
+weight 2 or 4), `shor_cat_state` extraction uses k cat ancillas:
+
+  Z-check:  reset a_0..a_{k-1}; H(a_0); CNOT(a_i → a_{i+1}) for
+            i = 0..k-2 (GHZ fan-out); CNOT(data_i → a_i) for each
+            support qubit; measure all k ancillas in Z.
+  X-check:  same cat preparation; H on ALL ancillas (Z-GHZ →
+            X-GHZ); CNOT(a_i → data_i) for each support qubit; H
+            on ALL ancillas; measure all k ancillas in Z.
+
+Stabilizer outcome = parity of the k measurement bits. The random
+GHZ measurement offset b appears identically in every ancilla
+outcome, so the parity over an EVEN number of ancillas cancels it;
+odd-weight supports would leave the outcome random and are
+rejected loudly (validated: every real support is even).
+
+Noise conventions: reset X-fault per ancilla (p_reset); per-
+ancilla depolarizing preparation noise right after reset
+(p_prep) — a documented convention difference from the baseline
+(which applies p_prep once, after its initial H); depolarizing
+noise on BOTH participants of every CNOT, fan-out and coupling
+alike (p_gate); independent per-ancilla readout flips before the
+parity (p_readout); H gates ideal (existing contract).
+
+## Validation
+
+1. Ideal correctness: noiseless Shor syndrome == algebraic
+   `syndrome_of` for every single-qubit data error, d=3 (27
+   cases) and d=5 (75 cases), 0 mismatches.
+2. Exhaustive single-fault enumeration through the PRODUCTION
+   routine via a deterministic `forced_faults` harness (408
+   faults at d=3; 1376 at d=5):
+   - baseline's weight-4 hook mode is IMPOSSIBLE (max ≤ 2);
+   - honest worst case = weight 2: a Y fault on a_1
+     back-propagates Z through the fan-out to a_0 (target-Z →
+     control), then both legs hook to data after the H layers.
+     UNVERIFIED Shor does NOT achieve weight-1 confinement;
+     cat-state verification is the identified missing ingredient;
+   - readout faults never produce data errors (pure syndrome
+     errors): 0/24 at d=3, 0/80 at d=5;
+   - per-check fault isolation and loud failure on unreachable
+     forced faults are tested.
+3. Genuine-cat signature: a Z fault on a_0 immediately after
+   reset is equivalent to the all-legs-X stabilizer of the GHZ —
+   completely benign (no data error, no hook, no syndrome flip).
+   A product-state (non-cat) scheme would flip one measurement
+   bit; this test caught a real implementation bug where the
+   missing initial H(a_0) silently degenerated the construction
+   into independent-ancilla parity extraction (which passes the
+   ideal-syndrome oracle).
+
+## Measured comparison (AD-021; 2000 trials/point, rounds 4)
+
+| regime        | d=3 baseline | d=3 Shor | d=5 baseline | d=5 Shor |
+|---------------|--------------|----------|--------------|----------|
+| gate-only     | 14.30%       | 21.40%   | 32.05%       | 44.65%   |
+| readout-only  | 0.00%        | 0.00%    | 0.00%        | 0.00%    |
+| reset-only    | 0.00%        | 0.70%    | 0.00%        | 0.20%    |
+| prep-only     | 0.00%        | 4.05%    | 0.00%        | 1.25%    |
+| combined-mid  | 14.10%       | 28.50%   | 28.35%       | 42.45%   |
+| combined-low  | 2.85%        | 5.65%    | 7.45%        | 9.95%    |
+
+**Conclusion (honest, measured): under this noise model and the
+phenomenological MWPM decoder, Shor cat-state extraction is NOT
+an improvement — it is significantly worse in every regime with
+non-zero failures (non-overlapping Wilson CIs).** Mechanism:
+(1) gate exposure ≈ doubles (2k−1 CNOTs vs k) and reset/prep/
+readout exposure scales k-fold; (2) the decoder cannot exploit
+hook confinement — it consumes the same syndrome history with
+the same edge types, so the 4→2 hook improvement buys nothing
+while the extra noise costs p_L directly. A per-channel nuance:
+baseline prep faults on X-checks propagate the check's own
+stabilizer (benign), while Shor prep faults land on cat ancillas
+and produce genuine weight-1/2 data errors (prep-only 0% vs
+4.05%).
+
+Distance behavior: p_L(d=5) > p_L(d=3) for BOTH extractions in
+every non-zero regime — no distance suppression for either,
+consistent with AD-018/AD-019/AD-020.
+
+Performance (measured): baseline ≈ 0.49 ms/trial at d=3 (4
+rounds), Shor ≈ 1.26 ms (~2.6×); d=5 ≈ 1.44 vs 3.94 ms.
+
+## What would falsify this conclusion
+
+The verified Shor construction (an extra ancilla measuring the
+cat's Z-parity BEFORE data coupling, rejecting/flagging bad cats)
+is predicted to restore weight-1 confinement. Its cost is k+1
+ancillas plus verification-gate noise and a changed Monte Carlo
+outcome space (flagged/rejected shots). That is the concrete,
+falsifiable next experiment; until it is run, "Shor helps" is
+not claimable in this repository.

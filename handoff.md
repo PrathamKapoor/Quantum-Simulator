@@ -196,3 +196,41 @@ or problem statement, **STOP and request explicit confirmation
 from the operator before implementing it.** The repository's
 purpose is quantum research; a direction change of that magnitude
 is the operator's decision, not the agent's.
+
+---
+
+## 11. Session 17 addendum — Shor cat-state extraction (AD-021)
+
+- **What exists now:** the extraction registry has TWO models —
+  `baseline_h_cnot_h` (default, untouched) and `shor_cat_state`
+  (AD-021). Shor uses k cat ancillas per weight-k check, couples
+  each to ONE data qubit, and takes the parity of all k
+  measurements; odd-weight supports are rejected (all real
+  supports are even). X-checks add H layers around the coupling.
+- **Validated:** ideal syndrome == algebraic oracle (d=3,5,
+  102 cases, 0 mismatches); exhaustive single-fault enumeration
+  via the `forced_faults` harness (408/1376 faults): max hook
+  weight 2 (NOT 1 — unverified cat; Y-on-a_1 back-propagates Z
+  through the fan-out), weight-4 baseline mode impossible,
+  readout faults never touch data; GHZ-signature test guards
+  against the product-state degeneration bug found and fixed.
+- **Measured headline:** Shor is WORSE than baseline in every
+  non-zero noise regime (e.g. combined-mid d=3: 28.5% vs 14.1%)
+  — ~2× gate exposure, k-fold reset/prep/readout exposure, and
+  the phenomenological MWPM cannot exploit hook confinement.
+  Default extraction unchanged; the mode ships as a comparison.
+- **Next falsifiable experiment (from AD-021):** cat-state
+  verification (extra ancilla measuring the cat's Z-parity before
+  coupling) — predicted to restore weight-1 confinement at k+1
+  ancillas plus verification noise and flagged-shot semantics.
+- **Integration points:** `extraction_model` on
+  `/api/qec/rotated-surface-code/circuit-level/{decode,simulate}`
+  (schema Literal, default legacy) and on the
+  `surface_code_circuit_level` experiment config; QecLab
+  Extraction selector.
+- **Baselines:** backend 819 (789 + 30 Shor); Playwright 48
+  (47 + 1 extraction-selector test); tsc/vite clean.
+- **Regression note:** `test_baseline_only` was updated to
+  `test_baseline_and_shor_registered` (single-model premise
+  superseded by the registry extension; rationale in the test
+  docstring).

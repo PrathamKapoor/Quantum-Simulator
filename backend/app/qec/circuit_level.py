@@ -130,6 +130,25 @@ def _measure_one_check(code, check, kind, ax, az, rng, p_gate, p_reset,
     return outcome, hooked
 
 
+def _run_check_measurement(code, check, kind, ax, az, rng, p_gate, p_reset,
+                           p_prep, p_readout, support_order=None,
+                           cnot_specs=None, extraction_model=None,
+                           forced_faults=None):
+    """Single dispatch point for stabilizer measurement: multi-ancilla
+    extraction models (e.g. Shor cat-state) provide their own
+    `measure_check` routine with the same contract as the baseline
+    `_measure_one_check`; single-ancilla models fall through to it."""
+    if extraction_model is not None and extraction_model.measure_check is not None:
+        return extraction_model.measure_check(
+            code, check, kind, ax, az, rng, p_gate, p_reset, p_prep,
+            p_readout, support_order=support_order,
+            forced_faults=forced_faults)
+    return _measure_one_check(code, check, kind, ax, az, rng, p_gate,
+                              p_reset, p_prep, p_readout,
+                              support_order=support_order,
+                              cnot_specs=cnot_specs)
+
+
 def extract_syndrome_noiseless(code, ex, ez, schedules=None,
                                  extraction_model=None):
     """Run the NOISELESS stabilizer circuits on a known data error and
@@ -159,17 +178,19 @@ def extract_syndrome_noiseless(code, ex, ez, schedules=None,
                 cnot_specs = (em.build_z_cnot_specs(code, check.index)
                                 if kind == "Z"
                                 else em.build_x_cnot_specs(code, check.index))
-            out, _ = _measure_one_check(code, check, kind, ax, az, _NoRng(),
-                                        0.0, 0.0, 0.0, 0.0,
-                                        support_order=order,
-                                        cnot_specs=cnot_specs)
+            out, _ = _run_check_measurement(
+                code, check, kind, ax, az, _NoRng(),
+                0.0, 0.0, 0.0, 0.0,
+                support_order=order,
+                cnot_specs=cnot_specs,
+                extraction_model=em)
             (x_out if kind == "X" else z_out).append(out)
     return tuple(x_out), tuple(z_out)
 
 
 def simulate_circuit_level(code, rounds, p_gate, p_readout, p_reset, p_prep,
                            *, seed, schedules=None, extraction_model=None,
-                           interleave: str = "none"):
+                           interleave: str = "none", forced_faults=None):
     """Run R rounds of noisy stabilizer-measurement circuits.
 
     `schedules` is an optional {(kind, index): order_tuple} override
@@ -187,6 +208,14 @@ def simulate_circuit_level(code, rounds, p_gate, p_readout, p_reset, p_prep,
     family's syndrome is carried forward (its value is the same
     as the previous round, with no detection events generated).
     "alternating_zx" measures Z in even rounds and X in odd rounds.
+
+    `forced_faults`: TEST/VALIDATION harness only (production
+    callers omit it). A list of extraction-specific fault tuples
+    (see circuit_extraction._measure_check_shor) injected
+    deterministically in ROUND 1 ONLY (a non-final round, so
+    reset/preparation/readout faults are exercisable). Bypasses
+    the probability sampling entirely; the rest of the circuit
+    runs at the configured noise levels.
 
     Returns (data_error_x, data_error_z, hook_events, observed_syndromes).
     The 5th element `measured_families` is also returned as a
@@ -264,14 +293,15 @@ def simulate_circuit_level(code, rounds, p_gate, p_readout, p_reset, p_prep,
                 order = None if schedules is None else schedules.get(
                     (kind, check.index))
                 cnot_specs = None
-                if em is not None:
+                if em is not None and em.measure_check is None:
                     cnot_specs = (em.build_z_cnot_specs(code, check.index)
                                     if kind == "Z"
                                     else em.build_x_cnot_specs(code, check.index))
-                outcome, hooked = _measure_one_check(
+                outcome, hooked = _run_check_measurement(
                     code, check, kind, ax, az, rng, p_gate, r_reset, r_prep,
                     r_readout, support_order=order,
-                    cnot_specs=cnot_specs)
+                    cnot_specs=cnot_specs, extraction_model=em,
+                    forced_faults=(forced_faults if _round == 1 else None))
                 (x_out if kind == "X" else z_out)[check.index] = outcome
                 if hooked:
                     hook_events.append((_round, kind, check.index))
@@ -315,9 +345,14 @@ def decode_circuit_level(code, rounds, p_gate, p_readout, p_reset, p_prep,
 
 
 def simulate_circuit_level_mc(d, rounds, p_gate, p_readout, p_reset, p_prep, *,
-                              trials, seed):
+                              trials, seed, extraction_model=None):
     """Circuit-level Monte Carlo logical-error estimate (reuses decode_repeated
-    + Wilson interval)."""
+    + Wilson interval).
+
+    `extraction_model`: optional extraction name (e.g.
+    "shor_cat_state"); default None = the baseline H-CNOT-H
+    circuit. The extraction choice is echoed in the result under
+    "extraction_model" and included in the note."""
     if d not in _SUPPORTED_DISTANCES:
         raise ValueError(f"Unsupported distance {d}; use {list(_SUPPORTED_DISTANCES)}.")
     if rounds < 1 or rounds > _MAX_ROUNDS:
@@ -328,13 +363,18 @@ def simulate_circuit_level_mc(d, rounds, p_gate, p_readout, p_reset, p_prep, *,
             raise ValueError(f"{name} must be within [0,1].")
     if trials <= 0:
         raise ValueError("trials must be positive.")
+    em = None
+    if extraction_model is not None:
+        from .circuit_extraction import get_extraction_model
+        em = get_extraction_model(extraction_model)
     code = RotatedSurfaceCode.build(d)
     failures = 0
     total_hooks = 0
     for t in range(trials):
         trial_seed = seed + t * 7919
         ex, ez, hooks, obs, _mf = simulate_circuit_level(
-            code, rounds, p_gate, p_readout, p_reset, p_prep, seed=trial_seed)
+            code, rounds, p_gate, p_readout, p_reset, p_prep,
+            seed=trial_seed, extraction_model=extraction_model)
         total_hooks += len(hooks)
         res = decode_circuit_level(
             code, rounds, p_gate, p_readout, p_reset, p_prep,
@@ -348,6 +388,7 @@ def simulate_circuit_level_mc(d, rounds, p_gate, p_readout, p_reset, p_prep, *,
         "p_reset": p_reset, "p_prep": p_prep, "trials": trials,
         "logical_failures": failures, "logical_error_rate": failures / trials,
         "ci95": [lo, hi], "seed": seed, "decoder": "mwpm",
+        "extraction_model": em.name if em is not None else "baseline_h_cnot_h",
         "hook_error_events": total_hooks,
         "note": (
             "Circuit-level surface-code decoding: explicit ancilla stabilizer "

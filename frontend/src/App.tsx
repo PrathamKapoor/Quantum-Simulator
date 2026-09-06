@@ -12,6 +12,7 @@ import Experiments from "./pages/Experiments";
 import InfoTheoryLab from "./pages/InfoTheoryLab";
 import HardwareLab from "./pages/HardwareLab";
 import DocsPage from "./pages/DocsPage";
+import SatSaApp from "./pages/SatSaApp";
 
 const PAGES: Record<string, { label: string; component: React.ComponentType }> = {
   dashboard: { label: "Dashboard", component: Dashboard },
@@ -24,6 +25,7 @@ const PAGES: Record<string, { label: string; component: React.ComponentType }> =
   info: { label: "Information Theory", component: InfoTheoryLab },
   hardware: { label: "Hardware Lab", component: HardwareLab },
   experiments: { label: "Experiments", component: Experiments },
+  satsa: { label: "SAT-SA", component: SatSaApp },
   docs: { label: "Documentation", component: DocsPage },
 };
 

@@ -38,11 +38,18 @@ def code3():
 # ---------------------------------------------------------------------------
 
 class TestExtractionRegistry:
-    def test_baseline_only(self):
+    def test_baseline_and_shor_registered(self):
+        """Registry contract after AD-021: baseline (default) plus the
+        Shor cat-state model. The earlier single-model assertion
+        encoded the pre-milestone-17 state and was updated when Shor
+        extraction was added (a legitimate registry extension, not a
+        weakening: baseline remains the untouched default)."""
         models = list_extraction_models()
-        assert len(models) == 1
-        assert models[0]["name"] == EXTRACTION_BASELINE
-        assert models[0]["n_cnots_per_data"] == 1
+        names = {m["name"] for m in models}
+        assert EXTRACTION_BASELINE in names
+        assert "shor_cat_state" in names
+        assert get_extraction_model(EXTRACTION_BASELINE).measure_check is None
+        assert callable(get_extraction_model("shor_cat_state").measure_check)
 
     def test_get_baseline(self):
         m = get_extraction_model(EXTRACTION_BASELINE)

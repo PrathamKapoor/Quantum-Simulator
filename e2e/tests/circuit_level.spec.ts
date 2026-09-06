@@ -42,4 +42,17 @@ test.describe("Circuit-level surface code", () => {
     });
     monitor.assertClean();
   });
+
+  test("Extraction selector switches to Shor cat-state and renders", async ({ page }) => {
+    const monitor = ErrorMonitor.attach(page);
+    await gotoPage(page, "Error Correction");
+    const panel = page.locator(".panel", { hasText: "Circuit-level surface code" });
+    await panel.getByLabel("Extraction").selectOption("shor_cat_state");
+    await panel.getByRole("button", { name: "Decode circuit-level" }).click();
+    await expect(panel.getByText(/Outcome:/)).toBeVisible({ timeout: 60_000 });
+    // The AD-021 honest caveat must be visible so the user knows the
+    // comparison is real, not a recommendation.
+    await expect(panel.getByText(/makes p_L/)).toBeVisible();
+    monitor.assertClean();
+  });
 });

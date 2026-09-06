@@ -672,9 +672,22 @@ def run_surface_code_circuit_level(config: dict, seed: int) -> dict:
     """Circuit-level surface-code Monte Carlo decoding study.
 
     Config: distances (odd, e.g. [3,5]), rounds, p_gate, p_readout, p_reset,
-    p_prep, trials_per_point.
+    p_prep, trials_per_point, extraction_model ("baseline_h_cnot_h"
+    default, or "shor_cat_state").
+
+    extraction_model="shor_cat_state" runs the Shor cat-state
+    extraction (AD-021): one cat ancilla per support data qubit,
+    stabilizer outcome = parity of the k ancilla measurements.
+    Measured finding (milestone 17): under this noise model and the
+    phenomenological MWPM decoder, Shor extraction is NOT an
+    improvement -- its ~2x gate exposure and k-fold reset/prep
+    exposure outweigh its structural hook confinement (max hook
+    weight 2 vs 4). The default preserves legacy behavior exactly.
     """
     from ..qec import simulate_circuit_level_mc
+    from ..qec.circuit_extraction import (
+        EXTRACTION_BASELINE, EXTRACTION_SHOR, SUPPORTED_EXTRACTIONS,
+    )
 
     distances = [int(d) for d in config.get("distances", [3, 5])]
     if not distances:
@@ -687,16 +700,22 @@ def run_surface_code_circuit_level(config: dict, seed: int) -> dict:
     trials = int(config.get("trials_per_point", 2000))
     if trials <= 0:
         raise ValueError("trials_per_point must be positive.")
+    extraction_model = config.get("extraction_model", EXTRACTION_BASELINE)
+    if extraction_model not in SUPPORTED_EXTRACTIONS:
+        raise ValueError(
+            f"extraction_model must be one of {list(SUPPORTED_EXTRACTIONS)}, "
+            f"got {extraction_model!r}.")
     table = []
     for di, d in enumerate(distances):
         point_seed = seed + 1000 + di * 7919
         res = simulate_circuit_level_mc(
             d, rounds, p_gate, p_readout, p_reset, p_prep,
-            trials=trials, seed=point_seed)
+            trials=trials, seed=point_seed, extraction_model=extraction_model)
         table.append({
             "d": res["d"], "rounds": res["rounds"], "p_gate": res["p_gate"],
             "p_readout": res["p_readout"], "p_reset": res["p_reset"],
             "p_prep": res["p_prep"],
+            "extraction_model": res["extraction_model"],
             "logical_error_rate": res["logical_error_rate"],
             "logical_failures": res["logical_failures"],
             "ci95_low": res["ci95"][0], "ci95_high": res["ci95"][1],
@@ -704,6 +723,7 @@ def run_surface_code_circuit_level(config: dict, seed: int) -> dict:
             "trials": res["trials"], "seed": res["seed"],
         })
     metrics = {
+        "extraction_model": extraction_model,
         "distances": distances, "rounds": rounds, "p_gate": p_gate,
         "p_readout": p_readout, "p_reset": p_reset, "p_prep": p_prep,
         "points": len(table), "trials_per_point": trials,
@@ -716,11 +736,14 @@ def run_surface_code_circuit_level(config: dict, seed: int) -> dict:
         "circuits (reset/prep/CNOT/measure) with gate, readout, reset, and "
         "preparation noise, decoded by the repeated-round MWPM. Ideal final "
         "round readout; single-qubit gates ideal.",
+        f"Extraction model: {extraction_model}.",
         "p_L is the logical error rate (Wilson 95% interval); distinct from "
         "the four physical noise probabilities.",
         "Correlated hook errors from ancilla faults are modeled; the naive "
         "schedule does not exhibit distance suppression at d=3 (documented). "
-        "No hardware or threshold claims.",
+        "For shor_cat_state: max hook weight is 2 (vs 4 baseline) but the "
+        "extra gate/reset/prep exposure makes p_L WORSE under this decoder "
+        "and noise model (measured, AD-021). No hardware or threshold claims.",
     ]
     return make_result_document(
         "surface_code_circuit_level", metrics,

@@ -347,6 +347,8 @@ class CircuitLevelDecodeRequest(BaseModel):
     p_prep: float = Field(default=0.003, ge=0, le=1)
     seed: int = 5
     include_layout: bool = True
+    extraction_model: Literal["baseline_h_cnot_h", "shor_cat_state"] = (
+        "baseline_h_cnot_h")
 
 
 class CircuitLevelSimulateRequest(BaseModel):
@@ -359,6 +361,8 @@ class CircuitLevelSimulateRequest(BaseModel):
     trials: int = Field(default=3000, ge=100, le=200_000)
     seed: int = 5
     schedule_mode: Literal["naive", "optimized"] = "naive"
+    extraction_model: Literal["baseline_h_cnot_h", "shor_cat_state"] = (
+        "baseline_h_cnot_h")
 
 
 class ScheduleAnalyzeRequest(BaseModel):

@@ -709,7 +709,7 @@ def circuit_level_decode(req: schemas.CircuitLevelDecodeRequest):
         code = RotatedSurfaceCode.build(req.d)
         ex, ez, hooks, obs, _mf = simulate_circuit_level(
             code, req.rounds, req.p_gate, req.p_readout, req.p_reset, req.p_prep,
-            seed=req.seed)
+            seed=req.seed, extraction_model=req.extraction_model)
         result = decode_circuit_level(
             code, req.rounds, req.p_gate, req.p_readout, req.p_reset, req.p_prep,
             data_error_x=ex, data_error_z=ez, observed_syndromes=obs,
@@ -717,6 +717,7 @@ def circuit_level_decode(req: schemas.CircuitLevelDecodeRequest):
     except ValueError as e:
         raise http_error(400, "VALIDATION_ERROR", str(e))
     body = result.to_dict()
+    body["extraction_model"] = req.extraction_model
     if req.include_layout:
         body["layout"] = code.layout()
     return body
@@ -757,7 +758,8 @@ def circuit_level_simulate(req: schemas.CircuitLevelSimulateRequest):
             ts = req.seed + t * 7919
             ex, ez, hooks, obs, _mf = simulate_circuit_level(
                 code, req.rounds, req.p_gate, req.p_readout,
-                req.p_reset, req.p_prep, seed=ts, schedules=schedules)
+                req.p_reset, req.p_prep, seed=ts, schedules=schedules,
+                extraction_model=req.extraction_model)
             total_hooks += len(hooks)
             res = decode_circuit_level(
                 code, req.rounds, req.p_gate, req.p_readout,
@@ -772,6 +774,7 @@ def circuit_level_simulate(req: schemas.CircuitLevelSimulateRequest):
             "p_gate": req.p_gate, "p_readout": req.p_readout,
             "p_reset": req.p_reset, "p_prep": req.p_prep,
             "schedule_mode": req.schedule_mode,
+            "extraction_model": req.extraction_model,
             "trials": req.trials,
             "logical_failures": fails,
             "logical_error_rate": fails / req.trials,

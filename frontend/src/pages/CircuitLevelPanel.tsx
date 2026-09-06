@@ -14,6 +14,8 @@ export default function CircuitLevelPanel() {
   const [seed, setSeed] = useState(1);
   const [mcTrials, setMcTrials] = useState(2000);
   const [scheduleMode, setScheduleMode] = useState<"naive" | "optimized">("naive");
+  const [extractionModel, setExtractionModel] = useState<
+    "baseline_h_cnot_h" | "shor_cat_state">("baseline_h_cnot_h");
   const [decoded, setDecoded] = useState<any>(null);
   const [sim, setSim] = useState<any>(null);
   const [busy, setBusy] = useState(false);
@@ -24,7 +26,7 @@ export default function CircuitLevelPanel() {
     try {
       setDecoded(await post("/api/qec/rotated-surface-code/circuit-level/decode", {
         d, rounds, p_gate: pGate, p_readout: pReadout, p_reset: pReset,
-        p_prep: pPrep, seed,
+        p_prep: pPrep, seed, extraction_model: extractionModel,
       }));
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
@@ -34,6 +36,7 @@ export default function CircuitLevelPanel() {
       setSim(await post("/api/qec/rotated-surface-code/circuit-level/simulate", {
         d, rounds, p_gate: pGate, p_readout: pReadout, p_reset: pReset,
         p_prep: pPrep, seed, trials: mcTrials, schedule_mode: scheduleMode,
+        extraction_model: extractionModel,
       }));
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
@@ -54,7 +57,11 @@ export default function CircuitLevelPanel() {
         schedule → measure) with gate, readout, reset, and preparation noise.
         Hook errors — a single ancilla fault propagating to multiple data qubits
         — emerge from the schedule and are recorded. Ideal final-round readout;
-        single-qubit gates ideal. No hardware claims.
+        single-qubit gates ideal. No hardware claims.{" "}
+        <b>Measured (AD-021):</b> Shor cat-state confines hooks to weight ≤ 2
+        (baseline: up to 4) but its ~2× gate exposure makes p_L <i>worse</i>{" "}
+        under this decoder and noise model — the comparison is real, not a
+        recommendation.
       </p>
       <div className="row" style={{ flexWrap: "wrap", gap: 10 }}>
         <label className="field">Distance
@@ -79,6 +86,13 @@ export default function CircuitLevelPanel() {
           <select value={scheduleMode} onChange={(e) => setScheduleMode(e.target.value as any)}>
             <option value="naive">naive (production)</option>
             <option value="optimized">optimized (catalogue)</option>
+          </select>
+        </label>
+        <label className="field">Extraction
+          <select value={extractionModel}
+                  onChange={(e) => { setExtractionModel(e.target.value as any); setDecoded(null); setSim(null); }}>
+            <option value="baseline_h_cnot_h">baseline (H-CNOT-H)</option>
+            <option value="shor_cat_state">Shor cat-state</option>
           </select>
         </label>
         <button className="btn" disabled={busy} onClick={decode}>

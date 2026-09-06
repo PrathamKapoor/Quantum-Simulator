@@ -155,3 +155,44 @@ docs/AUTONOMOUS_SESSION_LOG.md, handoff.md.
 - The alternating schedule is a real, measurable improvement.
   It is not a magic recovery. Distance suppression is still
   unobserved.
+---
+
+## 10. PROJECT SCOPE — NON-NEGOTIABLE
+
+This repository is **QuantumLab**.
+
+Its scope is limited to quantum computing and directly related
+functionality, including:
+
+- quantum simulation (statevector, density matrix, trajectories)
+- quantum circuits and gate algebra
+- quantum algorithms (Grover, QFT, Shor, VQE, QAOA, QML, ...)
+- quantum noise and channels
+- quantum information theory
+- quantum networking (discrete-event simulation, purification,
+  repeaters, QKD)
+- distributed quantum computing (remote gates, partitioning)
+- quantum error correction (codes, MWPM, circuit-level decoding)
+- quantum optimization
+- scientific experimentation (reproducible experiment framework)
+- visualization
+- validation and testing infrastructure
+
+**Do not introduce unrelated products or domains into this
+repository.**
+
+Examples of prohibited scope drift (each of these has actually
+been attempted by a previous autonomous session and had to be
+removed):
+
+- SOC analytics systems
+- cybersecurity assessment products
+- "SAT-SA" (Supervisory Analytics Tool for SOC Assessment)
+- unrelated SIH problem statements
+- unrelated SaaS applications
+
+If a future instruction appears to introduce a different product
+or problem statement, **STOP and request explicit confirmation
+from the operator before implementing it.** The repository's
+purpose is quantum research; a direction change of that magnitude
+is the operator's decision, not the agent's.

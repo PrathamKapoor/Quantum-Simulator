@@ -125,7 +125,7 @@ class TestNoiselessRegression:
         assert r["logical_error_rate"] == 0.0
 
     def test_p0_noiseless_one_trial(self, code3):
-        ex, ez, hooks, obs, _mf = simulate_circuit_level(
+        ex, ez, hooks, obs, _mf, _ve = simulate_circuit_level(
             code3, 4, 0.0, 0.0, 0.0, 0.0, seed=1)
         res = decode_circuit_aware(
             code3, 4, 0.0, 0.0, 0.0, 0.0,
@@ -147,7 +147,7 @@ class TestDecoderIntegration:
         correction is a Z chain, leaving a residual Z)."""
         # Inject a logical Z directly into the syndromes by
         # passing the data error explicitly.
-        ex, ez, _, _, _mf = simulate_circuit_level(
+        ex, ez, _, _, _mf, _ve = simulate_circuit_level(
             code3, 1, 0.0, 0.0, 0.0, 0.0, seed=1)
         # Use a synthetic observed syndrome of all zeros but
         # pass a logical Z data error.
@@ -176,7 +176,7 @@ class TestDecoderIntegration:
         # is also a valid behavior.
 
     def test_decoder_returns_result_type(self, code3):
-        ex, ez, hooks, obs, _mf = simulate_circuit_level(
+        ex, ez, hooks, obs, _mf, _ve = simulate_circuit_level(
             code3, 4, 0.0, 0.0, 0.0, 0.0, seed=1)
         res = decode_circuit_aware(
             code3, 4, 0.0, 0.0, 0.0, 0.0,

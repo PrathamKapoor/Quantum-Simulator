@@ -588,7 +588,7 @@ def simulate_circuit_aware_mc(d, rounds, p_gate, p_readout, p_reset, p_prep,
     fails = 0
     for t in range(trials):
         ts = seed + t * 7919
-        ex, ez, hooks, obs, _mf = simulate_circuit_level(
+        ex, ez, hooks, obs, _mf, _ve = simulate_circuit_level(
             code, rounds, p_gate, p_readout, p_reset, p_prep, seed=ts)
         res = decode_circuit_aware(
             code, rounds, p_gate, p_readout, p_reset, p_prep,

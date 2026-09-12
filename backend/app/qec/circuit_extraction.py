@@ -41,7 +41,9 @@ from dataclasses import dataclass
 
 EXTRACTION_BASELINE = "baseline_h_cnot_h"
 EXTRACTION_SHOR = "shor_cat_state"
-SUPPORTED_EXTRACTIONS = (EXTRACTION_BASELINE, EXTRACTION_SHOR)
+EXTRACTION_SHOR_VERIFIED = "shor_cat_state_verified"
+SUPPORTED_EXTRACTIONS = (EXTRACTION_BASELINE, EXTRACTION_SHOR,
+                         EXTRACTION_SHOR_VERIFIED)
 
 
 @dataclass(frozen=True)
@@ -137,20 +139,47 @@ _PAULI_AX_AZ = {"X": (1, 0), "Y": (1, 1), "Z": (0, 1)}
 def _measure_check_shor(code, check, kind, ax, az, rng, p_gate, p_reset,
                         p_prep, p_readout, support_order=None,
                         forced_faults=None):
+    """Unverified Shor cat-state measurement (AD-021). Thin wrapper
+    over the shared core with verification disabled. Returns
+    (outcome_bit, hooked_flag, vflag=0)."""
+    out = _measure_check_shor_core(
+        code, check, kind, ax, az, rng, p_gate, p_reset, p_prep,
+        p_readout, support_order=support_order,
+        forced_faults=forced_faults, verified=False)
+    return out[0], out[1], 0
+
+
+def _measure_check_shor_verified(code, check, kind, ax, az, rng, p_gate,
+                                  p_reset, p_prep, p_readout,
+                                  support_order=None, forced_faults=None):
+    """Verified Shor cat-state measurement (AD-022). Returns
+    (outcome_bit, hooked_flag, vflag) where vflag=1 means the cat
+    verification REJECTED this round (flagged round: the outcome bit
+    is still the measured parity and any data error still occurred —
+    nothing is silently dropped; the caller accounts the rejection)."""
+    out = _measure_check_shor_core(
+        code, check, kind, ax, az, rng, p_gate, p_reset, p_prep,
+        p_readout, support_order=support_order,
+        forced_faults=forced_faults, verified=True)
+    return out
+
+
+def _measure_check_shor_core(code, check, kind, ax, az, rng, p_gate,
+                              p_reset, p_prep, p_readout,
+                              support_order=None, forced_faults=None,
+                              verified=False):
     """Shor cat-state stabilizer measurement (see the block comment
     above for the full circuit and noise conventions).
 
     Mutates the data frame ax/az in place; returns (outcome_bit,
-    hooked_flag) where outcome is the parity of all k ancilla
-    measurements and hooked is True iff any ancilla fault propagated
-    onto a data qubit."""
+    hooked_flag, verification_flag)."""
     from .circuit_level import _sample_pauli_depolarizing
 
     support = list(support_order) if support_order is not None \
         else list(check.support)
     k = len(support)
     if k == 0:
-        return 0, False
+        return 0, False, 0
     if k % 2 != 0:
         raise ValueError(
             f"Shor cat-state extraction requires even support weight; "
@@ -164,6 +193,12 @@ def _measure_check_shor(code, check, kind, ax, az, rng, p_gate, p_reset,
     #   (kind, check_index, stage, index, participant, pauli)
     #     ("X"|"Z", int, "reset"|"prep"|"readout", anc_idx, None, pauli|None)
     #     ("X"|"Z", int, "cnot", gate_idx, "c"|"t", "X"|"Y"|"Z")
+    #   Verified mode adds verification locations (gate_idx 0..k-1
+    #   addresses CNOT(a_i -> v) in chain order):
+    #     ("X"|"Z", int, "vreset",  0,        None, "X"|"Y"|"Z")
+    #     ("X"|"Z", int, "vprep",   0,        None, "X"|"Y"|"Z")
+    #     ("X"|"Z", int, "vcnot",   gate_idx, "c"|"t", "X"|"Y"|"Z")
+    #     ("X"|"Z", int, "vreadout",0,        None, None)
     my_faults = [f for f in (forced_faults or [])
                  if f[0] == kind and f[1] == check.index]
     forced: dict[tuple, list] = {}
@@ -174,15 +209,21 @@ def _measure_check_shor(code, check, kind, ax, az, rng, p_gate, p_reset,
         entries = forced.pop((stage, idx, participant), None)
         return entries or []
 
-    anc_x = [0] * k
-    anc_z = [0] * k
+    n_anc = k + 1 if verified else k   # verification ancilla v = index k
+    anc_x = [0] * n_anc
+    anc_z = [0] * n_anc
     hooked = False
 
-    # 1. Reset + preparation noise (per ancilla).
-    for i in range(k):
+    # 1. Reset + preparation noise (per ancilla; v included when
+    #    verified, addressed by the vreset/vprep stages at index 0).
+    for i in range(n_anc):
+        is_v = verified and i == k
+        rst_stage = "vreset" if is_v else "reset"
+        prep_stage = "vprep" if is_v else "prep"
+        fidx = 0 if is_v else i
         if (p_reset > 0 and rng.random() < p_reset):
             anc_x[i] = 1
-        for f in _take("reset", i, None):
+        for f in _take(rst_stage, fidx, None):
             fx, fz = _PAULI_AX_AZ[f[5]]
             anc_x[i] ^= fx
             anc_z[i] ^= fz
@@ -190,7 +231,7 @@ def _measure_check_shor(code, check, kind, ax, az, rng, p_gate, p_reset,
             ex, ez = _sample_pauli_depolarizing(rng, p_prep)
             anc_x[i] ^= ex
             anc_z[i] ^= ez
-        for f in _take("prep", i, None):
+        for f in _take(prep_stage, fidx, None):
             fx, fz = _PAULI_AX_AZ[f[5]]
             anc_x[i] ^= fx
             anc_z[i] ^= fz
@@ -237,6 +278,7 @@ def _measure_check_shor(code, check, kind, ax, az, rng, p_gate, p_reset,
         for i in range(k):
             anc_x[i], anc_z[i] = anc_z[i], anc_x[i]
 
+    vflag = 0  # verification outcome (verified mode): 1 = REJECT
     outcome_bits = [0] * k
     for g_idx, (gkind, c, t) in enumerate(gates):
         # Gate noise: depolarizing on each participant, control
@@ -294,6 +336,67 @@ def _measure_check_shor(code, check, kind, ax, az, rng, p_gate, p_reset,
             anc_z[c] ^= az[t]
             ax[t] ^= anc_x[c]
 
+        # ---- Cat-state verification (AD-022, verified mode) ----
+        # Runs once, immediately after the GHZ fan-out completes
+        # (g_idx == k-2) and BEFORE the X-check H-all / data coupling,
+        # so the cat is the Z-GHZ here for BOTH check kinds.
+        # Circuit: H(v); CNOT(a_i -> v) for i = 0..k-1; measure v in Z.
+        # The measured operator (pulled back) is X_v * Z^{tensor k}_cat:
+        # the outcome flips iff the cat carries an ODD number of X
+        # components -- exactly the harmful class (single-leg cat
+        # errors, including the AD-021 worst-case reset/prep-Y on a_1
+        # whose 3-leg X pattern fires). Even-X patterns (X^{tensor k}
+        # = cat stabilizer) and all Z patterns commute -> accepted.
+        # v's own Z fault anticommutes with X_v -> fires (a flagged
+        # rejection); v's Z also back-propagates Z onto cat legs i..k-1
+        # via az_c ^= az_t during the remaining vcnot gates -- a real
+        # fault location the exhaustive enumeration must cover.
+        # Every verification gate/reset/readout participates in the
+        # noise model (nothing is free).
+        if verified and g_idx == k - 2:
+            # H(v): frame swap on the verification ancilla.
+            anc_x[k], anc_z[k] = anc_z[k], anc_x[k]
+            for vi in range(k):
+                # Gate noise on both participants (control = cat leg,
+                # target = v), sampled in the same order as every
+                # other CNOT.
+                if p_gate > 0 or forced:
+                    forced_here = _take("vcnot", vi, "c")
+                    sampled = None
+                    if p_gate > 0:
+                        sampled = _sample_pauli_depolarizing(rng, p_gate)
+                    ex_c, ez_c = sampled if sampled else (0, 0)
+                    for f in forced_here:
+                        ex_c, ez_c = _PAULI_AX_AZ[f[5]]
+                    forced_here = _take("vcnot", vi, "t")
+                    sampled = None
+                    if p_gate > 0:
+                        sampled = _sample_pauli_depolarizing(rng, p_gate)
+                    ex_t, ez_t = sampled if sampled else (0, 0)
+                    for f in forced_here:
+                        ex_t, ez_t = _PAULI_AX_AZ[f[5]]
+                    if ex_c or ez_c:
+                        anc_x[vi] ^= ex_c
+                        anc_z[vi] ^= ez_c
+                    if ex_t or ez_t:
+                        anc_x[k] ^= ex_t
+                        anc_z[k] ^= ez_t
+                # CNOT(a_vi -> v): v's X gains the cat leg's X; the cat
+                # leg's Z gains v's Z (back-propagation channel).
+                anc_x[k] ^= anc_x[vi]
+                anc_z[vi] ^= anc_z[k]
+            # Readout of v (independent readout noise), then the
+            # acceptance decision: vbit == 1 -> verification REJECTS
+            # (flagged round). The outcome bit and any data errors are
+            # recorded regardless -- nothing is silently dropped; the
+            # caller accounts accept/reject separately.
+            vbit = anc_x[k]
+            if p_readout > 0 and rng.random() < p_readout:
+                vbit ^= 1
+            for f in _take("vreadout", 0, None):
+                vbit ^= 1
+            vflag = vbit
+
         # H-all layer after this gate?
         if g_idx in h_after:
             _apply_h_all()          # back to the Z basis before readout
@@ -313,7 +416,7 @@ def _measure_check_shor(code, check, kind, ax, az, rng, p_gate, p_reset,
         raise RuntimeError(
             f"Unconsumed forced faults (locations never reached): "
             f"{sorted(forced.keys())}")
-    return parity, hooked
+    return parity, hooked, vflag
 
 
 MODELS: dict[str, ExtractionModel] = {
@@ -362,6 +465,34 @@ MODELS: dict[str, ExtractionModel] = {
         build_z_cnot_specs=_baseline_z_cnot_specs,  # unused for Shor
         build_x_cnot_specs=_baseline_x_cnot_specs,  # unused for Shor
         measure_check=_measure_check_shor,
+    ),
+    EXTRACTION_SHOR_VERIFIED: ExtractionModel(
+        name=EXTRACTION_SHOR_VERIFIED,
+        description=(
+            "Verified Shor cat-state extraction (AD-022): the AD-021 "
+            "cat state plus ONE verification ancilla v. After the GHZ "
+            "fan-out and BEFORE the X-check H-all / data coupling, v "
+            "is prepared |0>, coupled via CNOT(a_i -> v) for all k cat "
+            "legs, and measured in Z. The pulled-back measured "
+            "operator is X_v * Z^{tensor k}_cat: the outcome flips iff "
+            "the cat carries an ODD number of X components (single-leg "
+            "cat errors, including the AD-021 worst-case reset/prep-Y "
+            "on a_1) or v carries a Z error. Rejection semantics: "
+            "FLAGGED ROUND (Option 1) -- the outcome bit is still the "
+            "measured parity, data errors still occur and are counted, "
+            "and the rejection is reported explicitly; no retry, no "
+            "postselection, logical statistics are UNCONDITIONAL over "
+            "all trials (conditional-on-accept reported separately as "
+            "a diagnostic). Verification cost: k+1 ancillas, (k-1)+k "
+            "CNOTs + k verification CNOTs = 3k-1 total, k+1 resets and "
+            "readouts. Verification is not modeled as free: every "
+            "verification reset/prep/CNOT/readout is a real fault "
+            "location in the noise model."
+        ),
+        n_cnots_per_data=3,   # fan-out share + verification + coupling
+        build_z_cnot_specs=_baseline_z_cnot_specs,  # unused for Shor
+        build_x_cnot_specs=_baseline_x_cnot_specs,  # unused for Shor
+        measure_check=_measure_check_shor_verified,
     ),
 }
 

@@ -150,7 +150,7 @@ class TestExhaustiveFaultEnumeration:
         Shor extraction, proven over EVERY elementary single fault."""
         code = RotatedSurfaceCode.build(d)
         for f in _all_single_faults(code):
-            ex, ez, hooks, obs, _mf = simulate_circuit_level(
+            ex, ez, hooks, obs, _mf, _ve = simulate_circuit_level(
                 code, 2, 0.0, 0.0, 0.0, 0.0, seed=0,
                 extraction_model=EXTRACTION_SHOR, forced_faults=[f])
             w = bin(ex).count("1") + bin(ez).count("1")
@@ -165,7 +165,7 @@ class TestExhaustiveFaultEnumeration:
         code = RotatedSurfaceCode.build(d)
         max_w, worst = 0, None
         for f in _all_single_faults(code):
-            ex, ez, hooks, obs, _mf = simulate_circuit_level(
+            ex, ez, hooks, obs, _mf, _ve = simulate_circuit_level(
                 code, 2, 0.0, 0.0, 0.0, 0.0, seed=0,
                 extraction_model=EXTRACTION_SHOR, forced_faults=[f])
             w = bin(ex).count("1") + bin(ez).count("1")
@@ -186,7 +186,7 @@ class TestExhaustiveFaultEnumeration:
             if f[2] != "readout":
                 continue
             n_readout += 1
-            ex, ez, hooks, obs, _mf = simulate_circuit_level(
+            ex, ez, hooks, obs, _mf, _ve = simulate_circuit_level(
                 code, 2, 0.0, 0.0, 0.0, 0.0, seed=0,
                 extraction_model=EXTRACTION_SHOR, forced_faults=[f])
             assert ex == 0 and ez == 0, f
@@ -196,7 +196,7 @@ class TestExhaustiveFaultEnumeration:
         """A fault targeting one check must not leak into other
         checks (each check consumes only its own tuple)."""
         f = ("X", 0, "reset", 0, None, "X")
-        ex, ez, hooks, obs, _mf = simulate_circuit_level(
+        ex, ez, hooks, obs, _mf, _ve = simulate_circuit_level(
             code3, 2, 0.0, 0.0, 0.0, 0.0, seed=0,
             extraction_model=EXTRACTION_SHOR, forced_faults=[f])
         # Single weight-1 or -2 data error, NOT the 8-fault blowup a
@@ -228,7 +228,7 @@ class TestGHZSignature:
         for kind in ("X", "Z"):
             ch = (code3.x_checks if kind == "X" else code3.z_checks)[0]
             f = (kind, ch.index, "reset", 0, None, "Z")
-            ex, ez, hooks, obs, _mf = simulate_circuit_level(
+            ex, ez, hooks, obs, _mf, _ve = simulate_circuit_level(
                 code3, 2, 0.0, 0.0, 0.0, 0.0, seed=0,
                 extraction_model=EXTRACTION_SHOR, forced_faults=[f])
             assert ex == 0 and ez == 0
@@ -246,7 +246,7 @@ class TestCleanAndDeterminism:
     @pytest.mark.parametrize("rounds", [1, 2, 4])
     def test_p0_zero_everything(self, d, rounds):
         code = RotatedSurfaceCode.build(d)
-        ex, ez, hooks, obs, _mf = simulate_circuit_level(
+        ex, ez, hooks, obs, _mf, _ve = simulate_circuit_level(
             code, rounds, 0.0, 0.0, 0.0, 0.0, seed=1,
             extraction_model=EXTRACTION_SHOR)
         assert ex == 0 and ez == 0 and hooks == []

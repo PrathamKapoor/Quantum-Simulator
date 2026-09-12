@@ -88,7 +88,7 @@ class TestCleanAndChannels:
     @pytest.mark.parametrize("d", [3, 5])
     def test_clean_zero(self, d):
         code = RotatedSurfaceCode.build(d)
-        ex, ez, hooks, obs, _mf = simulate_circuit_level(
+        ex, ez, hooks, obs, _mf, _ve = simulate_circuit_level(
             code, 4, 0.0, 0.0, 0.0, 0.0, seed=1)
         assert ex == 0 and ez == 0 and hooks == []
         assert all(not any(o[0]) and not any(o[1]) for o in obs)
@@ -96,14 +96,14 @@ class TestCleanAndChannels:
     def test_reset_error_flips(self, code3):
         """p_reset=1 always resets the ancilla to |1>. Round 1 (not the ideal
         final round) shows all-ones outcomes."""
-        _, _, _, obs, _mf = simulate_circuit_level(
+        _, _, _, obs, _mf, _ve = simulate_circuit_level(
             code3, 2, 0.0, 0.0, 1.0, 0.0, seed=2)
         assert all(x == 1 for x in obs[0][0])
         assert all(z == 1 for z in obs[0][1])
 
     def test_readout_error_flips(self, code3):
         """p_readout=1 flips every measured bit in non-final rounds."""
-        _, _, _, obs, _mf = simulate_circuit_level(
+        _, _, _, obs, _mf, _ve = simulate_circuit_level(
             code3, 2, 0.0, 1.0, 0.0, 0.0, seed=2)
         assert all(x == 1 for x in obs[0][0])
         assert all(z == 1 for z in obs[0][1])
@@ -111,8 +111,8 @@ class TestCleanAndChannels:
     def test_channels_are_distinct(self, code3):
         """Reset vs readout vs prep vs gate change the syndrome differently:
         at least the measured histories differ across kinds for a shared seed."""
-        _, _, _, clean, _mf = simulate_circuit_level(code3, 2, 0.0, 0.0, 0.0, 0.0, seed=5)
-        _, _, _, rme, _mf = simulate_circuit_level(code3, 2, 0.5, 0.5, 0.0, 0.0, seed=5)
+        _, _, _, clean, _mf, _ve = simulate_circuit_level(code3, 2, 0.0, 0.0, 0.0, 0.0, seed=5)
+        _, _, _, rme, _mf, _ve = simulate_circuit_level(code3, 2, 0.5, 0.5, 0.0, 0.0, seed=5)
         assert (clean[0] != rme[0]) or (clean[1] != rme[1])
 
 class TestHookEmergence:
@@ -121,7 +121,7 @@ class TestHookEmergence:
         faults propagating to data) and nonzero data error — the correlated
         hook-error phenomenon is emergent, not injected."""
         code = RotatedSurfaceCode.build(3)
-        ex, ez, hooks, obs, _mf = simulate_circuit_level(
+        ex, ez, hooks, obs, _mf, _ve = simulate_circuit_level(
             code, 4, 1.0, 0.0, 0.0, 0.0, seed=7)
         assert ex != 0 or ez != 0          # gate faults landed on / propagated to data
         assert len(hooks) > 0              # hook events recorded
@@ -130,7 +130,7 @@ class TestHookEmergence:
         """Ancilla-only faults (prep=1, reset=1, no direct data gate noise)
         must still reach data via propagation."""
         code = RotatedSurfaceCode.build(3)
-        ex, ez, hooks, obs, _mf = simulate_circuit_level(
+        ex, ez, hooks, obs, _mf, _ve = simulate_circuit_level(
             code, 3, 0.0, 0.0, 1.0, 1.0, seed=3)
         assert ex != 0 or ez != 0
 

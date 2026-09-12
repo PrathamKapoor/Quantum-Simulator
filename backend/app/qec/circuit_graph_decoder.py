@@ -469,7 +469,7 @@ def simulate_circuit_derived_mc(d, rounds, p_gate, p_readout, p_reset, p_prep,
     failures = 0
     for t in range(trials):
         trial_seed = seed + t * 7919
-        ex, ez, hooks, obs, _mf = simulate_circuit_level(
+        ex, ez, hooks, obs, _mf, _ve = simulate_circuit_level(
             code, rounds, p_gate, p_readout, p_reset, p_prep,
             seed=trial_seed)
         res = decode_circuit_level(

@@ -143,10 +143,12 @@ def _run_check_measurement(code, check, kind, ax, az, rng, p_gate, p_reset,
             code, check, kind, ax, az, rng, p_gate, p_reset, p_prep,
             p_readout, support_order=support_order,
             forced_faults=forced_faults)
-    return _measure_one_check(code, check, kind, ax, az, rng, p_gate,
-                              p_reset, p_prep, p_readout,
-                              support_order=support_order,
-                              cnot_specs=cnot_specs)
+    outcome, hooked = _measure_one_check(
+        code, check, kind, ax, az, rng, p_gate,
+        p_reset, p_prep, p_readout,
+        support_order=support_order,
+        cnot_specs=cnot_specs)
+    return outcome, hooked, 0   # no verification performed
 
 
 def extract_syndrome_noiseless(code, ex, ez, schedules=None,
@@ -178,7 +180,7 @@ def extract_syndrome_noiseless(code, ex, ez, schedules=None,
                 cnot_specs = (em.build_z_cnot_specs(code, check.index)
                                 if kind == "Z"
                                 else em.build_x_cnot_specs(code, check.index))
-            out, _ = _run_check_measurement(
+            out, _hooked, _vflag = _run_check_measurement(
                 code, check, kind, ax, az, _NoRng(),
                 0.0, 0.0, 0.0, 0.0,
                 support_order=order,
@@ -240,6 +242,7 @@ def simulate_circuit_level(code, rounds, p_gate, p_readout, p_reset, p_prep,
     hook_events: list[tuple[int, str, int]] = []
     observed: list[tuple[tuple[int, ...], tuple[int, ...]]] = []
     measured_families: list[str] = []
+    verification_events: list[tuple[int, str, int]] = []
 
     for _round in range(1, rounds + 1):
         # Determine which families to measure this round.
@@ -297,7 +300,7 @@ def simulate_circuit_level(code, rounds, p_gate, p_readout, p_reset, p_prep,
                     cnot_specs = (em.build_z_cnot_specs(code, check.index)
                                     if kind == "Z"
                                     else em.build_x_cnot_specs(code, check.index))
-                outcome, hooked = _run_check_measurement(
+                outcome, hooked, vflag = _run_check_measurement(
                     code, check, kind, ax, az, rng, p_gate, r_reset, r_prep,
                     r_readout, support_order=order,
                     cnot_specs=cnot_specs, extraction_model=em,
@@ -305,16 +308,22 @@ def simulate_circuit_level(code, rounds, p_gate, p_readout, p_reset, p_prep,
                 (x_out if kind == "X" else z_out)[check.index] = outcome
                 if hooked:
                     hook_events.append((_round, kind, check.index))
+                if vflag:
+                    # AD-022 flagged round: the cat verification
+                    # REJECTED. Recorded explicitly; the outcome bit is
+                    # the measured parity and any data error is counted
+                    # -- nothing is silently dropped or postselected.
+                    verification_events.append(
+                        (_round, kind, check.index))
         observed.append((tuple(x_out), tuple(z_out)))
 
     data_ex = sum(1 << q for q in range(n) if ax[q])
     data_ez = sum(1 << q for q in range(n) if az[q])
-    # Backwards-compatible 4-tuple return. The 5th element (measured
-    # families per round) is accessible via the `measured_families`
-    # parameter or by calling `simulate_circuit_level_classic` with
-    # interleave="alternating" and reading the 5-tuple.
+    # 6-tuple return: (data_x, data_z, hook_events, observed_syndromes,
+    # measured_families_per_round, verification_events). The last two
+    # are [] for the baseline extraction.
     return (data_ex, data_ez, hook_events, observed,
-            measured_families)
+            measured_families, verification_events)
 
 
 def simulate_circuit_level_4tuple(code, rounds, p_gate, p_readout, p_reset, p_prep,
@@ -370,30 +379,51 @@ def simulate_circuit_level_mc(d, rounds, p_gate, p_readout, p_reset, p_prep, *,
     code = RotatedSurfaceCode.build(d)
     failures = 0
     total_hooks = 0
+    rejected_trials = 0
+    conditional_failures = 0   # logical failures in ACCEPTED trials
     for t in range(trials):
         trial_seed = seed + t * 7919
-        ex, ez, hooks, obs, _mf = simulate_circuit_level(
+        ex, ez, hooks, obs, _mf, ve = simulate_circuit_level(
             code, rounds, p_gate, p_readout, p_reset, p_prep,
             seed=trial_seed, extraction_model=extraction_model)
         total_hooks += len(hooks)
+        rejected = len(ve) > 0
+        if rejected:
+            rejected_trials += 1
         res = decode_circuit_level(
             code, rounds, p_gate, p_readout, p_reset, p_prep,
             data_error_x=ex, data_error_z=ez, observed_syndromes=obs,
             hook_events=hooks, seed=trial_seed)
         if not res.success:
             failures += 1
+            if not rejected:
+                conditional_failures += 1
     lo, hi = wilson_interval(failures, trials)
-    return {
+    accepted_trials = trials - rejected_trials
+    result = {
         "d": d, "rounds": rounds, "p_gate": p_gate, "p_readout": p_readout,
         "p_reset": p_reset, "p_prep": p_prep, "trials": trials,
         "logical_failures": failures, "logical_error_rate": failures / trials,
         "ci95": [lo, hi], "seed": seed, "decoder": "mwpm",
         "extraction_model": em.name if em is not None else "baseline_h_cnot_h",
         "hook_error_events": total_hooks,
+        "accepted_trials": accepted_trials,
+        "rejected_trials": rejected_trials,
+        "acceptance_rate": accepted_trials / trials,
+        "rejection_rate": rejected_trials / trials,
+        "conditional_logical_failures": conditional_failures,
+        "conditional_logical_error_rate": (
+            conditional_failures / accepted_trials
+            if accepted_trials > 0 else 0.0),
         "note": (
             "Circuit-level surface-code decoding: explicit ancilla stabilizer "
             "circuits with gate (p_gate), readout (p_readout), reset (p_reset), "
             "and preparation (p_prep) noise, decoded by the repeated-round MWPM. "
-            "Single-qubit gates ideal; no hardware or threshold claims."
+            "Single-qubit gates ideal; no hardware or threshold claims. "
+            "For verified Shor extraction, rejection (flagged-round) statistics "
+            "are reported: logical_error_rate is UNCONDITIONAL over all trials "
+            "(the operational metric); conditional_logical_error_rate is over "
+            "accepted trials only (a diagnostic, never substituted)."
         ),
     }
+    return result

@@ -33,17 +33,17 @@ def code3():
 class TestSimulatorInterleaving:
     def test_alternating_measured_families(self, code3):
         """Round 1 measures X; round 2 measures Z; round 3 measures X; etc."""
-        ex, ez, hooks, obs, mf = simulate_circuit_level(
+        ex, ez, hooks, obs, mf, _ve = simulate_circuit_level(
             code3, 4, 0.0, 0.0, 0.0, 0.0, seed=1, interleave="alternating")
         assert mf == ["X", "Z", "X", "Z"]
 
     def test_alternating_zx_measured_families(self, code3):
-        ex, ez, hooks, obs, mf = simulate_circuit_level(
+        ex, ez, hooks, obs, mf, _ve = simulate_circuit_level(
             code3, 4, 0.0, 0.0, 0.0, 0.0, seed=1, interleave="alternating_zx")
         assert mf == ["Z", "X", "Z", "X"]
 
     def test_standard_measured_families(self, code3):
-        ex, ez, hooks, obs, mf = simulate_circuit_level(
+        ex, ez, hooks, obs, mf, _ve = simulate_circuit_level(
             code3, 4, 0.0, 0.0, 0.0, 0.0, seed=1, interleave="none")
         assert mf == ["both", "both", "both", "both"]
 
@@ -61,7 +61,7 @@ class TestCarryForward:
     def test_z_carry_in_x_round(self, code3):
         """At an X-measuring round, the Z syndrome is the same as the
         previous round (carry-forward). No noise → same value."""
-        ex, ez, hooks, obs, mf = simulate_circuit_level(
+        ex, ez, hooks, obs, mf, _ve = simulate_circuit_level(
             code3, 4, 0.0, 0.0, 0.0, 0.0, seed=1, interleave="alternating")
         # Round 1: X measured, Z carry from round 0 (=0).
         assert obs[0][1] == tuple(0 for _ in range(len(code3.z_checks)))
@@ -75,7 +75,7 @@ class TestCarryForward:
         The Z syndrome in round 2 should reflect the data X via
         Z-checks."""
         # Use a seed where a data X actually occurs.
-        ex, ez, hooks, obs, mf = simulate_circuit_level(
+        ex, ez, hooks, obs, mf, _ve = simulate_circuit_level(
             code3, 4, 0.05, 0.0, 0.0, 0.0, seed=11, interleave="alternating")
         # Find a round where a data X is introduced.
         if ex == 0 and ez == 0:
@@ -95,7 +95,7 @@ class TestCarryForward:
 
 class TestNoiselessRegression:
     def test_p0_zero_failures_alternating(self, code3):
-        ex, ez, hooks, obs, mf = simulate_circuit_level(
+        ex, ez, hooks, obs, mf, _ve = simulate_circuit_level(
             code3, 4, 0.0, 0.0, 0.0, 0.0, seed=1, interleave="alternating")
         res = decode_circuit_level(
             code3, 4, 0.0, 0.0, 0.0, 0.0,
@@ -104,7 +104,7 @@ class TestNoiselessRegression:
         assert res.success, f"alternating p=0 should give CORRECTED, got {res.outcome}"
 
     def test_p0_zero_failures_standard(self, code3):
-        ex, ez, hooks, obs, mf = simulate_circuit_level(
+        ex, ez, hooks, obs, mf, _ve = simulate_circuit_level(
             code3, 4, 0.0, 0.0, 0.0, 0.0, seed=1, interleave="none")
         res = decode_circuit_level(
             code3, 4, 0.0, 0.0, 0.0, 0.0,
@@ -163,7 +163,7 @@ class TestDecoderCorrectness:
         """The decoder reports residual = correction XOR data_error.
         For alternating, the decoder must use the carried-forward
         syndromes correctly when constructing the residual."""
-        ex, ez, hooks, obs, mf = simulate_circuit_level(
+        ex, ez, hooks, obs, mf, _ve = simulate_circuit_level(
             code3, 4, 0.005, 0.005, 0.003, 0.003, seed=1,
             interleave="alternating")
         res = decode_circuit_level(
@@ -177,10 +177,10 @@ class TestDecoderCorrectness:
 
     def test_seeded_reproducibility(self, code3):
         """Same seed → same syndromes (deterministic)."""
-        ex1, ez1, _, obs1, _ = simulate_circuit_level(
+        ex1, ez1, _, obs1, _, _ve1 = simulate_circuit_level(
             code3, 4, 0.005, 0.005, 0.003, 0.003, seed=1,
             interleave="alternating")
-        ex2, ez2, _, obs2, _ = simulate_circuit_level(
+        ex2, ez2, _, obs2, _, _ve2 = simulate_circuit_level(
             code3, 4, 0.005, 0.005, 0.003, 0.003, seed=1,
             interleave="alternating")
         assert ex1 == ex2

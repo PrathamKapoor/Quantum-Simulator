@@ -106,9 +106,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Dev frontend origins; extend via QUANTUMLAB_CORS_ORIGINS (comma-separated)
+# when the vite port differs (e.g. 5173 occupied by another project).
+_cors_origins = os.environ.get(
+    "QUANTUMLAB_CORS_ORIGINS",
+    "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173",
+).split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:4173"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

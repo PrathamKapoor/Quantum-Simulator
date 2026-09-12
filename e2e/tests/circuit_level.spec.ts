@@ -56,3 +56,15 @@ test.describe("Circuit-level surface code", () => {
     monitor.assertClean();
   });
 });
+  test("Verified Shor selector runs and reports rejection statistics", async ({ page }) => {
+    const monitor = ErrorMonitor.attach(page);
+    await gotoPage(page, "Error Correction");
+    const panel = page.locator(".panel", { hasText: "Circuit-level surface code" });
+    await panel.getByLabel("Extraction").selectOption("shor_cat_state_verified");
+    await panel.getByLabel("MC trials").fill("200");
+    await panel.getByRole("button", { name: "Run Monte Carlo (circuit-level)" }).click();
+    await expect(panel.getByText(/logical error rate p_L/)).toBeVisible({
+      timeout: 90_000,
+    });
+    monitor.assertClean();
+  });

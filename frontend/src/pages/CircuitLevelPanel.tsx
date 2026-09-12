@@ -15,7 +15,8 @@ export default function CircuitLevelPanel() {
   const [mcTrials, setMcTrials] = useState(2000);
   const [scheduleMode, setScheduleMode] = useState<"naive" | "optimized">("naive");
   const [extractionModel, setExtractionModel] = useState<
-    "baseline_h_cnot_h" | "shor_cat_state">("baseline_h_cnot_h");
+    "baseline_h_cnot_h" | "shor_cat_state" | "shor_cat_state_verified">(
+    "baseline_h_cnot_h");
   const [decoded, setDecoded] = useState<any>(null);
   const [sim, setSim] = useState<any>(null);
   const [busy, setBusy] = useState(false);
@@ -93,6 +94,7 @@ export default function CircuitLevelPanel() {
                   onChange={(e) => { setExtractionModel(e.target.value as any); setDecoded(null); setSim(null); }}>
             <option value="baseline_h_cnot_h">baseline (H-CNOT-H)</option>
             <option value="shor_cat_state">Shor cat-state</option>
+            <option value="shor_cat_state_verified">Shor cat-state (verified)</option>
           </select>
         </label>
         <button className="btn" disabled={busy} onClick={decode}>

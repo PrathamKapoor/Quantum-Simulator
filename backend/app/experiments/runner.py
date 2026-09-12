@@ -720,6 +720,14 @@ def run_surface_code_circuit_level(config: dict, seed: int) -> dict:
             "logical_failures": res["logical_failures"],
             "ci95_low": res["ci95"][0], "ci95_high": res["ci95"][1],
             "hook_error_events": res.get("hook_error_events"),
+            "accepted_trials": res.get("accepted_trials"),
+            "rejected_trials": res.get("rejected_trials"),
+            "acceptance_rate": res.get("acceptance_rate"),
+            "rejection_rate": res.get("rejection_rate"),
+            "conditional_logical_failures": res.get(
+                "conditional_logical_failures"),
+            "conditional_logical_error_rate": res.get(
+                "conditional_logical_error_rate"),
             "trials": res["trials"], "seed": res["seed"],
         })
     metrics = {
@@ -887,7 +895,7 @@ def _run_mc_with_schedules(code, rounds, p_gate, p_readout, p_reset, p_prep,
     total_hooks = 0
     for t in range(trials):
         ts = seed + t * 7919
-        ex, ez, hooks, obs, _mf = simulate_circuit_level(
+        ex, ez, hooks, obs, _mf, _ve = simulate_circuit_level(
             code, rounds, p_gate, p_readout, p_reset, p_prep, seed=ts,
             schedules=schedules)
         total_hooks += len(hooks)
@@ -955,7 +963,7 @@ def run_surface_code_temporal_interleaved(config: dict, seed: int) -> dict:
                 fails = 0
                 for t in range(trials):
                     ts = point_seed + t
-                    ex, ez, hooks, obs, _mf = simulate_circuit_level(
+                    ex, ez, hooks, obs, _mf, _ve = simulate_circuit_level(
                         code, rounds, pg, pr, prst, pp, seed=ts,
                         interleave=interleave)
                     res = decode_circuit_level(
@@ -1075,7 +1083,7 @@ def run_surface_code_circuit_aware(config: dict, seed: int) -> dict:
             phen_fails = 0
             for t in range(trials):
                 ts = point_seed + t
-                ex, ez, hooks, obs, _mf = simulate_circuit_level(
+                ex, ez, hooks, obs, _mf, _ve = simulate_circuit_level(
                     code, rounds, pg, pr, prst, pp, seed=ts)
                 res_phen = decode_circuit_level(
                     code, rounds, pg, pr, prst, pp,

@@ -707,7 +707,7 @@ def circuit_level_decode(req: schemas.CircuitLevelDecodeRequest):
 
     try:
         code = RotatedSurfaceCode.build(req.d)
-        ex, ez, hooks, obs, _mf = simulate_circuit_level(
+        ex, ez, hooks, obs, _mf, _ve = simulate_circuit_level(
             code, req.rounds, req.p_gate, req.p_readout, req.p_reset, req.p_prep,
             seed=req.seed, extraction_model=req.extraction_model)
         result = decode_circuit_level(
@@ -754,13 +754,18 @@ def circuit_level_simulate(req: schemas.CircuitLevelSimulateRequest):
             schedules = {(k, i): c.order for (k, i), c in naive.items()}
         fails = 0
         total_hooks = 0
+        rejected_trials = 0
+        conditional_failures = 0
         for t in range(req.trials):
             ts = req.seed + t * 7919
-            ex, ez, hooks, obs, _mf = simulate_circuit_level(
+            ex, ez, hooks, obs, _mf, _ve = simulate_circuit_level(
                 code, req.rounds, req.p_gate, req.p_readout,
                 req.p_reset, req.p_prep, seed=ts, schedules=schedules,
                 extraction_model=req.extraction_model)
             total_hooks += len(hooks)
+            rejected = len(_ve) > 0
+            if rejected:
+                rejected_trials += 1
             res = decode_circuit_level(
                 code, req.rounds, req.p_gate, req.p_readout,
                 req.p_reset, req.p_prep,
@@ -768,7 +773,10 @@ def circuit_level_simulate(req: schemas.CircuitLevelSimulateRequest):
                 hook_events=hooks, seed=ts)
             if not res.success:
                 fails += 1
+                if not rejected:
+                    conditional_failures += 1
         lo, hi = wilson_interval(fails, req.trials)
+        accepted = req.trials - rejected_trials
         res = {
             "d": req.d, "rounds": req.rounds,
             "p_gate": req.p_gate, "p_readout": req.p_readout,
@@ -780,13 +788,24 @@ def circuit_level_simulate(req: schemas.CircuitLevelSimulateRequest):
             "logical_error_rate": fails / req.trials,
             "ci95": [lo, hi], "seed": req.seed, "decoder": "mwpm",
             "hook_error_events": total_hooks,
+            "accepted_trials": accepted,
+            "rejected_trials": rejected_trials,
+            "acceptance_rate": accepted / req.trials,
+            "rejection_rate": rejected_trials / req.trials,
+            "conditional_logical_failures": conditional_failures,
+            "conditional_logical_error_rate": (
+                conditional_failures / accepted if accepted > 0 else 0.0),
             "note": (
                 "Circuit-level surface-code decoding: explicit ancilla "
                 "stabilizer circuits with gate (p_gate), readout "
                 "(p_readout), reset (p_reset), and preparation (p_prep) "
                 "noise, decoded by the repeated-round MWPM. "
                 "Single-qubit gates ideal; no hardware or threshold claims. "
-                "Schedule mode: " + req.schedule_mode + "."
+                "For verified Shor extraction, rejection statistics are "
+                "reported: logical_error_rate is UNCONDITIONAL over all "
+                "trials; conditional_logical_error_rate is over accepted "
+                "trials only (a diagnostic, never substituted). Schedule "
+                "mode: " + req.schedule_mode + "."
             ),
         }
     except ValueError as e:
@@ -967,7 +986,7 @@ def circuit_level_simulate_temporal(req: schemas.CircuitLevelSimulateTemporalReq
         fails = 0
         for t in range(req.trials):
             ts = req.seed + t * 7919
-            ex, ez, hooks, obs, _mf = simulate_circuit_level(
+            ex, ez, hooks, obs, _mf, _ve = simulate_circuit_level(
                 code, req.rounds, req.p_gate, req.p_readout,
                 req.p_reset, req.p_prep, seed=ts, interleave=req.interleave)
             res = decode_circuit_level(

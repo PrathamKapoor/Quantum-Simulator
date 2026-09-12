@@ -729,3 +729,96 @@ invalid modes rejected by schema), experiment runner
 `extraction_model` config (validated, echoed in provenance),
 QecLab extraction selector with the measured caveat rendered
 from the AD.
+
+## AD-022 — Verified Shor cat-state extraction: implemented, measured, worse (milestone 18)
+
+**Decision.** Add a THIRD extraction mode `shor_cat_state_verified`
+that augments the AD-021 cat state with ONE verification ancilla v.
+After the GHZ fan-out and BEFORE the X-check H-all / Z-check data
+coupling, v is prepared |0>, coupled via CNOT(a_i -> v) for every
+cat leg, and measured in Z. The pulled-back measured operator is
+X_v * Z^{tensor k}_cat: the outcome flips iff the cat carries an ODD
+number of X components (single-leg cat errors, including the AD-021
+worst-case reset/prep-Y on a_1) or v carries a Z error. verification
+resets/preps/CNOTs/readouts are all real fault locations in the
+noise model — nothing is free.
+
+**Verification semantics (Question B, directive): FLAGGED ROUND
+(Option 1).** A rejection does NOT retry, does NOT postselect, and
+does NOT change the measured outcome bit: the round is recorded
+explicitly in the new `verification_events` channel (round, kind,
+check_index), and any data error that already occurred is retained
+and counted. Logical statistics are UNCONDITIONAL over all trials
+(the operational metric); the conditional p_L(failure | accept) is
+reported separately as a diagnostic and never substituted. Rejection
+is never silently a zero/random/ignored syndrome.
+
+**Measured structural results (exhaustive production-path
+single-fault enumeration, forced_faults harness, 608 faults at d=3 /
+2024 at d=5):**
+
+- W_max_accepted (frame weight) = **4** — WORSE than unverified's 2.
+  The weight-4 accepted mechanism is v-reset-X: X on v -> H(v) -> Z
+  on v -> Z^tensor-k back-propagated onto every cat leg via
+  az_c ^= az_t -> X-check H-all -> X^tensor-k -> coupling -> X on
+  all k data qubits. This is the CHECK'S OWN STABILIZER
+  (X^tensor-support / Z^tensor-support) — the decoder classifies it
+  CORRECTED (benign), so frame weight misleads.
+- W_max_accepted (DANGEROUS = LOGICAL outcome) = **2** — the same as
+  unverified Shor. Verification does NOT reduce the dangerous
+  accepted weight to 1.
+- The AD-021 specific worst-case mechanism (reset-Y on a_1, X-check)
+  is now REJECTED (was accepted): DECISION CONFIRMED.
+- Rejected rounds can still carry weight-2..4 data errors (the
+  coupling ran with a corrupted cat) — flagged, never silently
+  converted to a clean syndrome.
+- d=3: 26 accepted / 14 rejected faults produce LOGICAL; d=5:
+  20 accepted / 0 rejected. At d=5 verification perfectly protects
+  rejected rounds (every rejected fault's residual is benign).
+
+**Measured logical performance (Question D, 2000 trials/point,
+rounds 4, Wilson 95% CIs, seeds 11/23):**
+
+| regime       | d=3 baseline | d=3 unverified | d=3 verified | d=5 verified |
+|--------------|:---:|:---:|:---:|:---:|
+| gate-only    | 14.30% | 21.40% | 30.25% | 54.60% |
+| combined-mid | 14.10% | 28.50% | 34.75% | 53.75% |
+
+Verified Shor is strictly WORSE than both baseline and unverified in
+every measured regime (non-overlapping CIs). Rejection rate is HIGH:
+56% (d=3 gate-only) to 94% (d=5) — the verification surface adds
+k extra CNOTs + k+1 resets/readouts per check, and cat-X faults now
+also trigger v's measurement, so a large fraction of rounds are
+flagged. Accepting the flag does not retire the data error; the
+scheme with a single verifier and no retry is operationally broken
+at d=5 (94% flagged).
+
+**Conclusion (all questions answered):**
+- A (structural): NO weight-1 confinement (dangerous accepted weight
+  2; frame weight 4 but stabilizer-equivalent). The prior mechanism
+  is detected, but other accepted weight-2 mechanisms remain and the
+  verifier adds accepted frame-weight-4 stabilizer errors.
+- B (semantics): flagged round, explicit, unconditional statistics.
+- C (cost): 3k-1 CNOTs, k+1 ancillas/resets/readouts (vs k and 1).
+- D (logical): worse than both alternatives in every regime.
+
+**Rejected alternatives.** (a) Retry on rejection — would perturb
+per-round noise exposure and the decoder's temporal model; deferred.
+(b) Two verifiers (Z-parity AND X-parity, catching both odd-Z and
+odd-X cat patterns) — would close the remaining even-pattern weight-2
+accepted mechanisms at the cost of TWO extra ancillas; the concrete
+falsifiable next experiment. (c) Postselection as the default logical
+metric — prohibited (fabricates performance; conditional !=
+unconditional). (d) The "no-H on verifier" (Z-parity only) variant —
+catches odd-X but misses the odd-Z mechanisms; the H-version
+(X-parity) is the one that detects the prior mechanism, so H-version
+is what was built and measured here.
+
+**Scope.** Everything the milestone demanded: `circuit_extraction.py`
+(verified core + vreset/vprep/vcnot/vreadout forced stages + registry
+entry), `circuit_level.py` (single dispatch returning a 3-tuple, the
+6-tuple `simulate_circuit_level` return with `verification_events`,
+`simulate_circuit_level_mc` acceptance/conditional accounting), API
+`extraction_model` Literal (3 values, default unchanged, invalid
+422), experiment runner table fields, QecLab third extraction option,
+Playwright verified-Shor test.

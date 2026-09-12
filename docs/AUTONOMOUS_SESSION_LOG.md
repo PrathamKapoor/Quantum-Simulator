@@ -954,3 +954,36 @@ biased noise channels. Reread roadmap + handoff first.
   current model/decoder; the falsifiable next experiment
   (cat-state verification) is specified in AD-021 and
   SCIENTIFIC_MODELS.
+
+## Session 18 — Verified Shor cat-state extraction (AD-022)
+
+- **Phase 0:** baseline c77388f, 819 tests, clean tree, zero
+  contamination.
+- **Phase A (design):** derived the verification circuit from frame
+  algebra (v|0>, CNOT(a_i->v) after fan-out, measure v; measured
+  operator X_v * Z^tensor k). Identified ahead of implementation that
+  a single Z-parity (no-H) verifier catches odd-X but not odd-Z, and
+  that v's own Z faults back-propagate partial patterns — the
+  enumerator was then used to settle each case rather than assume.
+- **Phase A (implementation):** `_measure_check_shor_core(verified=)`
+  unifying unverified/verified; vreset/vprep/vcnot/vreadout forced
+  stages; 3-tuple measure contract; 6-tuple simulate return; MC
+  acceptance/conditional accounting.
+- **Bugs root-fixed during self-validation:** (1) a typo in the
+  forced-prep loop (`^= ez` vs `^= fz`) surfaced as UnboundLocalError;
+  (2) the initial controlled-patch approach hit CRLF/whitespace
+  string-match failures and was replaced with line-indexed patching;
+  (3) a stray Playwright `});` from an append.
+- **Phase B-C (exhaustive):** 608 faults (d=3) / 2024 (d=5). Findings:
+  prior mechanism now rejected; dangerous accepted weight 2 (NOT 1);
+  accepted frame-weight-4 = the check's own stabilizer (CORRECTED);
+  d=5 rejected rounds benign.
+- **Phase D-H (Monte Carlo):** verified Shor strictly worse in every
+  regime; rejection 56% (d=3) to 94% (d=5). No distance suppression.
+- **Integration + regression:** API 3-value Literal, runner fields,
+  QecLab option, Playwright test; full suite 842 green; tsc/vite
+  clean; circuit-level Playwright 5/5.
+- **Honest bottom line:** answered all four milestone questions with
+  measurement. Verified Shor does NOT reach weight-1, does NOT reduce
+  dangerous accepted weight, and is worse than both alternatives. The
+  falsifiable next step (two-verifier variant) is specified.

@@ -234,3 +234,27 @@ is the operator's decision, not the agent's.
   `test_baseline_and_shor_registered` (single-model premise
   superseded by the registry extension; rationale in the test
   docstring).
+
+---
+
+## 12. Session 18 addendum — Verified Shor cat-state extraction (AD-022)
+
+- **What exists now:** three extraction modes — `baseline_h_cnot_h`
+  (default), `shor_cat_state` (AD-021), `shor_cat_state_verified`
+  (AD-022). Verified adds ONE verification ancilla v via
+  CNOT(a_i->v) after the fan-out; flagged-round rejection semantics
+  (Option 1); a 6th `verification_events` return channel; MC reports
+  acceptance/rejection + unconditional vs conditional p_L.
+- **Measured result:** verified Shor does NOT achieve weight-1; the
+  AD-021 weight-2 mechanism is now rejected but dangerous accepted
+  weight stays 2, and it is strictly WORSE in every regime (AD-022
+  table); rejection rate 56% (d=3) to 94% (d=5). Not a default.
+- **Falsifiable next experiment (AD-022/SCIENTIFIC_MODELS):** a
+  two-verifier variant (Z-parity + X-parity) predicted to close the
+  even-pattern weight-2 accepted mechanisms at two extra ancillas.
+- **Baselines:** backend 842 (819 + 23 verified-Shor tests);
+  Playwright 48; tsc/vite clean.
+- **Contract note:** `simulate_circuit_level` now returns a 6-tuple
+  (…, measured_families, verification_events); measure functions
+  return 3-tuples. Callers were updated mechanically; the
+  `simulate_circuit_level_4tuple` wrapper slices [:4] and is unchanged.

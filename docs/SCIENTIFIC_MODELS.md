@@ -912,3 +912,70 @@ ancillas plus verification-gate noise and a changed Monte Carlo
 outcome space (flagged/rejected shots). That is the concrete,
 falsifiable next experiment; until it is run, "Shor helps" is
 not claimable in this repository.
+
+# Session-18 additions: verified Shor cat-state extraction (AD-022)
+
+## Circuit (per weight-k check, k even)
+
+Shor cat state (AD-021) augmented with ONE verification ancilla v:
+
+  reset k cat ancillas + v (k+1 resets, each p_reset)
+  prep noise on all k+1 (p_prep)
+  H(a_0); CNOT fan-out a_i -> a_{i+1}  (k-1 gates, p_gate)
+  -- verification (BOTH check kinds; cat is the Z-GHZ here) --
+  CNOT(a_i -> v) for i = 0..k-1           (k gates, p_gate)
+  measure v in Z                          (p_readout)
+  v = 1 -> REJECT (flagged round)
+  -- X-check: H-all; coupling CNOT(a_i -> data_i); H-all --
+  -- Z-check: coupling CNOT(data_i -> a_i) --
+  measure k cat ancillas; outcome = parity.
+
+Measured operator of the verification (no H on v) = X_v * Z^tensor k:
+fires on odd-X cat patterns and on a Z error on v. The AD-021
+reset/prep-Y-on-a_1 mechanism (odd-X, 3 legs) fires and is rejected.
+
+## Verification semantics
+
+Flagged round (Option 1): no retry, no postselection, no outcome-bit
+mutation. `simulate_circuit_level` returns a 6th element
+`verification_events` (round, kind, check_index). `simulate_circuit_level_mc`
+reports `accepted_trials`, `rejected_trials`, `acceptance_rate`,
+`rejection_rate`, `conditional_logical_error_rate` (over accepted
+trials only, a diagnostic) alongside the UNCONDITIONAL
+`logical_error_rate` (over all trials — the operational metric).
+
+## Exhaustive single-fault results (production path, forced_faults)
+
+608 faults (d=3) / 2024 (d=5). Reported separately:
+
+  Structural (frame data-error weight):
+    W_max_accepted = 4  (v-reset-X -> v-Z -> Z^tensor k -> coupling ->
+                          X^tensor support = the check's OWN stabilizer,
+                          decoder CORRECTED, benign)
+    W_max_rejected = 4   (flagged; data error retained)
+  Structural (DANGEROUS = LOGICAL decoder outcome):
+    W_max_accepted = 2 -- UNCHANGED from unverified Shor
+    W_max_rejected = 2 (d=3) / 0 (d=5)
+  Acceptance/rejection counts of LOGICAL-outcome faults:
+    d=3: 26 accepted / 14 rejected ; d=5: 20 accepted / 0 rejected.
+
+The prior AD-021 mechanism (reset-Y on a_1, X-check) is now REJECTED.
+
+## Measured comparison (2000 trials/point, rounds 4, Wilson CIs)
+
+| regime       | d=3 baseline | d=3 unverified | d=3 verified | d=5 verified |
+|--------------|:---:|:---:|:---:|:---:|
+| gate-only    | 14.30% | 21.40% | 30.25% | 54.60% |
+| combined-mid | 14.10% | 28.50% | 34.75% | 53.75% |
+| rejection rate | n/a | n/a | 56% | 94% (gate-only) |
+
+**Conclusion (measured): verified Shor does NOT achieve weight-1
+confinement, does NOT reduce the dangerous accepted weight below 2,
+and is strictly WORSE than both baseline and unverified Shor in every
+measured regime.** The single-verifier construction's rejection rate
+is so high at d=5 (94%) that flagged-round-without-retry is
+operationally self-defeating there. Distance suppression is not
+observed for any of the three modes. The falsifiable next experiment
+is a two-verifier (Z-parity + X-parity) variant, predicted to close
+the even-pattern weight-2 accepted mechanisms at the cost of two
+extra ancillas and more verification noise.

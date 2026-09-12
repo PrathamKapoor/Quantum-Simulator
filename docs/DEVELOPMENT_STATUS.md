@@ -617,3 +617,37 @@ Classification: VERIFIED = exercised in this session's automated runs.
   extension; baseline remains the untouched default). Full suite:
   819 tests, all pass (789 prior + 30 new). Frontend tsc + vite
   clean; circuit-level Playwright 4/4.
+
+## Session 18 — Verified Shor cat-state extraction: implemented, measured, worse (AD-022)
+
+Classification: VERIFIED = exercised in this session's runs.
+
+- **VERIFIED** — third extraction mode `shor_cat_state_verified`
+  (AD-022): AD-021 cat + one verification ancilla v (CNOT(a_i->v)
+  after fan-out, before H-all/coupling; measured operator
+  X_v * Z^tensor k). vreset/vprep/vcnot/vreadout are real noise
+  locations. Flagged-round rejection semantics (Option 1): no retry,
+  no postselection; the new 6th `verification_events` return channel
+  and unconditional+conditional MC accounting.
+- **VERIFIED** — ideal syndrome == algebraic oracle for every
+  single-qubit error (d=3, 5); p=0 never rejects.
+- **VERIFIED** — exhaustive single-fault enumeration (608 faults
+  d=3 / 2024 d=5, production path via forced_faults): the AD-021
+  reset/prep-Y-on-a_1 mechanism is now REJECTED; but dangerous
+  accepted weight remains 2 (unchanged), and v-reset-X adds accepted
+  frame-weight-4 stabilizer errors (decode CORRECTED). d=5 rejected
+  rounds are perfectly benign (0 rejected -> LOGICAL).
+- **VERIFIED — honest headline: verified Shor is strictly WORSE than
+  baseline and unverified Shor in every measured regime** (combined-
+  mid d=3: 14.1% < 28.5% < 34.8%; gate-only d=3 verified 30.25%).
+  Rejection rate 56% (d=3) to 94% (d=5). No distance suppression for
+  any of the three modes.
+- **VERIFIED** — integration: `extraction_model` Literal now has
+  three values (API 422 on invalid, default unchanged); runner table
+  adds acceptance/rejection/conditional fields; QecLab third
+  extraction option; Playwright verified-Shor test. Full backend
+  suite green; frontend tsc + vite clean; circuit-level Playwright
+  5/5.
+- **Regression:** contract change (simulate_circuit_level 5-tuple ->
+  6-tuple; measure functions 2-tuple -> 3-tuple) updated all call
+  sites mechanically. Full suite: 842 tests (819 + 23 new).

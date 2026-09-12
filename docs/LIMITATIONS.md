@@ -326,3 +326,36 @@ layout, process-isolated workers.
   Both are documented; neither is silently conflated.
 - Bounded scope: rounds 1..64, distances 3/5/7; no threshold or
   hardware claims; the ideal-final-round contract is unchanged.
+
+## Verified Shor cat-state extraction (AD-022)
+
+- **Does NOT achieve weight-1 confinement (measured).** Exhaustive
+  production-path single-fault enumeration finds W_max_accepted
+  (DANGEROUS = LOGICAL outcome) = 2, unchanged from unverified Shor;
+  W_max_accepted (frame weight) = 4, but those weight-4 accepted
+  errors are the check's own stabilizer (v-reset-X -> v-Z ->
+  Z^tensor-k -> H-all -> X^tensor-support) and decode CORRECTED.
+- **Verifier's own faults are real and partly harmful.** v-reset-X
+  back-propagates Z onto every cat leg (accepted, frame-weight-4
+  stabilizer); v-Z during a verification CNOT contaminates legs
+  i..k-1 with Z (partial, caught only if it flips v's measured
+  X-parity). These are exercised in the exhaustive enumeration; none
+  are silently free.
+- **Rejection semantics are flagged-round only** (no retry, no
+  postselection). Rejected rounds retain their data errors and are
+  counted unconditionally; the conditional p_L|accept is a diagnostic,
+  never the reported headline rate. At d=5 the measured rejection
+  rate is 94% (gate-only), which makes the no-retry construction
+  operationally self-defeating there.
+- **Single verifier only.** The remaining even-pattern weight-2
+  accepted mechanisms require a second verifier (X-parity) to close;
+  not implemented. The two-verifier variant is the documented
+  falsifiable next experiment.
+- **H gates ideal** (including the verification H, the cat-prep H,
+  and the X-check H layers): no H noise channel in the simulator
+  (pre-existing contract; unchanged).
+- **Worse than baseline and unverified Shor in every measured regime
+  (AD-022 table).** Not recommended as a default; the default
+  extraction remains `baseline_h_cnot_h`.
+- Bounded scope: rounds 1..64, distances 3/5/7; no threshold or
+  hardware claims; ideal-final-round contract unchanged.

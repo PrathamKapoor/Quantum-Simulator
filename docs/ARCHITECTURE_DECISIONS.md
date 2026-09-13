@@ -822,3 +822,172 @@ entry), `circuit_level.py` (single dispatch returning a 3-tuple, the
 `extraction_model` Literal (3 values, default unchanged, invalid
 422), experiment runner table fields, QecLab third extraction option,
 Playwright verified-Shor test.
+
+## AD-023 — Fitted pair-decomposed extraction: the "fitted cat" that isn't a cat (milestone 19)
+
+**Decision.** Add a FOURTH extraction mode `fitted_pair`, defined by one
+rule derived from the milestone-19 evidence chain: **cap every ancilla's
+data fan-in at 2.** A weight-k check is measured by ceil(k/2)
+INDEPENDENT ancillas, each coupled to at most two data qubits (a
+weight-<=2 sub-parity); the check outcome is the XOR of the sub-parity
+bits. There is NO GHZ cat state, NO fan-out gates, NO verification
+pass, NO rejection semantics, and NO even-k constraint. For weight-2
+checks the circuit is BIT-FOR-BIT the baseline (same gates, same
+noise-sampling order — asserted by test under the same rng stream).
+
+**Terminology note (directive §6).** The milestone directive's
+"fitted/optimized cat-state preparation" does not appear anywhere in
+the repository (the term "fitted" occurs in zero docs). The preceding
+handoff (AD-022) actually recorded a *two-verifier variant* as the next
+falsifiable experiment. That prediction is FALSIFIED here analytically
+before implementation (see below), and the direction that survives
+analysis is not a cat state at all — the cat's GHZ fan-out edges are
+themselves the source of the correlated patterns that make its hooks
+dangerous, so "fitted" means fitting the extraction to the measured
+fault mechanisms, which yields pair decomposition.
+
+**The falsification (directive §5/§13).** Exhaustive enumeration of
+the cat modes shows every DANGEROUS accepted weight-2 mechanism
+decomposes into exactly two classes:
+1. A Z fault on a cat leg back-propagates through the fan-out onto
+   exactly the leg pair {j-1, j} (each fan-out gate fires once, so the
+   Z-chain can never exceed two legs) — an EVEN Z-pattern. A Z-parity
+   verifier flags ODD-Z patterns only; a two-verifier scheme (AD-022's
+   prediction) therefore cannot see the dangerous class.
+2. Coupling-gate faults, which occur AFTER any pre-coupling
+   verification runs — structurally unverifiable.
+So the two-verifier construction would add 2 ancillas and 2k CNOTs of
+exposure while catching nothing dangerous. It was NOT built.
+
+**Circuit (per check, any weight k).** Pair p (p = 0..ceil(k/2)-1),
+members = support[2p:2p+2], ancilla a_p:
+- Z-check: reset a_p; CNOT(q -> a_p) per member; readout.
+- X-check: reset a_p; H(a_p); CNOT(a_p -> q) per member; H(a_p); readout.
+Outcome = XOR of the a_p readout bits = the full stabilizer eigenvalue
+(product of the commuting sub-parity eigenvalues). Noise conventions
+identical to the existing routines (reset X w.p. p_reset, prep
+depolarizing after that pair's H for X-checks — the baseline relative
+order, data-participant-first gate noise, per-ancilla readout flips;
+H ideal). Forced-fault stages: reset/prep/readout address the pair
+index; cnot addresses gate index 2p+j.
+
+**Measured structural results (exhaustive production-path single-fault
+enumeration, forced_faults harness; baseline is harness-N/A because the
+single-ancilla dispatch has no forced-fault hook — its fault behavior is
+the milestone-13/15 subject):**
+
+| mode | d=3 faults | acc-LOG | Wmax_acc(danger) | Wmax_acc(benign) | d=5 faults | acc-LOG |
+|------|-----------:|--------:|-----------------:|-----------------:|-----------:|--------:|
+| shor_cat_state          | 408 | 36 | 2 | 2 | 1376 | 20 |
+| shor_cat_state_verified | 608 | 26 (+14 rejected) | 2 | 4 (stabilizer) | 2024 | 20 |
+| fitted_pair             | 228 | 36 | 2 | 2 | 760  | 20 |
+
+- The fan-in cap is proven as a test: NO single fitted fault produces a
+  data error of weight > 2 (vs the baseline's up-to-k hooks).
+- fitted's accepted-LOGICAL counts coincide numerically with Shor's
+  (36/20) but the weight profiles differ: at d=5 fitted's 20 = 10x
+  weight-2 + 10x weight-1-with-corrupted-outcome (single faults that
+  corrupt one data qubit AND the same check's outcome bit, so the
+  decoder misattributes); Shor's 20 are all weight-2.
+- The fault SURFACE is strictly smaller (228 vs 408/608 at d=3; 760 vs
+  1376/2024 at d=5): no fan-out and no verification locations.
+
+**Measured logical performance (pooled seeds 11+23, 100k trials/mode
+for headline regimes, Wilson 95% CI; independent reproduction seeds
+101/202(/303) at 60k-200k trials/mode):**
+
+d=5, gate-only (p_gate=0.01):
+  baseline 52.34 [52.03,52.65] | shor 63.23 | verified 70.42 (rej 99.6%)
+  | fitted 51.53 [51.22,51.84]
+  Reproduction (200k/mode, seeds 101+202): baseline 52.16 [51.95,52.38],
+  fitted 51.51 [51.29,51.73] -> NON-OVERLAPPING in BOTH seed sets.
+  Fitted is significantly BETTER than baseline by ~0.6-0.8pp.
+
+d=5, combined-low (0.002/0.002/0.001/0.001):
+  baseline 13.36 [13.04,13.70] | fitted 12.34 [12.02,12.67]
+  Reproduction (60k/mode, seeds 101+202+303): baseline 12.98
+  [12.71,13.25], fitted 12.10 [11.84,12.37] -> NON-OVERLAPPING in both
+  seed sets. Fitted better by ~0.9-1.0pp.
+
+d=5, combined-mid (0.005/0.005/0.003/0.003):
+  baseline 29.59 [29.30,29.87] | fitted 29.20 [28.91,29.48]
+  (100k pooled) -> overlapping. High-power reproduction (200k/mode,
+  seeds 101+202): baseline 29.22 [29.02,29.42], fitted 29.31
+  [29.11,29.51] -> a WASH. The gate-noise benefit and the prep-noise
+  cost cancel exactly.
+
+d=5, prep-only (p_prep=0.01): fitted 3.01% vs baseline 0.01% —
+  fitted's KNOWN WEAKNESS. A baseline prep fault occurs before ANY
+  coupling gate, so its hook is the FULL support = the check's own
+  stabilizer (benign). A fitted prep fault on a pair ancilla hooks
+  exactly its 2 data qubits = a PARTIAL support (dangerous). Fitted
+  trades baseline's benign full-support prep hooks for weight-2
+  partial hooks; under prep-dominated noise this dominates the design.
+
+d=3 (all regimes): fitted is significantly WORSE than baseline
+  (gate-only 30.84 vs 28.41; combined-mid 18.75 vs 14.27) — at d=3
+  weight-2 errors are undetectable, so the fan-in cap buys nothing and
+  the extra reset/prep/readout on weight-4 checks is pure cost.
+
+Fitted vs the cat modes: fitted DOMINATES both at every (d, regime)
+cell with non-overlapping CIs (e.g. d=5 combined-mid: fitted 29.2% <
+shor 41.9% < verified 52.4%).
+
+**Rejection decomposition of verified Shor (directive §14).** Verified
+mode's flag rate at p=0.01, one channel at a time (d=3, 20k trials):
+gate-only 80.9%, prep-only 32.9%, reset-only 30.5%, readout-only 21.3%
+(the last matches the analytic 1-(1-p)^(checks x noisy-rounds) = the
+verifier's own readout flips). The verifier is its own worst enemy:
+most of its rejection load comes from gate faults on the cat/verifier
+CNOTs, i.e. noise that ALSO corrupts the data path in the unverified
+scheme. The verification surface adds flagging without removing the
+dangerous mechanisms.
+
+**Cost model (per round, corrected; the study script's baseline row
+erroneously copied Shor's counts — recomputed here from the circuits):**
+
+| d | mode | ancillas | CNOTs | resets/preps/readouts | H(ideal) | noisy ops |
+|---|------|---------:|------:|----------------------:|---------:|----------:|
+| 3 | baseline | 8   | 24  | 8/8/8    | 8   | 72  |
+| 3 | shor     | 24  | 40  | 24/24/24 | 48  | 152 |
+| 3 | verified | 32  | 64  | 32/32/32 | 56  | 224 |
+| 3 | fitted   | 12  | 24  | 12/12/12 | 24  | 84  |
+| 5 | baseline | 24  | 80  | 24/24/24 | 24  | 232 |
+| 5 | shor     | 80  | 136 | 80/80/80 | 160 | 512 |
+| 5 | verified | 104 | 216 | 104/104/104 | 184 | 744 |
+| 5 | fitted   | 40  | 80  | 40/40/40 | 80  | 280 |
+
+Timing (2000 trials, d=5 combined-mid): fitted 9.3 s vs baseline
+5.2 s — fitted is ~1.8x slower in the Python frame simulator (more
+ancillas per check -> more interpreter overhead) despite the same CNOT
+count; both are far below the cat modes' location counts.
+
+**Decoder compatibility (directive §17/§18).** The phenomenological
+repeated-round MWPM receives only per-round check outcomes; it cannot
+see (a) which pair produced a weight-2 hook, (b) the individual
+sub-parity bits, or (c) the cat modes' hook correlations. The d=5
+accepted-LOGICAL enumeration shows exactly what a circuit-level
+matching graph could recover: single faults producing two or more
+detection events that MWPM mismatches (20 fitted faults at d=5, same
+count as Shor's). A decoder that knew the fan-in-2 correlation
+structure would correct these. This is recorded as the recommended
+NEXT milestone (circuit-derived matching graph, post AD-019 §7.2); it
+was NOT implemented here — directive §18 prohibits scope explosion,
+and the structural result stands on its own.
+
+**Rejected alternatives.** (a) Two-verifier Shor (AD-022's recorded
+prediction) — falsified analytically, not built (see above). (b) Tree
+fan-out for the cat — same CNOT count, does not change the 2-leg Z
+correlation analysis (a Z still propagates exactly one back-edge);
+subsumed by the pair decomposition's strictly better cost. (c) Retry on
+verification rejection — perturbs the decoder's temporal model;
+deferred since milestone 18, and moot for the fitted mode (no
+verification). (d) Postselection — prohibited (AD-022).
+
+**Scope.** `circuit_extraction.py` (`_measure_check_fitted` + registry
+entry, n_cnots_per_data=1), 29 tests in `tests/test_fitted_pair.py`
+(registry, ideal-oracle, k=2 bit-for-bit baseline equivalence, fan-in
+cap, enumeration pins, AD-021 mechanism regression, MC orderings), API
+`extraction_model` Literal (4 values, default unchanged, invalid 422),
+runner notes, QecLab fourth extraction option with updated caveat,
+Playwright fitted-selector test.

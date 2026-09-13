@@ -651,3 +651,28 @@ Classification: VERIFIED = exercised in this session's runs.
 - **Regression:** contract change (simulate_circuit_level 5-tuple ->
   6-tuple; measure functions 2-tuple -> 3-tuple) updated all call
   sites mechanically. Full suite: 842 tests (819 + 23 new).
+
+### Session 19 (milestone 19) — fitted pair-decomposed extraction (AD-023)
+
+- **NEW EXTRACTION MODE `fitted_pair`** — the "fitted cat" milestone.
+  Derived engineering definition: cap every ancilla's data fan-in at 2
+  (ceil(k/2) independent ancillas per weight-k check, XOR of
+  sub-parities). NOT a cat state; no verification; no rejection.
+  AD-022's two-verifier prediction FALSIFIED analytically (dangerous
+  mechanisms are even-parity cat patterns + post-verification coupling
+  faults — uncatchable by any cat-parity verifier).
+- **MEASURED (4 modes, 7 regimes, d=3/5, 40k-100k trials per
+  (mode, regime, seed-set), independent reproduction at 60k-200k):**
+  fitted significantly BEATS baseline at d=5 gate-only (-0.65pp) and
+  combined-low (-0.9pp) in both seed sets; WASH at combined-mid;
+  WORSE than baseline at d=3; DOMINATES both cat modes everywhere.
+  First extraction mode in the repository's arc that beats baseline
+  in any regime.
+- **VERIFIED** — 29 new tests (`tests/test_fitted_pair.py`): ideal
+  oracle (d=3/5), k=2 bit-for-bit baseline equivalence, fan-in cap
+  (no single fault > weight 2), enumeration pins (36/20 accepted-
+  LOGICAL), AD-021 mechanism regression, MC orderings. API Literal 4
+  values (422 on invalid); runner notes; QecLab fourth option +
+  caveat; Playwright fitted-selector test (6 circuit-level tests).
+- **Regression:** full backend 871 tests (842 + 29). Full Playwright
+  49 (48 + 1). tsc + vite clean.

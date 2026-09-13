@@ -258,3 +258,38 @@ is the operator's decision, not the agent's.
   (…, measured_families, verification_events); measure functions
   return 3-tuples. Callers were updated mechanically; the
   `simulate_circuit_level_4tuple` wrapper slices [:4] and is unchanged.
+
+---
+
+## 13. Session 19 addendum — fitted pair-decomposed extraction (AD-023)
+
+- **What exists now:** FOUR extraction modes — `baseline_h_cnot_h`
+  (default), `shor_cat_state` (AD-021), `shor_cat_state_verified`
+  (AD-022), `fitted_pair` (AD-023). Fitted = cap every ancilla's data
+  fan-in at 2: ceil(k/2) independent ancillas per weight-k check,
+  outcome = XOR of sub-parity bits. NOT a cat state: no GHZ, no
+  fan-out, no verification, no rejection, no even-k constraint.
+  Weight-2 checks are bit-for-bit the baseline circuit (tested).
+- **AD-022's two-verifier prediction is FALSIFIED** (analytically, per
+  enumeration): the dangerous accepted weight-2 mechanisms are even
+  cat-parity patterns (invisible to any cat-parity verifier) and
+  post-verification coupling faults. Do not build the two-verifier
+  variant expecting structural gains.
+- **Measured:** fitted BEATS baseline at d=5 gate-only (-0.65pp) and
+  combined-low (-0.9pp) — reproduced across independent seed sets at
+  60k-200k trials/mode; WASH at d=5 combined-mid; WORSE than baseline
+  at d=3 everywhere (weight-2 undetectable there); DOMINATES both cat
+  modes at every cell. Known weakness: prep-dominated noise (baseline
+  prep hooks are stabilizer-equivalent; fitted's are 2-qubit partial
+  supports). No distance suppression claimed for any mode.
+- **Recommended next milestone (evidence-backed):** a circuit-derived
+  matching graph / correlation-aware decoder. The d=5 enumeration
+  shows 20 single faults per mode family that produce 2 detection
+  events the MWPM mismatches; the decoder is now the bottleneck, not
+  the extraction. See AD-023 "Decoder compatibility" and AD-019 §7.2.
+- **Contract note:** unchanged from session 18 (`simulate_circuit_level`
+  6-tuple, measure functions 3-tuple). `fitted_pair` plugs in via the
+  existing `measure_check` dispatch; `verification_events` is always
+  empty for fitted (no verification exists).
+- **Baselines:** backend 871 (842 + 29); Playwright 49 (48 + 1);
+  tsc/vite clean.

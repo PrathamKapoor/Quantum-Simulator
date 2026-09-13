@@ -359,3 +359,31 @@ layout, process-isolated workers.
   extraction remains `baseline_h_cnot_h`.
 - Bounded scope: rounds 1..64, distances 3/5/7; no threshold or
   hardware claims; ideal-final-round contract unchanged.
+
+### Fitted pair-decomposed extraction (`fitted_pair`, AD-023)
+
+- **Worse than baseline at d=3 in every regime.** At d=3, weight-2
+  errors are undetectable, so capping ancilla fan-in at 2 buys nothing
+  while the extra reset/prep/readout on weight-4 checks is pure cost.
+  The mode is distance-specific: it only matches or beats baseline at
+  d=5.
+- **Prep-noise weakness.** Under prep-dominated noise fitted is far
+  worse than baseline (3.01% vs 0.01% at p_prep=0.01, d=5): baseline
+  prep faults hook the check's FULL support (stabilizer-equivalent,
+  benign); fitted prep faults hook a 2-qubit partial support.
+- **Combined-mid is a wash.** The gate-noise benefit and the
+  prep-noise cost cancel (29.31% vs 29.22% at 200k trials/mode,
+  overlapping CIs). Fitted is NOT a uniform improvement; it is a
+  gate-noise-regime improvement.
+- **The decoder cannot exploit the fan-in-2 structure.** The
+  phenomenological MWPM receives only per-round check outcomes; the
+  20 accepted-LOGICAL single faults at d=5 are mismatches a
+  correlation-aware decoder would fix. Realizing the full structural
+  benefit requires a circuit-derived matching graph (future work).
+- **~1.8x wall-clock vs baseline** in the Python frame simulator
+  (9.3 s vs 5.2 s per 2000 d=5 trials) despite identical CNOT count —
+  interpreter overhead from 2x ancillas on weight-4 checks.
+- **Ancilla readout noise doubles on weight-4 checks** (2 readout
+  locations vs baseline's 1); the outcome bit is the XOR of two noisy
+  sub-parity bits. Measured impact is small (readout-only p_L stays
+  0.00-0.01%) but the exposure is real and counted in the cost model.

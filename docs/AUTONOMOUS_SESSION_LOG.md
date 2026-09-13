@@ -987,3 +987,44 @@ biased noise channels. Reread roadmap + handoff first.
   measurement. Verified Shor does NOT reach weight-1, does NOT reduce
   dangerous accepted weight, and is worse than both alternatives. The
   falsifiable next step (two-verifier variant) is specified.
+
+---
+
+## Session 19 (milestone 19) — fitted pair-decomposed extraction (AD-023)
+
+- **Recon.** "Fitted" occurs in zero repo docs — the term is
+  underspecified (as the directive anticipated). The recorded next
+  experiment (AD-022) was the two-verifier variant. Baseline re-verified:
+  842 backend tests, 4 commits, clean tree.
+- **Mechanism analysis first.** Exhaustive re-enumeration of the cat
+  modes (production path): every dangerous accepted weight-2 mechanism
+  is an EVEN Z-pattern on the cat legs {j-1, j} (fan-out back-propagation
+  is one-shot, so Z-chains cap at 2 legs) or a post-verification coupling
+  fault. A Z-parity verifier only flags odd patterns -> **AD-022's
+  two-verifier prediction falsified without building it.** Corollary: the
+  dangerous hook cap equals the max ancilla data fan-in.
+- **Design.** Pair decomposition: ceil(k/2) independent ancillas, each
+  coupled to <= 2 data qubits, outcome = XOR of sub-parities. Baseline
+  CNOT count; weight-2 checks bit-for-bit baseline (tested).
+- **Bugs during development.** (1) The ad-hoc `MODELS` dict opener was
+  clobbered by an edit; caught by import error, restored. (2) The test
+  for odd-weight supports injected a Z error into a Z-check (invisible
+  by construction) — fixed to inject an X error. (3) The study script's
+  cost-model baseline row copied Shor's counts — corrected by
+  recomputation from the circuits; documented in AD-023. (4) Two
+  ad-hoc study scripts crashed on Windows multiprocessing (missing
+  `__main__` guard -> spawn re-import recursion; then a stuck `tail`
+  on a dead pipe) — fixed with guards + unbuffered file logging; both
+  scripts are throwaway and removed before commit.
+- **Measurement.** Full grid: 4 modes x {d=3,5} x 7 regimes x 2 seed
+  sets (headline regimes 100k pooled trials). Reproduction:
+  gate-only d=5 at 200k/mode (seeds 101+202), combined-low at 60k
+  (seeds 101+202+303), combined-mid at 200k. Rejection decomposition
+  of verified Shor per channel. Cost model + timing.
+- **Result.** fitted_pair: better than baseline at d=5 gate-only and
+  combined-low (both seed sets, non-overlapping Wilson CIs), wash at
+  combined-mid, worse at d=3, dominates both cat modes everywhere.
+  Documented in AD-023 + SCIENTIFIC_MODELS + LIMITATIONS.
+- **Integration.** Registry, API Literal, runner notes, QecLab
+  selector + caveat, Playwright test, 29 backend tests. Full
+  regression green (871 backend / 49 Playwright).

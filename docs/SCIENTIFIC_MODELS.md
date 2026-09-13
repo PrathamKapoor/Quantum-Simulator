@@ -979,3 +979,82 @@ observed for any of the three modes. The falsifiable next experiment
 is a two-verifier (Z-parity + X-parity) variant, predicted to close
 the even-pattern weight-2 accepted mechanisms at the cost of two
 extra ancillas and more verification noise.
+
+---
+
+## Session-19 additions — fitted pair-decomposed extraction (AD-023)
+
+**Engineering definition of "fitted" (the directive's term is
+underspecified; derived, then documented before implementation).** Fit
+the extraction to the measured fault mechanisms via one rule: cap every
+ancilla's data fan-in at 2. Weight-k check -> ceil(k/2) independent
+ancillas, each measuring a weight-<=2 sub-parity; outcome = XOR of
+sub-parity bits. No GHZ, no fan-out, no verification, no even-k
+constraint. For weight-2 checks this is bit-for-bit the baseline
+circuit (asserted under the same rng stream).
+
+**Why not a cat (mechanism inventory, exhaustive production-path
+enumeration).** Every dangerous accepted weight-2 mechanism of the cat
+modes is (a) a Z fault whose fan-out back-propagation lands on the leg
+pair {j-1, j} — an even Z-pattern invisible to a Z-parity verifier
+(this FALSIFIES AD-022's two-verifier prediction) — or (b) a
+coupling-gate fault, which happens after any pre-coupling
+verification. A cat's fan-out edges are the source of the correlated
+patterns; removing them (pair decomposition) reaches fan-in-1 coupling
+per data qubit with baseline CNOT count.
+
+**Four-mode Monte Carlo (rotated surface code, rounds 4, pooled seeds
+11+23, Wilson 95% CI; p_L in %):**
+
+| regime        | d | baseline | unverified Shor | verified Shor | fitted_pair |
+|---------------|---|---------:|----------------:|--------------:|------------:|
+| zero          | 3 | 0.00     | 0.00            | 0.00          | 0.00        |
+| gate-only     | 3 | 28.41    | 41.56           | 53.41 (rej 81%) | 30.84     |
+| reset-only    | 3 | 0.01     | 1.26            | 1.13 (rej 31%) | 0.02       |
+| prep-only     | 3 | 0.00     | 8.13            | 8.22 (rej 33%) | 7.48       |
+| readout-only  | 3 | 0.00     | 0.00            | 0.00 (rej 22%) | 0.00       |
+| combined-low  | 3 | 5.71     | 10.26           | 13.78 (rej 37%) | 7.12      |
+| combined-mid  | 3 | 14.27    | 26.46           | 34.34 (rej 70%) | 18.75     |
+| zero          | 5 | 0.00     | 0.00            | 0.00          | 0.00        |
+| gate-only     | 5 | 52.34    | 63.23           | 70.42 (rej 100%) | 51.53    |
+| reset-only    | 5 | 0.01     | 0.97            | 0.93 (rej 70%) | 0.07       |
+| prep-only     | 5 | 0.01     | 5.06            | 5.19 (rej 72%) | 3.01       |
+| readout-only  | 5 | 0.00     | 0.01            | 0.01 (rej 51%) | 0.00       |
+| combined-low  | 5 | 13.36    | 17.55           | 24.22 (rej 79%) | 12.34     |
+| combined-mid  | 5 | 29.59    | 41.91           | 52.36 (rej 98%) | 29.20     |
+
+**Classified conclusions (independent seeds reproduce the headline
+cells; 60k-200k trials/mode):**
+- fitted vs baseline at d=5, gate-only: 51.53 vs 52.34 (seeds 11+23),
+  51.51 vs 52.16 (seeds 101+202, 200k/mode) — NON-OVERLAPPING in both:
+  fitted significantly better by 0.6-0.8pp.
+- fitted vs baseline at d=5, combined-low: 12.34 vs 13.36 and 12.10 vs
+  12.98 — NON-OVERLAPPING in both seed sets: better by 0.9-1.0pp.
+- fitted vs baseline at d=5, combined-mid: WASH (29.20 vs 29.59 at
+  100k; 29.31 vs 29.22 at 200k — overlapping CIs both times).
+- fitted vs baseline at d=3: significantly WORSE in every regime
+  (weight-2 undetectable at d=3; extra reset/prep/readout is pure
+  cost).
+- fitted vs prep-only baseline: 3.01% vs 0.01% — the known weakness
+  (baseline prep faults hook the FULL support = the check's own
+  stabilizer, benign; fitted prep faults hook a 2-qubit PARTIAL
+  support).
+- fitted vs both cat modes: dominates at every (d, regime) cell with
+  non-overlapping CIs.
+- Distance suppression is NOT claimed for any mode (p_L(d=5) > p_L(d=3)
+  everywhere).
+
+**Verified-Shor rejection decomposition (§14):** one channel at a time,
+p=0.01, d=3: gate-only 80.9%, prep-only 32.9%, reset-only 30.5%,
+readout-only 21.3% (= the verifier's own readout flips,
+1-(1-p)^(8 checks x 3 noisy rounds)). Most flagging is caused by gate
+noise on cat/verifier CNOTs — the same noise that corrupts the data
+path without verification.
+
+**Decoder information loss (§17/§18):** the repeated-round MWPM sees
+only per-round check outcomes. The d=5 accepted-LOGICAL enumeration
+shows 20 fitted single faults producing 2 detection events that MWPM
+mismatches (same count as unverified Shor's 20; fitted's profile is 10x
+weight-2 + 10x weight-1-with-corrupted-outcome). A circuit-derived
+matching graph that knows the fan-in-2 correlation structure is the
+evidence-backed NEXT milestone; deliberately not implemented here.

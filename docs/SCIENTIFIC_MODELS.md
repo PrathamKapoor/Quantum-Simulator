@@ -1058,3 +1058,45 @@ mismatches (same count as unverified Shor's 20; fitted's profile is 10x
 weight-2 + 10x weight-1-with-corrupted-outcome). A circuit-derived
 matching graph that knows the fan-in-2 correlation structure is the
 evidence-backed NEXT milestone; deliberately not implemented here.
+
+---
+
+## Session-20 additions — correlation-aware circuit decoder (AD-024)
+
+**Model.** Every elementary single fault of every extraction mode is
+characterized ONCE through the production forced-fault harness: its
+per-round syndrome contribution (exact; the Pauli frame is linear over
+GF(2), so contributions superpose), its net data error, and its noise
+channel. Decoding = the phenomenological control (unchanged) PLUS
+candidate explanations "signature S fired at round t": S's
+contribution is XOR-removed exactly, the residual is re-decoded by the
+same control, and the candidate competes on total log-odds cost
+(-ln(p/(1-p)) of the fault's channel + residual matching weight).
+Selection is by decoder-observable quantities only; the logical class
+of the residual is never consulted during selection (§46).
+
+**Single-fault oracle results (d=5, exhaustive, every mode):** the
+correlation decoder corrects ALL single faults (0 failures vs the
+control's 20 per mode) — including every milestone-19 phantom-
+measurement-flip mechanism. At d=3 the residual failures are
+syndrome-degenerate confusable sets (documented example: one
+detection event, five perfect explanations, two cheapest
+price-tied, data effects differing by a logical-containing operator).
+
+**Paired Monte Carlo (identical trials for both decoders; 30k
+trials/cell; Wilson 95% CI):** the correlation decoder significantly
+improves the BASELINE extraction at d=3 in all three headline regimes
+(gate-only 28.77->27.53, combined-mid 15.35->14.24, combined-low
+6.03->5.39) and at d=5 combined-low (12.02->11.18, reproduced at
+independent seeds 101+202: 11.52->10.67). fitted_pair improves in
+point estimate in every cell but is not significant at 30k trials;
+the cat modes are neutral. Mechanism: the attributed trials are the
+correlated data+outcome histories the control misprices.
+
+**Sub-parity experiment (negative):** retaining the fitted pair bits
+resolves within-check ambiguity but not the cross-check confusables
+that dominate; failure counts unchanged (12 at d=3 with and without).
+
+**Performance:** signature DB cached per (d, rounds, mode); build
+0.1-15 s; correlation decode ~2-6x control decode time (branch-and-
+bound bounds residual decodes at 8/trial).

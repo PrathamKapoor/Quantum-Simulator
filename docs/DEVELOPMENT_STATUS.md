@@ -676,3 +676,29 @@ Classification: VERIFIED = exercised in this session's runs.
   caveat; Playwright fitted-selector test (6 circuit-level tests).
 - **Regression:** full backend 871 tests (842 + 29). Full Playwright
   49 (48 + 1). tsc + vite clean.
+
+### Session 20 (milestone 20) — correlation-aware circuit decoder (AD-024)
+
+- **NEW DECODER `correlation_aware`** — the phenomenological control
+  plus likelihood-priced attribution of circuit-derived fault
+  signatures (exact contribution removal, log-odds pricing,
+  branch-and-bound). Control preserved unchanged (§48); oracle-leaking
+  AD-019 tie-break convention retired.
+- **NEW SIGNATURE DB** (`circuit_signatures.py`) — every single fault
+  of every extraction mode characterized through the production
+  forced-fault harness; noise-independent; cached. Baseline routine
+  gained forced-fault support (unified harness); fitted gained an
+  opt-in sub-parity trace.
+- **MEASURED (1.08M paired trials):** d=5 single faults oracle-perfect
+  (0/20 residual failures per mode); d=3 confusable degeneracy
+  documented; paired MC shows significant baseline gains (d=3 all
+  regimes; d=5 combined-low reproduced across seed sets), fitted
+  non-significant point gains, cat modes neutral. Sub-parity
+  experiment: negative (documented).
+- **VERIFIED** — 30 decoder tests + 7 circuit-level API tests
+  (decode/simulate/reproducibility/422) + worker e2e with the decoder
+  config through the process-isolated runner (EXACT_MATCH
+  reproduction); decoder selector + attribution display in QecLab;
+  Playwright decoder test.
+- **Regression:** full backend suite extended (871 + 30 + 4 = 905);
+  Playwright 51 (50 + 1); tsc + vite clean.

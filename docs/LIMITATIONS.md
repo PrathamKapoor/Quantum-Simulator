@@ -387,3 +387,27 @@ layout, process-isolated workers.
   locations vs baseline's 1); the outcome bit is the XOR of two noisy
   sub-parity bits. Measured impact is small (readout-only p_L stays
   0.00-0.01%) but the exposure is real and counted in the cost model.
+
+### Correlation-aware decoder (`correlation_aware`, AD-024)
+
+- **Single-signature attribution.** Trials with TWO OR MORE
+  simultaneous correlated faults are attributed at most once per
+  decode; the residual re-decoding handles independent errors, but
+  jointly-correlated multi-fault mechanisms are not enumerated
+  (combinatorial; bounded by design).
+- **Confusable-set degeneracy at d=3.** Syndromes that several
+  equally-likely single faults explain identically cannot be
+  disambiguated; the ML pick is wrong for the faults in the dearer
+  buckets. Irreducible from the observed history (documented with an
+  explicit 5-explanation example).
+- **~2-6x decode time** vs the control (bounded by branch-and-bound
+  at 8 residual decodes/trial). The signature DB is cached per
+  (d, rounds, extraction) — a cold worker pays the build once
+  (0.1-15 s).
+- **Sub-parity conditioning** (opt-in) resolves within-check pair
+  ambiguity only; it is OFF in production (measured negative).
+- **First-order signature probabilities**: a signature produced by k
+  alternative locations uses the sum of channel probabilities
+  (exact up to O(p^2)).
+- **d=7** is supported by the DB builder but was not exhaustively
+  validated (DB build and enumeration cost); documented scope limit.

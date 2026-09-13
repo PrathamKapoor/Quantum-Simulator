@@ -1028,3 +1028,46 @@ biased noise channels. Reread roadmap + handoff first.
 - **Integration.** Registry, API Literal, runner notes, QecLab
   selector + caveat, Playwright test, 29 backend tests. Full
   regression green (871 backend / 49 Playwright).
+
+---
+
+## Session 20 (milestone 20) — correlation-aware circuit decoder (AD-024)
+
+- **Recon.** AD-019's v1 hybrid consumes a BASELINE-only catalogue
+  with weight-1-hook, accept-if-removes-logical attribution — which
+  peeks at the true data error (§46) and cannot fix the milestone-19
+  mechanisms. Baseline re-verified: 871 backend tests, clean tree.
+- **Information flow (§6).** Traced what the circuit discards:
+  sub-parity bits, pair identity, and the data+outcome correlation of
+  a single fault. The forced-fault harness did not cover baseline
+  (dispatch dropped forced faults) — fixed, unifying all four modes
+  through the production path.
+- **Design.** Signature DB: contribution histories (exact, linear
+  superposition) + channel location counts (noise-independent,
+  cacheable). Decoder: control candidate + exact contribution removal
+  + residual re-decode + log-odds pricing + branch-and-bound. An
+  earlier corruption-algebra formulation was REPLACED by direct
+  contribution histories after a timing subtlety (checks run X-then-Z
+  within a round, so cross-check events appear at layer 2) made the
+  algebra fragile — the history-based removal is exact by
+  construction.
+- **Bugs found.** (1) `_run_check_measurement` dropped `forced_faults`
+  on the baseline path. (2) Signature aggregation initially collapsed
+  benign faults (cat-stabilizer / pure false rejections) into the
+  candidate space — now tracked as null locations. (3) Baseline
+  enumerated k ancillas instead of 1. (4) An API test insert landed
+  inside a helper function (dead code) — moved. (5) The
+  reproducibility test compared wall-clock time — excluded as a
+  benchmark field. (6) The v1-style logical tie-break was identified
+  as oracle leakage and removed from selection.
+- **Measurement.** Exhaustive single faults d=3/d=5 all modes
+  (oracle validation); paired MC 4 modes x 2 distances x 3 regimes x
+  3 seed sets (1.08M trials, both decoders on identical trials);
+  sub-parity A/B experiment (negative); decode-time benchmarking.
+- **Result.** Significant p_L improvement for baseline extraction
+  (d=3 all regimes, d=5 combined-low, reproduced); fitted non-
+  significant point gains; cat modes neutral; oracle-perfect single-
+  fault decoding at d=5. Documented in AD-024.
+- **Integration.** API decoder Literal + simulate/decode endpoints;
+  runner decoder config through the worker; QecLab selector;
+  Playwright test; full regression green.

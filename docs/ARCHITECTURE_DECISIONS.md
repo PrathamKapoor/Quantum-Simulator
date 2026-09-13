@@ -991,3 +991,131 @@ cap, enumeration pins, AD-021 mechanism regression, MC orderings), API
 `extraction_model` Literal (4 values, default unchanged, invalid 422),
 runner notes, QecLab fourth extraction option with updated caveat,
 Playwright fitted-selector test.
+
+## AD-024 — Correlation-aware circuit decoder: signatures priced, decoder improved, bottleneck partially cleared (milestone 20)
+
+**Decision.** Add a second decoder mode `correlation_aware` alongside
+the phenomenological control (which is preserved unchanged, §48):
+the control's correction, plus likelihood-priced attribution of
+CIRCUIT-DERIVED fault signatures. A signature is one correlated
+single-fault mechanism of the production circuit — its exact per-round
+syndrome contribution, its net data error, and its channel probability
+— enumerated through the PRODUCTION forced-fault harness for every
+extraction mode (the milestone-13 catalogue covered only the baseline
+single-ancilla circuit; the AD-019 hybrid consumed it with
+weight-1-hook-only, accept-if-removes-logical post-processing that
+could not fix the milestone-19 mechanisms).
+
+**Mathematical model.** Fault location → (contribution history
+c[1..R], data error D, channel). Contributions superpose (the Pauli
+frame is linear over GF(2)). Candidate explanation: "fault with
+signature S fired at round t" — its contribution is XOR-REMOVED from
+the observed history exactly, the residual is re-decoded by the same
+control, and the candidate's total cost is −ln(p_S/(1−p_S)) + residual
+matching weight (log-odds, the control's own convention — §17: no
+invented weights; p_S aggregates channel counts: reset p_reset, prep
+p_prep/3, gate p_gate/3, readout p_readout). Selection: minimum total
+cost, ties by residual weight — NEVER the logical class of the
+residual, which would peek at the true data error (§46; the AD-019
+hybrid's accept-if-removes-logical criterion did exactly that and is
+retired in favor of the likelihood rule). Branch-and-bound: candidates
+are priced ascending and the loop stops when price ≥ best total
+(exact, since the residual weight is non-negative). Capacity guard:
+≤ 8 residual decodes per trial (§41).
+
+**Information-flow finding (§6).** The circuit discards, per check per
+round: the individual sub-parity bits (fitted), which ancilla/pair
+produced what, and the fact that one fault caused BOTH a data error
+and an outcome corruption. The phenomenological model explains the
+latter as a pure measurement flip and leaves the data error
+uncorrected — the mechanism AD-023 measured as 20 accepted-LOGICAL
+faults per mode at d=5.
+
+**Structural validation (exhaustive single faults, production path,
+zero background noise):**
+
+| mode | d=5 faults | phen failures | corr failures | d=3 faults | phen | corr |
+|------|-----------:|---:|---:|---:|---:|---:|
+| baseline_h_cnot_h       | 648  | 20 | **0** | 200 | 16 | 2  |
+| shor_cat_state          | 1376 | 20 | **0** | 408 | 36 | 12 |
+| shor_cat_state_verified | 2024 | 20 | **0** | 608 | 40 | 16 |
+| fitted_pair             | 760  | 20 | **0** | 228 | 36 | 12 |
+
+At d=5 the decoder is ORACLE-PERFECT on single faults for every mode.
+At d=3 the residual failures are syndrome-degenerate CON FUSABLE SETS:
+e.g. one detection event at (2,X,c) is explainable by Z-faults from
+several checks with equal channel counts and data effects differing by
+a logical-containing operator (verified: 5 perfect explanations, two
+cheapest price-tied). No decoder using the observed history can split
+that tie; at d=5 the same wrong choice differs from the truth by
+weight 4, which the code corrects — hence d=5 is perfect and d=3 is
+not (§13 "never classify as decoder failure without analysis").
+
+**Sub-parity experiment (§19-§20, negative result).** The fitted pair
+bits were retained via an opt-in trace (`subparity_trace`) and used as
+a candidate-consistency signal. They DO resolve within-check pair
+ambiguity (two tied explanations flipping different pairs of the same
+check are distinguishable), but the dominant d=3 confusables are
+CROSS-check, whose pair signatures coincide: the d=3 failure count is
+12 with and without conditioning. Retaining sub-parities provides no
+net benefit for decoding under this architecture; the infrastructure
+stays as a diagnostic, off in production.
+
+**Paired Monte Carlo (30k trials/cell pooled seeds 11+23; d=5
+reproduced with seeds 101+202; identical trials for both decoders,
+§27-§29; Wilson 95% CI; p_L in %):**
+
+| cell | phen | correlation_aware | verdict |
+|------|-----:|------------------:|---------|
+| d=3 gate-only, baseline | 28.77 [28.26,29.29] | 27.53 [27.03,28.04] | significant |
+| d=3 combined-mid, baseline | 15.35 [14.95,15.76] | 14.24 [13.85,14.64] | significant |
+| d=3 combined-low, baseline | 6.03 [5.77,6.31] | 5.39 [5.14,5.65] | significant |
+| d=5 combined-low, baseline | 12.02 [11.66,12.40] | 11.18 [10.83,11.54] | significant; reproduced (11.52→10.67) |
+| d=5 gate-only, baseline | 50.08 [49.51,50.65] | 49.03 [48.47,49.60] | marginal (CIs touch) |
+| d=5 combined-mid, baseline | 26.53 [26.03,27.03] | 25.53 [25.04,26.03] | marginal |
+| d=3/d=5 fitted_pair (all cells) | — | point estimate better in every cell | NOT significant at 30k |
+| shor / verified (all cells) | — | deltas ±0.2pp | neutral (within noise) |
+
+Distance behavior: still no suppression claim (p_L(d=5) > p_L(d=3)).
+Decode cost: the correlation decoder costs ~2-6x the control's decode
+time (e.g. d=5 gate-only baseline: 292 s vs ~45 s per 30k paired
+trials) — documented trade-off, cached DB (build 0.1-15 s per
+(d, rounds, mode), noise-independent).
+
+**Scientific conclusion (§55-§57).** Did circuit-derived decoding
+unlock fitted_pair's structural advantage? PARTIALLY — and
+unexpectedly, the largest statistical gains went to the BASELINE
+extraction, whose own weight-3/4 hook misattributions the control
+handled worst; the single-fault result (0 residual failures at d=5)
+shows the decoder fully digests the circuit's correlation structure,
+but at the MC level the win is bounded by (a) the confusable-set
+degeneracy at d=3, (b) multi-fault trials where single-signature
+attribution cannot act, and (c) fitted_pair's remaining p_L being
+exposure-dominated, not decoding-dominated. The mechanism of the
+improvement (§56) is confirmed as better handling of correlated
+data+outcome events: the attributed trials are exactly the
+phantom-measurement-flip histories the milestone-19 report identified.
+The decoder-as-bottleneck hypothesis (§57): SUPPORTED for the
+correlated-event class (now fixed) and for baseline extraction
+(significant p_L gain); NOT the remaining bottleneck for fitted_pair,
+whose residual gap to baseline is exposure, not decoding.
+
+**Rejected alternatives.** (a) Full hypergraph decoder — the observed
+correlated mechanisms have ≤2-event residual shapes after exact
+contribution removal; pairwise matching on the residual suffices
+(documented, §15). (b) Standalone circuit decoder replacing the
+control — hybrid keeps the control as candidate and fallback (§47-§48).
+(c) Sub-parity conditioning as a production default — no net benefit
+(above). (d) Oracle tie-breaking (the AD-019 convention) — retired as
+§46 leakage.
+
+**Scope.** `qec/circuit_signatures.py` (signature DB, cached per
+(d, rounds, mode, subparities)); `qec/correlation_decoder.py`
+(decoder + paired/single MC); forced-fault support extended to the
+baseline routine (`_measure_one_check`, same tuple convention);
+opt-in sub-parity trace through `simulate_circuit_level`;
+`simulate_circuit_level` out-param unchanged otherwise; API
+`decoder` Literal on both circuit-level endpoints (422 on invalid);
+runner `decoder` config (validated, worker-transmitted); QecLab
+decoder selector + attribution display; 30 new decoder tests +
+4 API tests; Playwright decoder test.

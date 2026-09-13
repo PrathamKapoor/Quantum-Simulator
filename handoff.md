@@ -293,3 +293,45 @@ is the operator's decision, not the agent's.
   empty for fitted (no verification exists).
 - **Baselines:** backend 871 (842 + 29); Playwright 49 (48 + 1);
   tsc/vite clean.
+
+---
+
+## 14. Session 20 addendum — correlation-aware circuit decoder (AD-024)
+
+- **What exists now:** TWO decoder modes — `phenomenological_mwpm`
+  (the control, unchanged) and `correlation_aware` (AD-024): the
+  control plus likelihood-priced attribution of circuit-derived fault
+  signatures. Signatures come from `qec/circuit_signatures.py` (built
+  through the PRODUCTION forced-fault harness for all four extraction
+  modes; cached per (d, rounds, mode); noise-independent). The
+  decoder removes a candidate fault's contribution EXACTLY (linear
+  frame), re-decodes the residual with the control, and selects on
+  total log-odds cost — never on the residual's logical class (the
+  AD-019 oracle tie-break is retired).
+- **Measured:** d=5 single-fault decoding is oracle-perfect for every
+  extraction mode (the 20 milestone-19 mechanisms per mode are all
+  corrected). Paired MC (identical trials): significant baseline
+  gains at d=3 (all headline regimes) and d=5 combined-low
+  (reproduced, seeds 101+202); fitted_pair point-gains non-significant
+  at 30k trials; cat modes neutral. Confusable-set degeneracy at d=3
+  is documented as irreducible. Sub-parity retention experiment:
+  negative (resolves within-check ties only).
+- **Integration:** `decoder` on both circuit-level API endpoints
+  (422 on invalid), runner config through the process-isolated worker
+  (EXACT_MATCH reproduction verified), QecLab decoder selector +
+  attribution stats, Playwright test.
+- **Contract notes:** `_measure_one_check` now accepts the standard
+  forced-fault tuples (unified harness); `simulate_circuit_level`
+  takes an opt-in `subparity_trace` out-list (fitted only; diagnostic
+  off in production). No return-tuple changes.
+- **Baselines:** backend 905 (871 + 30 decoder + 4 API); Playwright
+  51; tsc/vite clean.
+- **Falsifiable next experiment:** test whether TWO-fault (pairwise)
+  signature attribution — enumerating signature PAIRS whose XORed
+  contributions match the observed history exactly, priced by the sum
+  of log-odds — converts any of the fitted_pair d=5 marginal cells
+  (gate-only, combined-mid) into reproduced-significant gains, at a
+  bounded candidate-pair budget; if not, the decoder layer is closed
+  as a solved bottleneck and the remaining fitted-vs-baseline gap
+  should be attacked at the exposure level (e.g. eliminating the
+  weight-4 check's second readout via a shared-pair schedule).

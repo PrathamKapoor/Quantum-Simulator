@@ -307,7 +307,7 @@ def _measure_check_shor_core(code, check, kind, ax, az, rng, p_gate,
                     ex, ez = 0, 0
                 for f in forced_here:
                     fx, fz = _PAULI_AX_AZ[f[5]]
-                    ex, ez = fx, fz
+                    ex, ez = ex ^ fx, ez ^ fz
                 if ex == 0 and ez == 0:
                     continue
                 if part_kind == "anc":
@@ -368,14 +368,16 @@ def _measure_check_shor_core(code, check, kind, ax, az, rng, p_gate,
                         sampled = _sample_pauli_depolarizing(rng, p_gate)
                     ex_c, ez_c = sampled if sampled else (0, 0)
                     for f in forced_here:
-                        ex_c, ez_c = _PAULI_AX_AZ[f[5]]
+                        fx, fz = _PAULI_AX_AZ[f[5]]
+                        ex_c, ez_c = ex_c ^ fx, ez_c ^ fz
                     forced_here = _take("vcnot", vi, "t")
                     sampled = None
                     if p_gate > 0:
                         sampled = _sample_pauli_depolarizing(rng, p_gate)
                     ex_t, ez_t = sampled if sampled else (0, 0)
                     for f in forced_here:
-                        ex_t, ez_t = _PAULI_AX_AZ[f[5]]
+                        fx, fz = _PAULI_AX_AZ[f[5]]
+                        ex_t, ez_t = ex_t ^ fx, ez_t ^ fz
                     if ex_c or ez_c:
                         anc_x[vi] ^= ex_c
                         anc_z[vi] ^= ez_c
@@ -563,7 +565,8 @@ def _measure_check_fitted(code, check, kind, ax, az, rng, p_gate, p_reset,
                         sampled = _sample_pauli_depolarizing(rng, p_gate)
                     ex, ez = sampled if sampled else (0, 0)
                     for f in forced_here:
-                        ex, ez = _PAULI_AX_AZ[f[5]]
+                        fx, fz = _PAULI_AX_AZ[f[5]]
+                        ex, ez = ex ^ fx, ez ^ fz
                     if ex == 0 and ez == 0:
                         continue
                     if pkind == "anc":

@@ -42,13 +42,22 @@ worker (the caller converts to a failed result).
 """
 from __future__ import annotations
 
+import itertools
 from dataclasses import dataclass, field
 
-from .circuit_signatures import SignatureDB, build_signature_db
+from .circuit_signatures import FaultSignature, SignatureDB, build_signature_db
 from .repeated_round import RepeatedRoundResult, decode_repeated
 
 _WEIGHT_PRECISION = 1_000_000.0
 _MAX_CANDIDATES = 8
+# Two-fault attribution (AD-025): pairs are generated from the K_PAIR_BASE
+# cheapest prefiltered single candidates (<= K_PAIR_BASE*(K_PAIR_BASE-1)/2
+# pairs), compete with singles in ONE price-sorted candidate space, and
+# share the same residual-decode budget (branch-and-bound + cap).
+K_PAIR_BASE = 6
+_MAX_PAIR_CANDIDATES = 3
+_MAX_SINGLE_DECODES = 8   # the milestone-20 single-fault budget (regression-pinned)
+_MAX_PAIR_DECODES = 3
 
 
 @dataclass
@@ -92,8 +101,8 @@ class CorrelationDecoderResult:
             "matching_weight": self.matching_weight,
             "total_cost": self.total_cost,
             "best_source": self.best_source,
-            "attributed_signature": (list(self.attributed_signature)
-                                     if self.attributed_signature else None),
+            "attributed_signature": _serialize_signature(
+                self.attributed_signature),
             "attributed_round": self.attributed_round,
             "n_candidates": self.n_candidates,
             "phen_weight": self.phen_weight,
@@ -105,12 +114,23 @@ def _support(mask: int) -> list[int]:
     return [q for q in range(mask.bit_length()) if (mask >> q) & 1]
 
 
+def _serialize_signature(sig) -> list | None:
+    """JSON-safe attribution marker: a single fault's location tuple, or
+    a two-fault marker as [[...], [...]]."""
+    if sig is None:
+        return None
+    if isinstance(sig, tuple) and len(sig) == 3 and sig[0] == "PAIR":
+        return [list(sig[1]), list(sig[2])]
+    return list(sig)
+
+
 def decode_correlation_aware(code, rounds: int, p_gate: float,
                              p_readout: float, p_reset: float, p_prep: float,
                              *, observed_syndromes, data_error_x: int = 0,
                              data_error_z: int = 0,
                              db: SignatureDB | None = None,
                              subparity_trace=None,
+                             two_fault: bool = False,
                              seed: int | None = None) -> CorrelationDecoderResult:
     """Decode one circuit-level history with circuit-derived correlated
     fault signatures on top of the phenomenological control.
@@ -121,7 +141,16 @@ def decode_correlation_aware(code, rounds: int, p_gate: float,
     candidate whose pair-level contribution contradicts the observed
     trace is ranked below consistent candidates — this resolves
     syndrome-degenerate explanations that the full outcomes cannot
-    distinguish (directive §19-§20)."""
+    distinguish (directive §19-§20).
+
+    `two_fault` (AD-025): additionally generate TWO-fault candidates —
+    pairs of signatures whose XORed contribution is consistent with the
+    observed history, priced by the sum of the two bucket log-odds
+    (independent faults: the joint log-likelihood-ratio adds; no channel
+    is counted twice). Pairs compete with singles in one price-sorted
+    candidate space under the same decode budget. The milestone-20
+    single-fault behaviour is the two_fault=False default and is
+    regression-pinned."""
     if db is None:
         db = build_signature_db(code, rounds, "baseline_h_cnot_h")
     phen = decode_repeated(
@@ -161,6 +190,53 @@ def decode_correlation_aware(code, rounds: int, p_gate: float,
             if price < touched(sig.events):
                 candidates.append((price, sig, rounds))
 
+        # ---- two-fault candidates (AD-025) ----
+        pair_candidates = []
+        if two_fault:
+            # The pair BASE includes data-less signatures (e.g. a pure
+            # outcome-corruption fault): useless alone — they propose no
+            # correction — but essential pair components that explain
+            # the corruption half of a two-fault history.
+            base_sigs = []
+            for sig, t in db.translated_mid():
+                if not sig.events_set.issubset(events):
+                    continue
+                price = sig.log_odds_cost(p_gate, p_readout, p_reset, p_prep)
+                if price < touched(sig.events):
+                    base_sigs.append((price, sig, t))
+            for sig in db.final:
+                if not sig.events_set.issubset(events):
+                    continue
+                price = sig.log_odds_cost(p_gate, p_readout, p_reset, p_prep)
+                if price < touched(sig.events):
+                    base_sigs.append((price, sig, rounds))
+            base = sorted(base_sigs, key=lambda c: c[0])[:K_PAIR_BASE]
+            for (p1, s1, t1), (p2, s2, t2) in itertools.combinations(base, 2):
+                # Combined contribution = XOR per round (the Pauli frame
+                # is linear; this is NOT set union — overlapping
+                # contributions cancel). Both signatures at the same
+                # injection round have equal-length contributions.
+                if t1 != t2:
+                    continue     # different injection rounds: skip (the
+                                 # common two-fault case is same-round)
+                comb = tuple(
+                    (tuple(xa ^ xb for xa, xb in zip(x1, x2)),
+                     tuple(za ^ zb for za, zb in zip(z1, z2)))
+                    for (x1, z1), (x2, z2) in zip(s1.contrib, s2.contrib))
+                comb_sig = FaultSignature(
+                    contrib=comb, data_x=s1.data_x ^ s2.data_x,
+                    data_z=s1.data_z ^ s2.data_z, flagged=False,
+                    n_reset=0, n_prep=0, n_gate=0, n_readout=0,
+                    example=("PAIR", s1.example, s2.example))
+                if not comb_sig.events_set.issubset(events):
+                    continue
+                if not (comb_sig.data_x or comb_sig.data_z):
+                    continue
+                price12 = p1 + p2
+                if price12 < touched(set(comb_sig.events)):
+                    pair_candidates.append((price12, comb_sig, t1))
+        candidates = candidates + pair_candidates
+
         # Price-ascending order enables exact branch-and-bound below:
         # a candidate whose price already reaches the best total cost
         # cannot win (the residual matching weight is non-negative), so
@@ -179,14 +255,49 @@ def decode_correlation_aware(code, rounds: int, p_gate: float,
             perfect = not _has_events(modified)
             mism = (_pair_mismatches(sig, t, obs_chunks, rounds)
                     if obs_chunks is not None else 0)
-            ranked.append((mism, not perfect, price, sig, t, modified))
-        ranked.sort(key=lambda c: (c[2], c[0], c[1]))
-        ranked = ranked[:_MAX_CANDIDATES]
+            is_pair = sig.example[0] == "PAIR"
+            ranked.append((mism, not perfect, price, is_pair, sig, t,
+                           modified))
+        # Budget reservation (AD-025 §18): singles and pairs compete in
+        # one price-sorted space, but pairs get a guaranteed small slot
+        # count so cheap singles cannot crowd them out entirely (on a
+        # two-fault history the singles cannot explain it and the pairs
+        # are the only adequate explanations). Branch-and-bound below
+        # still bounds the actual decode count by price.
+        singles = sorted((c for c in ranked if not c[3]),
+                         key=lambda c: (c[2], c[0], c[1]))[:_MAX_CANDIDATES]
+        # FALSE-ATTRIBUTION GUARD (AD-025 §19): a PERFECT single — one
+        # whose removal leaves a completely clean history — fully
+        # explains the observed data with ONE fault. Two faults is then
+        # strictly less likely a priori (P(single) > P(pair) for
+        # independent small-p channels), so pairs are admitted only when
+        # NO perfect single exists. This is decoder-observable (perfect
+        # is computed from the history alone) and eliminates the
+        # single-vs-pair tie that degenerate prices cannot resolve.
+        perfect_single = any(not c[1] for c in singles)
+        pairs = ([] if perfect_single else
+                 sorted((c for c in ranked if c[3]),
+                        key=lambda c: (c[2], c[0], c[1]))[:_MAX_PAIR_CANDIDATES])
+        ranked = sorted(singles + pairs, key=lambda c: (c[2], c[0], c[1]))
         n_candidates = len(ranked)
 
-        for _mism, _imperfect, price, sig, t, modified in ranked:
-            if price >= best_cost:
-                break            # branch-and-bound: cannot win
+        # Reserved decode budgets per class (AD-025 §18): cheap singles
+        # decode first, but pairs keep their own allowance — on a
+        # two-fault history the singles cannot explain it and the pairs
+        # are the only adequate explanations. Branch-and-bound applies
+        # within each class.
+        n_single_decodes = 0
+        n_pair_decodes = 0
+        for _mism, _imperfect, price, is_pair, sig, t, modified in ranked:
+            if is_pair:
+                if n_pair_decodes >= _MAX_PAIR_DECODES or price >= best_cost:
+                    continue
+                n_pair_decodes += 1
+            else:
+                if (n_single_decodes >= _MAX_SINGLE_DECODES
+                        or price >= best_cost):
+                    continue
+                n_single_decodes += 1
             resid = decode_repeated(
                 code, rounds, p_gate, p_readout,
                 data_error_x=data_error_x, data_error_z=data_error_z,
@@ -203,7 +314,8 @@ def decode_correlation_aware(code, rounds: int, p_gate: float,
                 best_cx, best_cz = cx, cz
                 best_weight = resid.matching_weight
                 best_cost = total
-                best_source = "signature"
+                best_source = ("signature_pair"
+                               if sig.example[0] == "PAIR" else "signature")
                 best_sig, best_round = sig.example, t
 
     rx = best_cx ^ data_error_x
@@ -320,8 +432,9 @@ def simulate_decoder_comparison_mc(d, rounds, p_gate, p_readout: float,
         raise ValueError("trials must be positive.")
     code = RotatedSurfaceCode.build(d)
     db = build_signature_db(code, rounds, extraction_model)
-    phen_fail = corr_fail = 0
+    phen_fail = corr_fail = pair_fail = 0
     n_attributed = 0
+    n_pair_attributed = 0
     n_candidates_total = 0
     import time
     decode_time = 0.0
@@ -339,16 +452,25 @@ def simulate_decoder_comparison_mc(d, rounds, p_gate, p_readout: float,
             code, rounds, p_gate, p_readout, p_reset, p_prep,
             observed_syndromes=obs, data_error_x=ex, data_error_z=ez,
             db=db, seed=trial_seed)
+        r2 = decode_correlation_aware(
+            code, rounds, p_gate, p_readout, p_reset, p_prep,
+            observed_syndromes=obs, data_error_x=ex, data_error_z=ez,
+            db=db, two_fault=True, seed=trial_seed)
         decode_time += time.perf_counter() - t0
         if not rp.success:
             phen_fail += 1
         if not rc.success:
             corr_fail += 1
+        if not r2.success:
+            pair_fail += 1
         if rc.best_source == "signature":
             n_attributed += 1
+        if r2.best_source == "signature_pair":
+            n_pair_attributed += 1
         n_candidates_total += rc.n_candidates
     plo, phi = wilson_interval(phen_fail, trials)
     clo, chi = wilson_interval(corr_fail, trials)
+    tlo, thi = wilson_interval(pair_fail, trials)
     return {
         "d": d, "rounds": rounds, "p_gate": p_gate, "p_readout": p_readout,
         "p_reset": p_reset, "p_prep": p_prep, "trials": trials,
@@ -365,6 +487,12 @@ def simulate_decoder_comparison_mc(d, rounds, p_gate, p_readout: float,
             "signature_attributions": n_attributed,
             "avg_candidates": n_candidates_total / trials,
             "decode_seconds": decode_time,
+        },
+        "correlation_aware_two_fault": {
+            "logical_failures": pair_fail,
+            "logical_error_rate": pair_fail / trials,
+            "ci95": [tlo, thi],
+            "pair_attributions": n_pair_attributed,
         },
         "note": (
             "Paired decoder comparison on identical circuit-level trials "

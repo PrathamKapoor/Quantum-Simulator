@@ -489,10 +489,19 @@ def _measure_check_shor_core(code, check, kind, ax, az, rng, p_gate,
 
 def _measure_check_fitted(code, check, kind, ax, az, rng, p_gate, p_reset,
                           p_prep, p_readout, support_order=None,
-                          forced_faults=None):
+                          forced_faults=None, subparity_out=None):
     """Fitted pair-decomposed stabilizer measurement (AD-023). Same
     3-tuple contract as the Shor routines; the verification flag is
-    always 0 (no verification pass exists)."""
+    always 0 (no verification pass exists).
+
+    `subparity_out`: optional OUT-parameter (milestone-20 diagnostic).
+    When a list is provided, this check's per-pair readout bits — the
+    sub-parity values BEFORE the XOR collapses them into the stabilizer
+    outcome — are appended as (kind, check_index, pair_bits_tuple).
+    This is the information the fitted extraction computes and the
+    current API discards; the milestone-20 sub-parity experiment
+    (directive §19-§20) measures whether retaining it helps decoding.
+    Production callers omit it."""
     from .circuit_level import _sample_pauli_depolarizing
 
     support = list(support_order) if support_order is not None \
@@ -580,13 +589,17 @@ def _measure_check_fitted(code, check, kind, ax, az, rng, p_gate, p_reset,
 
     # 3. Readout per ancilla (pair order), XOR of the sub-parity bits.
     parity = 0
+    pair_bits = []
     for i in range(n_anc):
         bit = aa_x[i]
         if p_readout > 0 and rng.random() < p_readout:
             bit ^= 1
         for f in _take("readout", i, None):
             bit ^= 1
+        pair_bits.append(bit)
         parity ^= bit
+    if subparity_out is not None:
+        subparity_out.append((kind, check.index, tuple(pair_bits)))
 
     if forced:
         raise RuntimeError(

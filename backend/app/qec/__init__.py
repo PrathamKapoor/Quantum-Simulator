@@ -84,6 +84,11 @@ from .circuit_extraction import (
     get_extraction_model,
     list_extraction_models,
 )
+from .correlation_decoder import (
+    decode_correlation_aware,
+    simulate_decoder_comparison_mc,
+    simulate_correlation_mc,
+)
 from .circuit_aware_decoder import (
     decode_circuit_aware,
     simulate_circuit_aware_mc,
@@ -121,4 +126,6 @@ __all__ = [
     "MODELS", "get_extraction_model", "list_extraction_models",
     "decode_circuit_aware", "simulate_circuit_aware_mc",
     "build_decoder_graph", "CircuitAwareDecoderResult",
+    "decode_correlation_aware", "simulate_decoder_comparison_mc",
+    "simulate_correlation_mc",
 ]

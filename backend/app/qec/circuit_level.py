@@ -66,9 +66,12 @@ def _sample_pauli_depolarizing(rng, p: float) -> tuple[int, int]:
     return 0, 1              # Z
 
 
+_PAULI_AX_AZ = {"X": (1, 0), "Y": (1, 1), "Z": (0, 1)}
+
+
 def _measure_one_check(code, check, kind, ax, az, rng, p_gate, p_reset,
                        p_prep, p_readout, support_order=None,
-                       cnot_specs=None):
+                       cnot_specs=None, forced_faults=None):
     """Run one stabilizer's noisy measurement circuit on the shared data frame.
 
     Mutates ax/az in place (data-frame propagation for hook errors); returns
@@ -84,32 +87,76 @@ def _measure_one_check(code, check, kind, ax, az, rng, p_gate, p_reset,
     For DOUBLED_CNOT extraction each data qubit is touched by TWO
     consecutive CNOTs; the second CNOT undoes a single-qubit hook
     from an ancilla fault in the first.
+
+    `forced_faults`: TEST/VALIDATION harness (production passes None).
+    Same tuple convention as the multi-ancilla extraction cores in
+    qec.circuit_extraction: (kind, check_index, stage, index,
+    participant, pauli) with stages "reset"/"prep"/"readout"
+    (index 0 — the single ancilla) and "cnot" (index = position in
+    cnot_specs; participant "c"/"t" = control/target of that CNOT,
+    so for "data->anc" the control is the data qubit and for
+    "anc->data" it is the ancilla). Faults targeting other checks
+    pass through untouched. Unconsumed faults raise (a location was
+    never reached — the harness must not silently drop injections).
     """
     if cnot_specs is None:
         if support_order is None:
             support_order = check.support
         cnot_specs = [("data->anc", q, 0) for q in support_order] if kind == "Z" \
             else [("anc->data", 0, q) for q in support_order]
+    my_faults = [f for f in (forced_faults or [])
+                 if f[0] == kind and f[1] == check.index]
+    forced: dict[tuple, list] = {}
+    for f in my_faults:
+        forced.setdefault((f[2], f[3], f[4]), []).append(f)
+
+    def _take(stage, idx, participant):
+        entries = forced.pop((stage, idx, participant), None)
+        return entries or []
+
     aa_x, aa_z = 0, 0
     hooked = False
     if p_reset > 0 and rng.random() < p_reset:
         aa_x = 1
+    for f in _take("reset", 0, None):
+        fx, fz = _PAULI_AX_AZ[f[5]]
+        aa_x ^= fx
+        aa_z ^= fz
     if kind == "X":
         aa_x, aa_z = aa_z, aa_x            # H -> |+>
     if p_prep > 0:
         ex, ez = _sample_pauli_depolarizing(rng, p_prep)
         aa_x ^= ex
         aa_z ^= ez
-    for (spec_kind, c, t) in cnot_specs:
-        if p_gate > 0:
-            for is_anc in (False, True):
-                ex, ez = _sample_pauli_depolarizing(rng, p_gate)
+    for f in _take("prep", 0, None):
+        fx, fz = _PAULI_AX_AZ[f[5]]
+        aa_x ^= fx
+        aa_z ^= fz
+    for g_idx, (spec_kind, c, t) in enumerate(cnot_specs):
+        if p_gate > 0 or forced:
+            # Baseline sampling order: the DATA participant first, then
+            # the ancilla (historical convention, preserved bit-for-bit).
+            # Participant naming follows CNOT control/target: for
+            # "data->anc" the data qubit is the control ("c"); for
+            # "anc->data" it is the target ("t").
+            if spec_kind == "data->anc":
+                participants = [(False, c, "c"), (True, None, "t")]
+            else:
+                participants = [(False, t, "t"), (True, None, "c")]
+            for is_anc, q_idx, part in participants:
+                forced_here = _take("cnot", g_idx, part)
+                ex, ez = _sample_pauli_depolarizing(rng, p_gate) \
+                    if p_gate > 0 else (0, 0)
+                for f in forced_here:
+                    ex, ez = _PAULI_AX_AZ[f[5]]
+                if ex == 0 and ez == 0:
+                    continue
                 if is_anc:
                     aa_x ^= ex
                     aa_z ^= ez
                 else:
-                    ax[c] ^= ex
-                    az[c] ^= ez
+                    ax[q_idx] ^= ex
+                    az[q_idx] ^= ez
         if spec_kind == "data->anc":
             # CNOT(data_q=c, ancilla=t): az_c ^= az_t ; ax_t ^= ax_c
             if aa_z:
@@ -127,18 +174,30 @@ def _measure_one_check(code, check, kind, ax, az, rng, p_gate, p_reset,
     outcome = aa_x
     if p_readout > 0 and rng.random() < p_readout:
         outcome ^= 1
+    for f in _take("readout", 0, None):
+        outcome ^= 1
+    if forced:
+        raise RuntimeError(
+            f"Unconsumed forced faults (locations never reached): "
+            f"{sorted(forced.keys())}")
     return outcome, hooked
 
 
 def _run_check_measurement(code, check, kind, ax, az, rng, p_gate, p_reset,
                            p_prep, p_readout, support_order=None,
                            cnot_specs=None, extraction_model=None,
-                           forced_faults=None):
+                           forced_faults=None, subparity_out=None):
     """Single dispatch point for stabilizer measurement: multi-ancilla
     extraction models (e.g. Shor cat-state) provide their own
     `measure_check` routine with the same contract as the baseline
     `_measure_one_check`; single-ancilla models fall through to it."""
     if extraction_model is not None and extraction_model.measure_check is not None:
+        from .circuit_extraction import EXTRACTION_FITTED
+        if extraction_model.name == EXTRACTION_FITTED and subparity_out is not None:
+            return extraction_model.measure_check(
+                code, check, kind, ax, az, rng, p_gate, p_reset, p_prep,
+                p_readout, support_order=support_order,
+                forced_faults=forced_faults, subparity_out=subparity_out)
         return extraction_model.measure_check(
             code, check, kind, ax, az, rng, p_gate, p_reset, p_prep,
             p_readout, support_order=support_order,
@@ -147,7 +206,8 @@ def _run_check_measurement(code, check, kind, ax, az, rng, p_gate, p_reset,
         code, check, kind, ax, az, rng, p_gate,
         p_reset, p_prep, p_readout,
         support_order=support_order,
-        cnot_specs=cnot_specs)
+        cnot_specs=cnot_specs,
+        forced_faults=forced_faults)
     return outcome, hooked, 0   # no verification performed
 
 
@@ -192,7 +252,8 @@ def extract_syndrome_noiseless(code, ex, ez, schedules=None,
 
 def simulate_circuit_level(code, rounds, p_gate, p_readout, p_reset, p_prep,
                            *, seed, schedules=None, extraction_model=None,
-                           interleave: str = "none", forced_faults=None):
+                           interleave: str = "none", forced_faults=None,
+                           subparity_trace=None):
     """Run R rounds of noisy stabilizer-measurement circuits.
 
     `schedules` is an optional {(kind, index): order_tuple} override
@@ -304,7 +365,9 @@ def simulate_circuit_level(code, rounds, p_gate, p_readout, p_reset, p_prep,
                     code, check, kind, ax, az, rng, p_gate, r_reset, r_prep,
                     r_readout, support_order=order,
                     cnot_specs=cnot_specs, extraction_model=em,
-                    forced_faults=(forced_faults if _round == 1 else None))
+                    forced_faults=(forced_faults if _round == 1 else None),
+                    subparity_out=(subparity_trace if subparity_trace
+                                   is not None else None))
                 (x_out if kind == "X" else z_out)[check.index] = outcome
                 if hooked:
                     hook_events.append((_round, kind, check.index))

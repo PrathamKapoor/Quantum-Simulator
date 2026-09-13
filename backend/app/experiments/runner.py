@@ -1336,6 +1336,16 @@ def run_process_probe(config: dict, seed: int) -> dict:
                                 summary=result)
 
 
+
+
+def _book(name: str):
+    """Resolve a book experiment runner lazily (milestone 22 registry)."""
+    def _run(config: dict, seed: int) -> dict:
+        from . import book_runner
+        return getattr(book_runner, name)(config, seed)
+    return _run
+
+
 RUNNER_REGISTRY = {
     "circuit_shots": run_circuit_shots,
     "qec_sweep": run_qec_sweep,
@@ -1354,6 +1364,22 @@ RUNNER_REGISTRY = {
     "surface_code_circuit_aware": run_surface_code_circuit_aware,
     "surface_code_temporal_interleaved": run_surface_code_temporal_interleaved,
     "process_probe": run_process_probe,
+    "book_entropy_scan": _book("book_entropy_scan"),
+    "book_qubit_state": _book("book_qubit_state"),
+    "book_operator_report": _book("book_operator_report"),
+    "book_tensor_identity": _book("book_tensor_identity"),
+    "book_density_report": _book("book_density_report"),
+    "book_povm": _book("book_povm"),
+    "book_entanglement_report": _book("book_entanglement_report"),
+    "book_gate_decomposition": _book("book_gate_decomposition"),
+    "book_grover_scan": _book("book_grover_scan"),
+    "book_teleportation": _book("book_teleportation"),
+    "book_superdense": _book("book_superdense"),
+    "book_b92_scan": _book("book_b92_scan"),
+    "book_channel_scan": _book("book_channel_scan"),
+    "book_qi_metrics": _book("book_qi_metrics"),
+    "book_adiabatic": _book("book_adiabatic"),
+    "book_cluster_state": _book("book_cluster_state"),
 }
 
 

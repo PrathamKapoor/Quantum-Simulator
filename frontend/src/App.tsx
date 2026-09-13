@@ -12,6 +12,7 @@ import Experiments from "./pages/Experiments";
 import InfoTheoryLab from "./pages/InfoTheoryLab";
 import HardwareLab from "./pages/HardwareLab";
 import DocsPage from "./pages/DocsPage";
+import BookLab from "./pages/BookLab";
 
 const PAGES: Record<string, { label: string; component: React.ComponentType }> = {
   dashboard: { label: "Dashboard", component: Dashboard },
@@ -25,6 +26,7 @@ const PAGES: Record<string, { label: string; component: React.ComponentType }> =
   hardware: { label: "Hardware Lab", component: HardwareLab },
   experiments: { label: "Experiments", component: Experiments },
   docs: { label: "Documentation", component: DocsPage },
+  book: { label: "Book Lab", component: BookLab },
 };
 
 function Shell() {

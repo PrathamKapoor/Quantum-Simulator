@@ -7,7 +7,7 @@ test("application boots in a real browser", async ({ page }) => {
   const monitor = ErrorMonitor.attach(page);
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "QuantumLab" })).toBeVisible();
-  await expect(page.locator(".sidebar nav a")).toHaveCount(11);
+  await expect(page.locator(".sidebar nav a")).toHaveCount(12);
   monitor.assertClean();
 });
 
@@ -64,7 +64,7 @@ test("refresh preserves the application", async ({ page }) => {
   await expect(page.locator("h1.page-title")).toContainText("Experiments");
   await page.reload();
   await expect(page.locator("h1.page-title")).toContainText("Experiments");
-  await expect(page.locator(".sidebar nav a")).toHaveCount(11);
+  await expect(page.locator(".sidebar nav a")).toHaveCount(12);
   monitor.assertClean();
 });
 
@@ -72,7 +72,7 @@ test("refresh preserves the application", async ({ page }) => {
 test("navigation links have accessible names and keyboard focus", async ({ page }) => {
   await page.goto("/");
   const links = page.locator(".sidebar nav a");
-  await expect(links).toHaveCount(11);
+  await expect(links).toHaveCount(12);
   for (const label of ["Dashboard", "Experiments", "Documentation"]) {
     await expect(page.getByRole("link", { name: label, exact: true })).toBeVisible();
   }

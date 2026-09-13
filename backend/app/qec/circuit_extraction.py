@@ -42,8 +42,9 @@ from dataclasses import dataclass
 EXTRACTION_BASELINE = "baseline_h_cnot_h"
 EXTRACTION_SHOR = "shor_cat_state"
 EXTRACTION_SHOR_VERIFIED = "shor_cat_state_verified"
+EXTRACTION_FITTED = "fitted_pair"
 SUPPORTED_EXTRACTIONS = (EXTRACTION_BASELINE, EXTRACTION_SHOR,
-                         EXTRACTION_SHOR_VERIFIED)
+                         EXTRACTION_SHOR_VERIFIED, EXTRACTION_FITTED)
 
 
 @dataclass(frozen=True)
@@ -419,6 +420,181 @@ def _measure_check_shor_core(code, check, kind, ax, az, rng, p_gate,
     return parity, hooked, vflag
 
 
+# ---------------------------------------------------------------------------
+# Fitted pair-decomposed extraction (AD-023, milestone 19).
+#
+# Engineering definition (derived, not assumed — see the block evidence
+# below): an extraction FITTED to the code's check-weight structure and to
+# the measured single-fault mechanisms, defined by ONE rule:
+#
+#     cap every ancilla's data fan-in at 2.
+#
+# A weight-k check is measured as ceil(k/2) independent ancillas, each
+# coupled to at most TWO data qubits (a weight-<=2 sub-parity); the check
+# outcome is the XOR of the sub-parity bits. For k=2 this is BIT-FOR-BIT
+# the baseline circuit (same gates, same noise-sampling order -- asserted
+# by test). For k=4 it is 2 ancillas x (2 CNOTs) -- the SAME CNOT count as
+# baseline (k) versus the cat's 2k-1, with 2 ancillas versus the cat's k
+# (or k+1 verified).
+#
+# Why this and not a cat variant (the milestone's evidence chain):
+#   1. Exhaustive enumeration (d=3, d=5, production path) shows every
+#      DANGEROUS accepted weight-2 mechanism of the cat modes decomposes
+#      into (a) a Z fault on a cat leg that back-propagates through the
+#      fan-out onto exactly the leg pair {j-1, j} -- an EVEN Z-pattern,
+#      invisible to any cat-parity verifier (a Z-parity verifier only
+#      flags odd-Z patterns), and (b) coupling-gate faults, which occur
+#      AFTER any pre-coupling verification. This FALSIFIES AD-022's
+#      prediction that a second (Z-parity) verifier would close the
+#      remaining accepted weight-2 mechanisms.
+#   2. The dangerous hook cap equals the maximum ancilla data fan-in.
+#      The cat achieves fan-in 1 per ancilla but pays k-1 fan-out CNOTs
+#      to correlate the ancillas -- and those correlated fan-out edges
+#      are themselves what produces the 2-leg correlated Z-patterns.
+#      Capping fan-in at 2 directly (pair decomposition) reaches the
+#      same coupling structure with NO entanglement between ancillas,
+#      NO fan-out gates, and NO even-k constraint.
+#   3. The verified cat's operational failure is its rejection load
+#      (56%-94% of rounds flagged, AD-022). The pair decomposition has
+#      NO verification pass and therefore NO rejection semantics at all.
+#
+# Circuit (per check, k = support weight, ANY k >= 1):
+#   Ancilla a_p (p = 0..ceil(k/2)-1) measures sub-parity of
+#   support[2p:2p+2]:
+#   Z-check:  reset a_p ; CNOT(q_{2p} -> a_p) ; CNOT(q_{2p+1} -> a_p)
+#             (a singleton last pair has one CNOT) ; readout.
+#   X-check:  reset a_p ; H(a_p) ; CNOT(a_p -> q) for each member ;
+#             H(a_p) ; readout.
+#   outcome = XOR of the a_p readout bits = the full stabilizer eigenvalue.
+#
+# Noise (same channels and conventions as the Shor core; H ideal):
+#   reset  : X fault per ancilla w.p. p_reset (all pairs first, pair
+#            order).
+#   prep   : depolarizing per ancilla w.p. p_prep AFTER that pair's
+#            first H (X-check) -- exactly the baseline's reset/H/prep
+#            relative order, so the k=2 case degenerates bit-for-bit to
+#            the baseline routine under the same rng stream.
+#   gate   : depolarizing on each CNOT participant w.p. p_gate, DATA
+#            participant sampled first, then the ancilla (the
+#            _measure_one_check order; keeps the k=2 equivalence
+#            exact), in circuit order (pair-major).
+#   readout: independent flip per ancilla w.p. p_readout, pair order,
+#            before the XOR.
+#
+# Forced-fault tuple format (same convention as the Shor core):
+#   ("X"|"Z", ci, "reset"|"prep"|"readout", pair_index, None, pauli|None)
+#   ("X"|"Z", ci, "cnot", gate_idx, "c"|"t", "X"|"Y"|"Z")
+# with gate_idx = 2*p + j (pair p, j-th CNOT of the pair), 0..k-1.
+# ---------------------------------------------------------------------------
+
+def _measure_check_fitted(code, check, kind, ax, az, rng, p_gate, p_reset,
+                          p_prep, p_readout, support_order=None,
+                          forced_faults=None):
+    """Fitted pair-decomposed stabilizer measurement (AD-023). Same
+    3-tuple contract as the Shor routines; the verification flag is
+    always 0 (no verification pass exists)."""
+    from .circuit_level import _sample_pauli_depolarizing
+
+    support = list(support_order) if support_order is not None \
+        else list(check.support)
+    k = len(support)
+    if k == 0:
+        return 0, False, 0
+    n_anc = (k + 1) // 2
+
+    my_faults = [f for f in (forced_faults or [])
+                 if f[0] == kind and f[1] == check.index]
+    forced: dict[tuple, list] = {}
+    for f in my_faults:
+        forced.setdefault((f[2], f[3], f[4]), []).append(f)
+
+    def _take(stage, idx, participant):
+        entries = forced.pop((stage, idx, participant), None)
+        return entries or []
+
+    aa_x = [0] * n_anc
+    aa_z = [0] * n_anc
+    hooked = False
+
+    # 1. Reset noise per ancilla (pair order; BEFORE any H -- the
+    #    baseline's reset-then-H relative order).
+    for i in range(n_anc):
+        if p_reset > 0 and rng.random() < p_reset:
+            aa_x[i] = 1
+        for f in _take("reset", i, None):
+            fx, fz = _PAULI_AX_AZ[f[5]]
+            aa_x[i] ^= fx
+            aa_z[i] ^= fz
+
+    # 2. Per pair: H (X-check), prep noise, coupling CNOTs, H.
+    for p in range(n_anc):
+        members = support[2 * p:2 * p + 2]
+        if kind == "X":
+            aa_x[p], aa_z[p] = aa_z[p], aa_x[p]   # H -> |+>
+        if p_prep > 0:
+            ex, ez = _sample_pauli_depolarizing(rng, p_prep)
+            aa_x[p] ^= ex
+            aa_z[p] ^= ez
+        for f in _take("prep", p, None):
+            fx, fz = _PAULI_AX_AZ[f[5]]
+            aa_x[p] ^= fx
+            aa_z[p] ^= fz
+        for j, q in enumerate(members):
+            g_idx = 2 * p + j
+            if p_gate > 0 or forced:
+                # DATA participant sampled first, then the ancilla
+                # (the _measure_one_check sampling order; keeps the
+                # k=2 bit-for-bit baseline equivalence exact).
+                participants = [("data", q), ("anc", p)]
+                for pi, (pkind, pidx) in enumerate(participants):
+                    forced_here = _take(
+                        "cnot", g_idx, "c" if pi == 0 else "t")
+                    sampled = None
+                    if p_gate > 0:
+                        sampled = _sample_pauli_depolarizing(rng, p_gate)
+                    ex, ez = sampled if sampled else (0, 0)
+                    for f in forced_here:
+                        ex, ez = _PAULI_AX_AZ[f[5]]
+                    if ex == 0 and ez == 0:
+                        continue
+                    if pkind == "anc":
+                        aa_x[pidx] ^= ex
+                        aa_z[pidx] ^= ez
+                    else:
+                        ax[pidx] ^= ex
+                        az[pidx] ^= ez
+            if kind == "Z":
+                # CNOT(data_q -> a_p): az[q] ^= aa_z[p]; aa_x[p] ^= ax[q]
+                if aa_z[p]:
+                    hooked = True
+                az[q] ^= aa_z[p]
+                aa_x[p] ^= ax[q]
+            else:
+                # CNOT(a_p -> data_q): aa_z[p] ^= az[q]; ax[q] ^= aa_x[p]
+                if aa_x[p]:
+                    hooked = True
+                aa_z[p] ^= az[q]
+                ax[q] ^= aa_x[p]
+        if kind == "X":
+            aa_x[p], aa_z[p] = aa_z[p], aa_x[p]   # H back to Z basis
+
+    # 3. Readout per ancilla (pair order), XOR of the sub-parity bits.
+    parity = 0
+    for i in range(n_anc):
+        bit = aa_x[i]
+        if p_readout > 0 and rng.random() < p_readout:
+            bit ^= 1
+        for f in _take("readout", i, None):
+            bit ^= 1
+        parity ^= bit
+
+    if forced:
+        raise RuntimeError(
+            f"Unconsumed forced faults (locations never reached): "
+            f"{sorted(forced.keys())}")
+    return parity, hooked, 0
+
+
 MODELS: dict[str, ExtractionModel] = {
     EXTRACTION_BASELINE: ExtractionModel(
         name=EXTRACTION_BASELINE,
@@ -494,6 +670,38 @@ MODELS: dict[str, ExtractionModel] = {
         build_x_cnot_specs=_baseline_x_cnot_specs,  # unused for Shor
         measure_check=_measure_check_shor_verified,
     ),
+    EXTRACTION_FITTED: ExtractionModel(
+        name=EXTRACTION_FITTED,
+        description=(
+            "Fitted pair-decomposed extraction (AD-023): a weight-k "
+            "check is measured by ceil(k/2) INDEPENDENT ancillas, "
+            "each coupled to at most TWO data qubits (a weight-<=2 "
+            "sub-parity); the outcome is the XOR of the sub-parity "
+            "bits. This is NOT a cat state: no GHZ, no fan-out gates, "
+            "no verification pass, no rejection semantics, no even-k "
+            "constraint. Design rule derived from the milestone-19 "
+            "evidence chain: (1) the dangerous hook cap equals the "
+            "maximum ancilla data fan-in, so capping fan-in at 2 "
+            "caps hooks at 2 -- the same confinement the cat modes "
+            "reach; (2) every dangerous accepted weight-2 mechanism "
+            "of the cat modes is either an EVEN correlated pattern "
+            "on the cat (invisible to any cat-parity verifier -- "
+            "this falsifies AD-022's two-verifier prediction) or a "
+            "coupling-time fault (after any pre-coupling "
+            "verification); (3) the verified cat's operational "
+            "failure is its 56%-94% rejection load, which this mode "
+            "does not have. For weight-2 checks the circuit is "
+            "BIT-FOR-BIT the baseline (asserted by test under the "
+            "same rng stream); only weight-4 checks differ, and "
+            "there the cost is 1 extra reset/prep/readout versus "
+            "baseline at the SAME CNOT count (k), in exchange for "
+            "hook cap 2 instead of 4."
+        ),
+        n_cnots_per_data=1,   # k CNOTs for k data qubits (as baseline)
+        build_z_cnot_specs=_baseline_z_cnot_specs,  # unused for fitted
+        build_x_cnot_specs=_baseline_x_cnot_specs,  # unused for fitted
+        measure_check=_measure_check_fitted,
+    ),
 }
 
 
@@ -513,7 +721,7 @@ def list_extraction_models() -> list[dict]:
 
 
 __all__ = [
-    "EXTRACTION_BASELINE", "SUPPORTED_EXTRACTIONS",
+    "EXTRACTION_BASELINE", "EXTRACTION_FITTED", "SUPPORTED_EXTRACTIONS",
     "ExtractionModel", "MODELS",
     "get_extraction_model", "list_extraction_models",
 ]

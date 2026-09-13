@@ -77,6 +77,7 @@ from .circuit_graph_decoder import (
 from .circuit_extraction import (
     EXTRACTION_BASELINE,
     EXTRACTION_SHOR,
+    EXTRACTION_FITTED,
     SUPPORTED_EXTRACTIONS,
     ExtractionModel,
     MODELS,
@@ -115,7 +116,8 @@ __all__ = [
     "CircuitDecoderResult",
     "build_circuit_graph", "decode_circuit_derived",
     "simulate_circuit_derived_mc",
-    "EXTRACTION_BASELINE", "EXTRACTION_SHOR", "SUPPORTED_EXTRACTIONS", "ExtractionModel",
+    "EXTRACTION_BASELINE", "EXTRACTION_SHOR", "EXTRACTION_FITTED",
+    "SUPPORTED_EXTRACTIONS", "ExtractionModel",
     "MODELS", "get_extraction_model", "list_extraction_models",
     "decode_circuit_aware", "simulate_circuit_aware_mc",
     "build_decoder_graph", "CircuitAwareDecoderResult",

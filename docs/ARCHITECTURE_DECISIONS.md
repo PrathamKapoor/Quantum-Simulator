@@ -1119,3 +1119,123 @@ opt-in sub-parity trace through `simulate_circuit_level`;
 runner `decoder` config (validated, worker-transmitted); QecLab
 decoder selector + attribution display; 30 new decoder tests +
 4 API tests; Playwright decoder test.
+
+## AD-025 — Two-fault attribution: hypothesis supported structurally, falsified operationally; exposure reduction rejected analytically (milestone 21)
+
+**Decision.** Test the milestone-20 handoff's falsifiable experiment —
+can TWO-fault signature attribution convert fitted_pair's marginal
+cells into reproduced-significant gains? — and act on the outcome per
+the directive's decision tree. **Outcome B occurred: decoder
+complexity stops here.** The two-fault machinery is retained as
+research instrumentation (`decode_correlation_aware(..., two_fault=
+True)`, off by default), NOT exposed as a production decoder mode.
+
+**Phase 1 — diagnostic (d=3, exhaustive distinct-location pairs via
+the production forced-fault harness; true-pair cost = the two bucket
+log-odds with a clean residual):**
+
+| mode | pairs | already OK | class C (two-fault would fix) | class D (degenerate) |
+|------|------:|---:|---:|---:|
+| baseline_h_cnot_h       | 19,900  | 15,993 | 3,691 | 10 |
+| shor_cat_state          | 83,028  | 62,286 | 18,744 | 180 |
+| shor_cat_state_verified | 184,528 | 146,458 | 31,992 | 352 |
+| fitted_pair             | 25,878  | 17,769 | 7,721 | 54 |
+
+The two-fault hypothesis is STRONGLY SUPPORTED structurally: 99%+ of
+the correlation decoder's two-fault-history failures are fixable in
+principle (class C ≫ class D).
+
+**Phase 2 — implementation.** Pair candidates (S1, S2) from the
+K_PAIR_BASE=6 cheapest prefiltered signatures — the base INCLUDES
+data-less signatures (pure outcome-corruption faults), which are
+useless as singles but essential pair components. Combined
+contribution = per-round XOR (linear GF(2); NOT set union — overlap
+cancels); combined data effect = XOR; price = the sum of the two
+bucket log-odds (independent faults: the joint log-likelihood-ratio
+adds; no channel counted twice). Exact removal + residual re-decode as
+in AD-024. Budgets: 5-6 base singles → ≤15 pairs; ranked with reserved
+slots (8 singles + 3 pairs) and reserved decodes (8 single + 3 pair),
+branch-and-bound within each class.
+
+**False-attribution guard (§19, required by measurement).** A naive
+unified space REGRESSED every mode at degenerate (zero-noise) pricing
+(baseline 3701→3915 failures): a wrong PAIR displaced a correct
+SINGLE. Guard: pairs are admitted only when NO PERFECT SINGLE exists
+(a single whose removal leaves a completely clean history — decoder-
+observable; P(single) > P(pair) a priori for independent small-p
+channels). With the guard, enabling pairs never flips a correct
+single-fault decode (test-pinned over the exhaustive d=3 corpus).
+
+**Phase 3 — paired 3-way Monte Carlo (identical trials; 30k trials per
+cell pooled seeds 11+23; every d=5 cell reproduced with seeds 101+202;
+2.16M paired trials total):**
+
+The relevant comparison is corr-1+2f vs corr-1f (the M20 decoder —
+the thing the two-fault machinery would replace):
+
+| cell | corr1 | corr2 | verdict |
+|------|------:|------:|---------|
+| d=5 gate-only, baseline | 49.03 [48.47,49.60] | 48.37 [47.80,48.93] | NOT significant (CIs overlap); reproduced overlap |
+| d=5 gate-only, fitted   | 50.39 [49.83,50.96] | 49.76 [49.19,50.32] | NOT significant; reproduced overlap |
+| d=5 combined-low/mid (all modes) | ≈ corr2 | deltas ≤ 0.02pp | no effect |
+| d=3 gate-only (all modes) | — | corr2 WORSE by 0.1-0.5pp (point) | slight harm |
+| d=3 combined (all modes) | ≈ corr2 | — | no effect |
+
+(Versus the phenomenological control corr2 IS significant at d=5
+gate-only — but that significance already belongs to the M20 decoder;
+the two-fault layer adds nothing statistically detectable.)
+
+**Verdict (§27 decision tree): OUTCOME B.** The structural support
+(99% fixable pairs) did NOT translate into operational gains because
+two-fault histories with BOTH faults visible as distinct
+non-cancelling signatures are rare at operational noise: the
+pair-attribution rate is 0.008-0.40 per trial, and when pairs fire
+they mostly re-derive what the single-fault layer already recovered.
+Stopping decoder complexity here; no three-fault escalation (§42).
+
+**Exposure-reduction pivot (§28-§29): REJECTED ANALYTICALLY.** The
+shared-pair schedule for weight-4 checks — two pair ancillas A/B, then
+CNOT(A→B) so ONE readout yields A⊕B — preserves fan-in ≤2 (A hooks
+only its pair, B only its pair; a post-coupling Z on A lands on B
+after B's coupling and hooks nothing) and preserves the stabilizer
+algebra, BUT it trades one readout location for one CNOT location:
+noisy locations per weight-4 check go 14 → 15 (4→5 CNOTs ×2
+participants, readouts 2→1). The decision tree's own gate ("fewer
+noisy ops?") FAILS. Worse, the trade is dominated in every regime:
+readout noise is nearly harmless to p_L (readout-only p_L ≈ 0% in
+every measured cell), while each new CNOT participant is a fresh
+data-error source — and the fitted_pair weakness that actually matters
+(prep-dominated noise, AD-023) is untouched: fan-in ≤ 2 fundamentally
+requires two independently reset+prepared ancillas. **fitted_pair's
+ancilla-channel exposure is intrinsic to its fan-in-2 confinement; no
+circuit-level exposure reduction exists within this architecture.**
+
+**Bugs found and fixed (root-caused, regression-pinned).**
+1. Forced-fault COMPOSITION: two forced faults at the same CNOT
+   location overwrote each other instead of XOR-composing (production
+   unaffected — the channel draws once per location — but the
+   validation harness silently mis-simulated multi-fault injections;
+   caught by the new contribution-linearity test). Fixed in all five
+   application sites (baseline, shor coupling, vcnot control/target,
+   fitted coupling).
+2. A budget refactor during development silently cut the
+   single-fault decode allowance from 8 to 5, regressing the M20
+   decoder (caught by the paired spot-check phen 11 vs corr 19);
+   restored to 8 and pinned.
+
+**Scope.** `correlation_decoder.py` (two_fault flag, pair generation,
+guard, reserved budgets, PAIR attribution marker + JSON serialization);
+`circuit_extraction.py` + `circuit_level.py` (forced-fault XOR
+composition fix); 14 new tests (`tests/test_two_fault.py`); the paired
+MC harness reports the third decoder column. NOT changed: API (the
+two-fault mode is not a production choice), frontend, Playwright
+(nothing user-facing changed).
+
+**Next falsifiable question.** The extraction layer is closed at this
+architecture: fitted_pair is exposure-optimal given fan-in-2, and the
+decoder is oracle-perfect on single faults. The highest-value remaining
+directions are (a) a d=7 scaling study (does the correlation decoder's
+baseline gain grow with distance?), or (b) a different code family
+(e.g. d=3/5 rotated-code variants with lower check-weight variance)
+where the fan-in-2 extraction's confinement could compound — both are
+new-milestone-scale and neither is begun here.

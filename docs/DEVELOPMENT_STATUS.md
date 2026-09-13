@@ -702,3 +702,29 @@ Classification: VERIFIED = exercised in this session's runs.
   Playwright decoder test.
 - **Regression:** full backend suite extended (871 + 30 + 4 = 905);
   Playwright 51 (50 + 1); tsc + vite clean.
+
+### Session 21 (milestone 21) — two-fault attribution experiment (AD-025)
+
+- **EXPERIMENT EXECUTED per the milestone-20 handoff:** exhaustive
+  d=3 pair diagnostic (313k pair injections across 4 modes) —
+  hypothesis structurally supported (99%+ of failures fixable);
+  two-fault attribution implemented (XOR-composed contributions,
+  summed log-odds, perfect-single guard); 3-way paired MC (2.16M
+  trials, identical trials for all three decoders, d=5 reproduced in
+  independent seeds).
+- **VERDICT: OUTCOME B.** corr-1+2f is not significantly better than
+  corr-1f anywhere; slightly worse at d=3 gate-only. Decoder
+  complexity stops; two-fault stays research instrumentation
+  (`two_fault=True`, off by default; no API/frontend exposure).
+- **Exposure pivot rejected analytically:** the shared-pair readout
+  merge fails the fewer-noisy-ops gate (14→15 per weight-4 check) and
+  trades harmless readout noise for harmful gate noise; fitted_pair's
+  prep exposure is intrinsic to fan-in-2.
+- **Bugs fixed:** forced-fault composition (overwrite → XOR) in all
+  five application sites — the validation harness mis-simulated
+  multi-fault injections at a shared location (production unaffected;
+  caught by the new contribution-linearity test); a development
+  budget refactor that silently regressed the single-fault decode
+  allowance (caught by paired spot-check, restored to 8).
+- **Regression:** full backend 919/919 (905 + 14); Playwright and
+  frontend untouched (no user-facing change).

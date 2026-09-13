@@ -1100,3 +1100,36 @@ that dominate; failure counts unchanged (12 at d=3 with and without).
 **Performance:** signature DB cached per (d, rounds, mode); build
 0.1-15 s; correlation decode ~2-6x control decode time (branch-and-
 bound bounds residual decodes at 8/trial).
+
+---
+
+## Session-21 additions — two-fault attribution experiment (AD-025)
+
+**Diagnostic (d=3, exhaustive distinct-location pairs):** 99%+ of the
+correlation decoder's two-fault-history failures are fixable in
+principle by two-fault attribution (class C: baseline 3691, shor
+18744, verified 31992, fitted 7721 pairs; class D degeneracy 0.2%).
+
+**Implementation:** pair candidates from the cheapest prefiltered
+signatures (including data-less ones), XOR-combined contributions and
+data effects, summed bucket log-odds pricing, exact removal, reserved
+single/pair decode budgets (8+3), and the FALSE-ATTRIBUTION GUARD:
+pairs are admitted only when no perfect single exists.
+
+**Operational verdict (2.16M paired trials, 3 decoders on identical
+trials):** corr-1+2f vs corr-1f is NOT statistically significant in
+any (mode, d, regime) cell, in either seed set; d=3 gate-only point
+estimates are slightly WORSE with pairs. The two-fault layer adds
+nothing operationally detectable over the M20 decoder. Outcome B:
+decoder complexity stops; the two-fault mode is research
+instrumentation (`two_fault=True`), not a production option.
+
+**Exposure reduction (the pivot): rejected analytically.** The
+shared-pair schedule (CNOT(A→B), one readout for both pair ancillas)
+preserves fan-in ≤2 and the stabilizer algebra but converts one
+readout into one CNOT: 14 → 15 noisy locations per weight-4 check.
+Readout noise is near-harmless (readout-only p_L ≈ 0% everywhere);
+the CNOT is a fresh data-error source; and the prep exposure that
+actually hurts fitted_pair (AD-023) is intrinsic — fan-in ≤ 2
+requires two independently reset+prepared ancillas. fitted_pair's
+exposure is optimal given its confinement guarantee.

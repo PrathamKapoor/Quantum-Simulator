@@ -1071,3 +1071,37 @@ biased noise channels. Reread roadmap + handoff first.
 - **Integration.** API decoder Literal + simulate/decode endpoints;
   runner decoder config through the worker; QecLab selector;
   Playwright test; full regression green.
+
+---
+
+## Session 21 (milestone 21) — two-fault attribution experiment (AD-025)
+
+- **Diagnostic first.** Exhaustive d=3 pair injections (production
+  harness): class C (two-fault would fix) dominated — the hypothesis
+  was structurally TRUE. This justified implementing the decoder.
+- **Implementation loop.** (1) Pairs from data-ful singles only →
+  class-C cases still failed: the missing partners were data-less
+  pure-corruption faults → widened the pair base. (2) Pairs decoded
+  but never won: cheap singles exhausted the decode budget → reserved
+  per-class budgets. (3) Naive unified space REGRESSED all modes at
+  degenerate zero-noise pricing → added the perfect-single guard.
+  (4) A development budget refactor silently cut the single decode
+  allowance 8→5 → caught by a paired spot-check (phen 11 vs corr 19),
+  restored; the first MC grid launch was killed and relaunched because
+  workers had imported the regressed code.
+- **Contribution-linearity test caught a real harness bug:** two
+  forced faults at the same CNOT location overwrote instead of XOR-
+  composing; fixed in all five application sites; production was
+  never affected (one channel draw per location).
+- **Measurement.** 3-way paired MC: 4 modes x 2 distances x 3 regimes
+  x seeds 11/23 + full d=5 reproduction (101/202) = 2.16M paired
+  trials. corr-1+2f vs corr-1f: not significant anywhere; d=3 gate-
+  only slightly worse. Outcome B declared per the directive's decision
+  tree.
+- **Exposure pivot.** The shared-pair schedule was worked out on
+  paper (circuit, ordering, hook analysis) and REJECTED at the
+  decision tree's own gate: 14 -> 15 noisy locations per weight-4
+  check, trading near-harmless readout noise for harmful gate noise;
+  prep exposure is intrinsic. Not implemented; documented.
+- **Final state.** Two-fault machinery retained as tested research
+  instrumentation; no API/frontend changes; full backend 919/919.

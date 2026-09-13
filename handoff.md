@@ -335,3 +335,41 @@ is the operator's decision, not the agent's.
   as a solved bottleneck and the remaining fitted-vs-baseline gap
   should be attacked at the exposure level (e.g. eliminating the
   weight-4 check's second readout via a shared-pair schedule).
+
+---
+
+## 15. Session 21 addendum — two-fault attribution experiment (AD-025)
+
+- **What exists now:** the correlation decoder gained an opt-in
+  `two_fault` flag (research instrumentation, OFF by default, not
+  exposed via API/UI): pair candidates = XOR-composed contributions of
+  the K_PAIR_BASE=6 cheapest prefiltered signatures (data-less
+  signatures included), summed bucket log-odds pricing, reserved
+  decode budgets (8 single + 3 pair), and the false-attribution guard
+  (pairs only when no perfect single explains the history).
+- **Falsifiable experiment ANSWERED (Outcome B):** two-fault
+  attribution is structurally powerful (99%+ of two-fault-history
+  failures fixable at d=3) but operationally void — corr-1+2f vs
+  corr-1f is not significant in any (mode, d, regime) cell across
+  2.16M paired trials, and slightly harmful at d=3 gate-only. DO NOT
+  escalate to three-fault attribution; the decoder layer is closed
+  for this architecture.
+- **Exposure reduction ANSWERED (rejected analytically):** the
+  shared-pair readout merge preserves fan-in-2 but converts one
+  readout into one CNOT (14 -> 15 noisy locations per weight-4 check);
+  readout noise is near-harmless, so the trade is dominated, and
+  fitted_pair's prep exposure is intrinsic to fan-in-2. fitted_pair
+  is exposure-optimal given its confinement guarantee within this
+  architecture.
+- **Bug fixes shipped:** forced-fault composition now XORs (all five
+  application sites) — multi-fault injections at shared locations were
+  previously mis-simulated by the validation harness (production
+  unaffected); the single-fault decode budget is pinned at 8.
+- **Baselines:** backend 919/919 (905 + 14); Playwright 51 (unchanged —
+  no user-facing change); tsc/vite clean.
+- **Recommended next milestone (both prior directions are now
+  closed):** a d=7 scaling study of the correlation decoder (does the
+  baseline gain grow with distance, and does the signature DB remain
+  tractable?), OR a code-family comparison (check-weight-variance
+  variants) where fan-in-2 confinement could compound. Neither is
+  begun; both are new-milestone-scale.

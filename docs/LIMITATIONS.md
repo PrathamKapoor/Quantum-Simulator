@@ -411,3 +411,20 @@ layout, process-isolated workers.
   (exact up to O(p^2)).
 - **d=7** is supported by the DB builder but was not exhaustively
   validated (DB build and enumeration cost); documented scope limit.
+
+### Two-fault attribution (`two_fault=True`, AD-025)
+
+- **Research instrumentation, not a production mode:** measured NOT
+  statistically better than the shipped correlation-aware decoder in
+  any cell (both seed sets), and slightly harmful at d=3 gate-only.
+  Off by default.
+- Pairs are generated only from the K_PAIR_BASE=6 cheapest
+  prefiltered signatures at the SAME injection round; cancelling
+  cross-round fault pairs are outside the generated space.
+- The false-attribution guard (pairs only when no perfect single
+  exists) resolves single-vs-pair competition; wrong-PAIR-vs-wrong-
+  pair ties at degenerate prices remain possible and are resolved
+  arbitrarily (deterministically) by candidate order.
+- The exposure-reduction direction is closed analytically (AD-025):
+  no circuit-level reduction of fitted_pair's ancilla-channel
+  exposure exists while preserving the fan-in-2 bound.

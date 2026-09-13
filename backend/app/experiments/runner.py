@@ -673,7 +673,8 @@ def run_surface_code_circuit_level(config: dict, seed: int) -> dict:
 
     Config: distances (odd, e.g. [3,5]), rounds, p_gate, p_readout, p_reset,
     p_prep, trials_per_point, extraction_model ("baseline_h_cnot_h"
-    default, or "shor_cat_state").
+    default, or "shor_cat_state" / "shor_cat_state_verified" /
+    "fitted_pair").
 
     extraction_model="shor_cat_state" runs the Shor cat-state
     extraction (AD-021): one cat ancilla per support data qubit,
@@ -751,7 +752,10 @@ def run_surface_code_circuit_level(config: dict, seed: int) -> dict:
         "schedule does not exhibit distance suppression at d=3 (documented). "
         "For shor_cat_state: max hook weight is 2 (vs 4 baseline) but the "
         "extra gate/reset/prep exposure makes p_L WORSE under this decoder "
-        "and noise model (measured, AD-021). No hardware or threshold claims.",
+        "and noise model (measured, AD-021). For fitted_pair: ancilla "
+        "fan-in capped at 2 (pair-decomposed sub-parities, AD-023) -- "
+        "baseline CNOT count, no cat machinery; comparable to baseline "
+        "at d=5, worse at d=3 (measured). No hardware or threshold claims.",
     ]
     return make_result_document(
         "surface_code_circuit_level", metrics,

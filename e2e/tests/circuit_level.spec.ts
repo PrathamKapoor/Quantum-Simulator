@@ -55,7 +55,7 @@ test.describe("Circuit-level surface code", () => {
     await expect(panel.getByText(/makes p_L/)).toBeVisible();
     monitor.assertClean();
   });
-});
+
   test("Verified Shor selector runs and reports rejection statistics", async ({ page }) => {
     const monitor = ErrorMonitor.attach(page);
     await gotoPage(page, "Error Correction");
@@ -68,3 +68,23 @@ test.describe("Circuit-level surface code", () => {
     });
     monitor.assertClean();
   });
+
+  test("Fitted pair-decomposed selector runs and renders", async ({ page }) => {
+    const monitor = ErrorMonitor.attach(page);
+    await gotoPage(page, "Error Correction");
+    const panel = page.locator(".panel", { hasText: "Circuit-level surface code" });
+    await panel.getByLabel("Extraction").selectOption("fitted_pair");
+    await panel.getByRole("button", { name: "Decode circuit-level" }).click();
+    await expect(panel.getByText(/Outcome:/)).toBeVisible({ timeout: 60_000 });
+    await expect(
+      panel.locator(".badge").filter({ hasText: /CORRECTED|LOGICAL_[XYZ]/ }),
+    ).toBeVisible();
+    // MC with the fitted mode as well: p_L + CI from the real backend.
+    await panel.getByLabel("MC trials").fill("200");
+    await panel.getByRole("button", { name: "Run Monte Carlo (circuit-level)" }).click();
+    await expect(panel.getByText(/logical error rate p_L/)).toBeVisible({
+      timeout: 90_000,
+    });
+    monitor.assertClean();
+  });
+});

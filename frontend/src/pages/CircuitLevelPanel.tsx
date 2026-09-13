@@ -15,7 +15,7 @@ export default function CircuitLevelPanel() {
   const [mcTrials, setMcTrials] = useState(2000);
   const [scheduleMode, setScheduleMode] = useState<"naive" | "optimized">("naive");
   const [extractionModel, setExtractionModel] = useState<
-    "baseline_h_cnot_h" | "shor_cat_state" | "shor_cat_state_verified">(
+    "baseline_h_cnot_h" | "shor_cat_state" | "shor_cat_state_verified" | "fitted_pair">(
     "baseline_h_cnot_h");
   const [decoded, setDecoded] = useState<any>(null);
   const [sim, setSim] = useState<any>(null);
@@ -59,10 +59,12 @@ export default function CircuitLevelPanel() {
         Hook errors — a single ancilla fault propagating to multiple data qubits
         — emerge from the schedule and are recorded. Ideal final-round readout;
         single-qubit gates ideal. No hardware claims.{" "}
-        <b>Measured (AD-021):</b> Shor cat-state confines hooks to weight ≤ 2
-        (baseline: up to 4) but its ~2× gate exposure makes p_L <i>worse</i>{" "}
-        under this decoder and noise model — the comparison is real, not a
-        recommendation.
+        <b>Measured (AD-021/022/023):</b> Shor cat-state confines hooks to
+        weight ≤ 2 (baseline: up to 4) but its ~2× gate exposure makes p_L{" "}
+        <i>worse</i>; verified Shor flags 56–94% of rounds and is worst of
+        all. Fitted pair-decomposed extraction (AD-023) caps every ancilla's
+        data fan-in at 2 with baseline CNOT count — comparable to baseline at
+        d=5, worse at d=3. The comparison is real, not a recommendation.
       </p>
       <div className="row" style={{ flexWrap: "wrap", gap: 10 }}>
         <label className="field">Distance
@@ -95,6 +97,7 @@ export default function CircuitLevelPanel() {
             <option value="baseline_h_cnot_h">baseline (H-CNOT-H)</option>
             <option value="shor_cat_state">Shor cat-state</option>
             <option value="shor_cat_state_verified">Shor cat-state (verified)</option>
+            <option value="fitted_pair">fitted (pair-decomposed)</option>
           </select>
         </label>
         <button className="btn" disabled={busy} onClick={decode}>

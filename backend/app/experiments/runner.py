@@ -706,12 +706,27 @@ def run_surface_code_circuit_level(config: dict, seed: int) -> dict:
         raise ValueError(
             f"extraction_model must be one of {list(SUPPORTED_EXTRACTIONS)}, "
             f"got {extraction_model!r}.")
+    decoder = config.get("decoder", "phenomenological_mwpm")
+    if decoder not in ("phenomenological_mwpm", "correlation_aware"):
+        raise ValueError(
+            "decoder must be 'phenomenological_mwpm' or 'correlation_aware', "
+            f"got {decoder!r}.")
     table = []
     for di, d in enumerate(distances):
         point_seed = seed + 1000 + di * 7919
-        res = simulate_circuit_level_mc(
-            d, rounds, p_gate, p_readout, p_reset, p_prep,
-            trials=trials, seed=point_seed, extraction_model=extraction_model)
+        if decoder == "correlation_aware":
+            from ..qec.correlation_decoder import (
+                simulate_correlation_mc as _corr_mc,
+            )
+            res = _corr_mc(
+                d, rounds, p_gate, p_readout, p_reset, p_prep,
+                trials=trials, seed=point_seed,
+                extraction_model=extraction_model)
+        else:
+            res = simulate_circuit_level_mc(
+                d, rounds, p_gate, p_readout, p_reset, p_prep,
+                trials=trials, seed=point_seed,
+                extraction_model=extraction_model)
         table.append({
             "d": res["d"], "rounds": res["rounds"], "p_gate": res["p_gate"],
             "p_readout": res["p_readout"], "p_reset": res["p_reset"],
@@ -732,7 +747,7 @@ def run_surface_code_circuit_level(config: dict, seed: int) -> dict:
             "trials": res["trials"], "seed": res["seed"],
         })
     metrics = {
-        "extraction_model": extraction_model,
+        "extraction_model": extraction_model, "decoder": decoder,
         "distances": distances, "rounds": rounds, "p_gate": p_gate,
         "p_readout": p_readout, "p_reset": p_reset, "p_prep": p_prep,
         "points": len(table), "trials_per_point": trials,
@@ -746,6 +761,10 @@ def run_surface_code_circuit_level(config: dict, seed: int) -> dict:
         "preparation noise, decoded by the repeated-round MWPM. Ideal final "
         "round readout; single-qubit gates ideal.",
         f"Extraction model: {extraction_model}.",
+        f"Decoder: {decoder}." + (" The correlation-aware decoder (AD-024) "
+            "adds likelihood-priced circuit-fault signature attribution on "
+            "top of the same control MWPM." if decoder == "correlation_aware"
+            else ""),
         "p_L is the logical error rate (Wilson 95% interval); distinct from "
         "the four physical noise probabilities.",
         "Correlated hook errors from ancilla faults are modeled; the naive "

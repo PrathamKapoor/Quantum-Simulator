@@ -17,6 +17,8 @@ export default function CircuitLevelPanel() {
   const [extractionModel, setExtractionModel] = useState<
     "baseline_h_cnot_h" | "shor_cat_state" | "shor_cat_state_verified" | "fitted_pair">(
     "baseline_h_cnot_h");
+  const [decoder, setDecoder] = useState<
+    "phenomenological_mwpm" | "correlation_aware">("phenomenological_mwpm");
   const [decoded, setDecoded] = useState<any>(null);
   const [sim, setSim] = useState<any>(null);
   const [busy, setBusy] = useState(false);
@@ -27,7 +29,7 @@ export default function CircuitLevelPanel() {
     try {
       setDecoded(await post("/api/qec/rotated-surface-code/circuit-level/decode", {
         d, rounds, p_gate: pGate, p_readout: pReadout, p_reset: pReset,
-        p_prep: pPrep, seed, extraction_model: extractionModel,
+        p_prep: pPrep, seed, extraction_model: extractionModel, decoder,
       }));
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
@@ -37,7 +39,7 @@ export default function CircuitLevelPanel() {
       setSim(await post("/api/qec/rotated-surface-code/circuit-level/simulate", {
         d, rounds, p_gate: pGate, p_readout: pReadout, p_reset: pReset,
         p_prep: pPrep, seed, trials: mcTrials, schedule_mode: scheduleMode,
-        extraction_model: extractionModel,
+        extraction_model: extractionModel, decoder,
       }));
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
@@ -98,6 +100,13 @@ export default function CircuitLevelPanel() {
             <option value="shor_cat_state">Shor cat-state</option>
             <option value="shor_cat_state_verified">Shor cat-state (verified)</option>
             <option value="fitted_pair">fitted (pair-decomposed)</option>
+          </select>
+        </label>
+        <label className="field">Decoder
+          <select value={decoder}
+                  onChange={(e) => { setDecoder(e.target.value as any); setDecoded(null); setSim(null); }}>
+            <option value="phenomenological_mwpm">phenomenological MWPM</option>
+            <option value="correlation_aware">correlation-aware (circuit signatures)</option>
           </select>
         </label>
         <button className="btn" disabled={busy} onClick={decode}>
@@ -162,6 +171,13 @@ export default function CircuitLevelPanel() {
           <b>{(sim.logical_error_rate * 100).toFixed(2)}%</b> · Wilson 95% CI [
           {sim.ci95[0].toFixed(4)}, {sim.ci95[1].toFixed(4)}] · {sim.logical_failures}/
           {sim.trials} failures
+        </p>
+      )}
+      {sim && sim.decoder === "correlation_aware" && (
+        <p className="kv" style={{ marginTop: 4 }}>
+          Signature attributions: <b>{sim.signature_attributions}</b> ·{" "}
+          avg candidate explanations per trial:{" "}
+          <b>{Number(sim.avg_candidates).toFixed(2)}</b>
         </p>
       )}
       {sim && <p style={{ fontSize: 11.5, color: "var(--text-dim)" }}>{sim.note}</p>}

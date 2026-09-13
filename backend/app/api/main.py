@@ -708,7 +708,11 @@ def repeated_round_simulate(req: schemas.RepeatedRoundSimulateRequest):
 
 @app.post("/api/qec/rotated-surface-code/circuit-level/decode")
 def circuit_level_decode(req: schemas.CircuitLevelDecodeRequest):
-    """Sample + decode one circuit-level error history (ancilla circuits)."""
+    """Sample + decode one circuit-level error history (ancilla circuits).
+
+    `decoder`: "phenomenological_mwpm" (the control, default) or
+    "correlation_aware" (AD-024: the control plus likelihood-priced
+    circuit-fault signature attribution)."""
     from ..qec import RotatedSurfaceCode, simulate_circuit_level, decode_circuit_level
 
     try:
@@ -716,14 +720,25 @@ def circuit_level_decode(req: schemas.CircuitLevelDecodeRequest):
         ex, ez, hooks, obs, _mf, _ve = simulate_circuit_level(
             code, req.rounds, req.p_gate, req.p_readout, req.p_reset, req.p_prep,
             seed=req.seed, extraction_model=req.extraction_model)
-        result = decode_circuit_level(
-            code, req.rounds, req.p_gate, req.p_readout, req.p_reset, req.p_prep,
-            data_error_x=ex, data_error_z=ez, observed_syndromes=obs,
-            hook_events=hooks, seed=req.seed)
+        if req.decoder == "correlation_aware":
+            from ..qec.correlation_decoder import decode_correlation_aware
+            from ..qec.circuit_signatures import build_signature_db
+            db = build_signature_db(code, req.rounds, req.extraction_model)
+            result = decode_correlation_aware(
+                code, req.rounds, req.p_gate, req.p_readout,
+                req.p_reset, req.p_prep, observed_syndromes=obs,
+                data_error_x=ex, data_error_z=ez, db=db, seed=req.seed)
+            body = result.to_dict()
+        else:
+            result = decode_circuit_level(
+                code, req.rounds, req.p_gate, req.p_readout, req.p_reset,
+                req.p_prep, data_error_x=ex, data_error_z=ez,
+                observed_syndromes=obs, hook_events=hooks, seed=req.seed)
+            body = result.to_dict()
     except ValueError as e:
         raise http_error(400, "VALIDATION_ERROR", str(e))
-    body = result.to_dict()
     body["extraction_model"] = req.extraction_model
+    body["decoder_requested"] = req.decoder
     if req.include_layout:
         body["layout"] = code.layout()
     return body
@@ -762,6 +777,14 @@ def circuit_level_simulate(req: schemas.CircuitLevelSimulateRequest):
         total_hooks = 0
         rejected_trials = 0
         conditional_failures = 0
+        corr_attributions = 0
+        corr_candidates = 0
+        corr_db = None
+        if req.decoder == "correlation_aware":
+            from ..qec.correlation_decoder import decode_correlation_aware
+            from ..qec.circuit_signatures import build_signature_db
+            corr_db = build_signature_db(code, req.rounds,
+                                         req.extraction_model)
         for t in range(req.trials):
             ts = req.seed + t * 7919
             ex, ez, hooks, obs, _mf, _ve = simulate_circuit_level(
@@ -772,11 +795,21 @@ def circuit_level_simulate(req: schemas.CircuitLevelSimulateRequest):
             rejected = len(_ve) > 0
             if rejected:
                 rejected_trials += 1
-            res = decode_circuit_level(
-                code, req.rounds, req.p_gate, req.p_readout,
-                req.p_reset, req.p_prep,
-                data_error_x=ex, data_error_z=ez, observed_syndromes=obs,
-                hook_events=hooks, seed=ts)
+            if corr_db is not None:
+                res = decode_correlation_aware(
+                    code, req.rounds, req.p_gate, req.p_readout,
+                    req.p_reset, req.p_prep, observed_syndromes=obs,
+                    data_error_x=ex, data_error_z=ez, db=corr_db,
+                    seed=ts)
+                if res.best_source == "signature":
+                    corr_attributions += 1
+                corr_candidates += res.n_candidates
+            else:
+                res = decode_circuit_level(
+                    code, req.rounds, req.p_gate, req.p_readout,
+                    req.p_reset, req.p_prep,
+                    data_error_x=ex, data_error_z=ez, observed_syndromes=obs,
+                    hook_events=hooks, seed=ts)
             if not res.success:
                 fails += 1
                 if not rejected:
@@ -792,7 +825,12 @@ def circuit_level_simulate(req: schemas.CircuitLevelSimulateRequest):
             "trials": req.trials,
             "logical_failures": fails,
             "logical_error_rate": fails / req.trials,
-            "ci95": [lo, hi], "seed": req.seed, "decoder": "mwpm",
+            "ci95": [lo, hi], "seed": req.seed,
+            "decoder": ("correlation_aware" if req.decoder
+                        == "correlation_aware" else "mwpm"),
+            "signature_attributions": corr_attributions,
+            "avg_candidates": (corr_candidates / req.trials
+                               if req.decoder == "correlation_aware" else 0.0),
             "hook_error_events": total_hooks,
             "accepted_trials": accepted,
             "rejected_trials": rejected_trials,
@@ -811,7 +849,10 @@ def circuit_level_simulate(req: schemas.CircuitLevelSimulateRequest):
                 "reported: logical_error_rate is UNCONDITIONAL over all "
                 "trials; conditional_logical_error_rate is over accepted "
                 "trials only (a diagnostic, never substituted). Schedule "
-                "mode: " + req.schedule_mode + "."
+                "mode: " + req.schedule_mode + ". Decoder: " + req.decoder + (
+                    " (AD-024: control MWPM plus likelihood-priced "
+                    "circuit-fault signature attribution)"
+                    if req.decoder == "correlation_aware" else "") + "."
             ),
         }
     except ValueError as e:

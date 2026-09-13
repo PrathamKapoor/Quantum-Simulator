@@ -69,6 +69,23 @@ test.describe("Circuit-level surface code", () => {
     monitor.assertClean();
   });
 
+  test("Decoder selector runs the correlation-aware decoder end to end", async ({ page }) => {
+    const monitor = ErrorMonitor.attach(page);
+    await gotoPage(page, "Error Correction");
+    const panel = page.locator(".panel", { hasText: "Circuit-level surface code" });
+    await panel.getByLabel("Decoder").selectOption("correlation_aware");
+    await panel.getByRole("button", { name: "Decode circuit-level" }).click();
+    await expect(panel.getByText(/Outcome:/)).toBeVisible({ timeout: 60_000 });
+    await panel.getByLabel("MC trials").fill("200");
+    await panel.getByRole("button", { name: "Run Monte Carlo (circuit-level)" }).click();
+    await expect(panel.getByText(/logical error rate p_L/)).toBeVisible({
+      timeout: 120_000,
+    });
+    // Attribution statistics come from the real backend (AD-024).
+    await expect(panel.getByText(/Signature attributions:/)).toBeVisible();
+    monitor.assertClean();
+  });
+
   test("Fitted pair-decomposed selector runs and renders", async ({ page }) => {
     const monitor = ErrorMonitor.attach(page);
     await gotoPage(page, "Error Correction");

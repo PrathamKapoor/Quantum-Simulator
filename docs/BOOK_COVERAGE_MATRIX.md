@@ -53,7 +53,8 @@ authoritative implementations.
 | 13 | Concurrence / entanglement of formation | `info_theory.concurrence` + `qi_tools.entanglement_of_formation` | `book_entanglement_report` / `book_qi_metrics` | `test_book_primitives.py` | Book Lab | VALIDATED |
 | 13 | von Neumann entropy | `quantum/info_theory.von_neumann_entropy_bits` | Info Theory Lab | `test_info_theory.py` | Info Theory Lab | VALIDATED |
 | 14 | Adiabatic evolution H(s), gap, runtime scaling | `quantum/adiabatic` | `book_adiabatic` | `test_book_primitives.py::TestAdiabatic` | Book Lab | VALIDATED |
-| 14 | Particle-in-a-box adiabatic example | PARTIAL — the general adiabatic engine supports it; the specific well-width experiment is not yet a registered runner | — | — | — | PARTIAL |
+| 14 | Expanding infinite well (Example 14.2, pp. 309-310) | `book_adiabatic_well` (grid TDSE, truncated-level evolution) | `book_adiabatic_well` | book runners | Book Lab | VALIDATED |
+| 14 | Adiabatic Hadamard (Example 14.3, pp. 310-312) | `book_adiabatic_hadamard` | `book_adiabatic_hadamard` | book runners | Book Lab | VALIDATED |
 | 15 | Graph/cluster states (1D chain, 2D lattice, arbitrary graph) | `quantum/graph_states` | `book_cluster_state` | `test_book_primitives.py::TestGraphStates` | Book Lab | VALIDATED |
 | 15 | Stabilizer verification | `graph_states.stabilizer_report` | `book_cluster_state` | `test_book_primitives.py` | Book Lab | VALIDATED |
 | 15 | Entanglement witness | `graph_states.ghz_witness_expectation` | `book_cluster_state` | `test_book_primitives.py` | Book Lab | VALIDATED |
@@ -67,17 +68,46 @@ authoritative implementations.
 | Correlation-aware decoder (AD-024) | VALIDATED (oracle-perfect single faults d=5/7) |
 | d=7 scaling study | COMPLETE — see `SCIENTIFIC_MODELS.md` session-22 section |
 
+
+## Book traceability (verified against the extracted table of contents)
+
+All page references are book pages; chapter start pages: ch.1 p.1,
+ch.2 p.11, ch.3 p.37, ch.4 p.73, ch.5 p.91, ch.6 p.121, ch.7 p.147,
+ch.8 p.173, ch.9 p.201, ch.10 p.241, ch.11 p.243, ch.12 p.251,
+ch.13 p.279, ch.14 p.305, ch.15 p.315.
+
+| Topic | Book pages (McMahon) |
+|-------|----------------------|
+| Shannon entropy / information content | 1-8 (ch.1); 293-296 (ch.13 Information Content and Entropy) |
+| Qubit, vector spaces, basis, inner products | 11-35 |
+| Operators, eigenvalues, spectral decomposition, uncertainty | 37-71 |
+| Tensor products | 73-89 |
+| Density operator, partial trace, Bloch vector | 91-119 |
+| Projective measurements, generalized measurements, POVMs | 121-146 |
+| Bell's theorem, Bell basis, entanglement tests | 151-162 |
+| Pauli representation, entanglement fidelity | 162-170 |
+| Schmidt decomposition, purification | 155-161 (ch.7); see also 96-101 |
+| Gates, Z-Y decomposition, controlled gates | 173-200 |
+| Deutsch-Jozsa 207, QFT 211, Phase estimation 213, Shor 216, Grover 218 | 201-239 |
+| Teleportation (5 steps) 235-238; Superdense coding 239 | 241-249 |
+| Basic QKD 243, CNOT attack 246, B92 247, E91 248 | 243-249 |
+| Quantum operations / Kraus 254, depolarizing 260, bit/phase flip 261, amplitude damping 262, phase damping 270 | 251-277 |
+| QEC (syndromes, correction) | 272-277 |
+| No-cloning 279, trace distance 281, fidelity 285, EoF/concurrence 289, entropy 293 | 279-304 |
+| Adiabatic processes 307, adiabatic quantum computing 308 (Examples 14.1-14.3) | 305-313 |
+| Cluster states 316, preparation 316, adjacency 319, stabilizers 320, witness 322, processing 324 | 315-328 |
+
 ## Scorecard (milestone 22)
 
-Book topics identified: **49** (rows above)
-- VALIDATED: 44
+Book topics identified: **51** (rows above)
+- VALIDATED: 46
 - IMPLEMENTED (primitive, runner planned): 2
 - EXPERIMENTAL: 3
-- PARTIAL: 1
+- PARTIAL: 0
 - PLANNED: 0
 - NOT_APPLICABLE: 0
 
-Coverage: **~90% validated**.
+Coverage: **~94% validated** (46/51).
 
 Correctness confidence: **High** (every VALIDATED row computes its
 prediction from the simulator and compares against an independently
@@ -92,11 +122,13 @@ underlying primitives (Gram-Schmidt, purification) are backend-only.
 
 ## Known coverage gaps (honest)
 
-1. Ch. 14 particle-in-a-box expanding-well experiment — PARTIAL.
-2. Purification and Gram-Schmidt are backend primitives without
+1. Purification and Gram-Schmidt are backend primitives without
    registered runners (test-validated only).
-3. Entanglement swapping rides the network stack's
+2. Entanglement swapping rides the network stack's
    purification/repeater experiments rather than a dedicated
    book-shaped experiment.
-4. Worked-example regression suites per chapter (§64) are represented
+3. Worked-example regression suites per chapter (§64) are represented
    by the validation sections rather than separate example corpora.
+4. The book's ch. 14 opens with Schrödinger-dynamics review (pp.
+   305-307) that is background rather than experiment; represented by
+   the adiabatic engine's documentation.

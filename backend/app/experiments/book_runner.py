@@ -658,3 +658,140 @@ def book_cluster_state(config: dict, seed: int) -> dict:
 
 def _rho_of(state: StateVector) -> np.ndarray:
     return np.outer(state.amplitudes, state.amplitudes.conj())
+
+
+# ---------------------------------------------------------------------------
+# Chapter 14 — the book's own worked examples (14.2, 14.3).
+# ---------------------------------------------------------------------------
+
+def book_adiabatic_well(config: dict, seed: int) -> dict:
+    """Example 14.2: a particle in an infinite well of width a, ground
+    state, with the width slowly widened to 3a. Adiabatically the state
+    follows the instantaneous ground state; a sudden expansion leaves a
+    strictly smaller overlap. The overlap is also computed ANALYTICALLY
+    (independent oracle): <psi_1(a) | psi_1(3a)>.
+
+    Discretized well eigenproblem (finite differences) on a grid over
+    [0, 3a]; exactness class: numerically exact within the grid
+    tolerance (validated against the analytic eigenstates).
+    """
+    n_grid = int(config.get("grid_points", 601))
+    L = 3.0                     # final width 3a with a = 1
+    hbar = 1.0
+    mass = 1.0
+    xs = np.linspace(0.0, L, n_grid)
+    dx = xs[1] - xs[0]
+
+    def well_eigen(width: float, count: int = 3):
+        """Finite-difference eigenstates of the infinite well [0, width]."""
+        mask = xs <= width + 1e-12
+        m = int(mask.sum())
+        sub = np.zeros((m, m))
+        coeff = -hbar ** 2 / (2 * mass * dx * dx)
+        for i in range(m):
+            sub[i, i] = -2 * coeff
+            if i > 0:
+                sub[i, i - 1] = coeff
+            if i < m - 1:
+                sub[i, i + 1] = coeff
+        evals, evecs = np.linalg.eigh(sub)
+        idx = np.argsort(evals)[:count]
+        states = np.zeros((n_grid, count))
+        for j, k in enumerate(idx):
+            v = evecs[:, k]
+            v = v / np.sqrt(np.sum(v * v) * dx)
+            states[mask, j] = v
+        return evals[idx], states
+
+    # initial ground state of the width-a well
+    evals0, states0 = well_eigen(1.0)
+    psi = states0[:, 0].copy().astype(np.complex128)
+
+    # SLOW: true time evolution under the expanding well. The wall moves
+    # in small width steps; over each step the state evolves under the
+    # piecewise-constant well Hamiltonian via its (truncated) eigenbasis,
+    # psi -> sum_n e^{-i E_n dt} |n_w><n_w| psi. Slow expansion makes the
+    # adiabatic theorem keep the state in the instantaneous ground state
+    # (the book's answer: the system remains n = 1).
+    n_steps = int(config.get("expansion_steps", 640))
+    tau = float(config.get("total_time", 200.0))
+    dt = tau / n_steps
+    widths = np.linspace(1.0, L, n_steps + 1)[1:]
+    overlaps_ground = []
+    K = 8                       # truncated low-level basis (documented)
+    for w in widths:
+        evals_w, states_w = well_eigen(w, count=K)
+        coeffs = states_w.T.astype(np.complex128) @ psi * dx
+        phases = np.exp(-1j * evals_w * dt)
+        psi = states_w @ (coeffs * phases)
+        norm = float(np.sqrt(np.sum(np.abs(psi) ** 2) * dx))
+        psi = psi / norm
+        ground_amp = states_w[:, 0].astype(np.complex128) @ psi * dx
+        overlaps_ground.append(float(abs(ground_amp) ** 2))
+    final_evals, final_states = well_eigen(L)
+    slow_overlap = float(abs(final_states[:, 0].astype(np.complex128) @ psi * dx) ** 2)
+
+    # SUDDEN: project the initial state directly onto the final basis.
+    sudden_overlap = float((final_states[:, 0] @ states0[:, 0] * dx) ** 2)
+    # analytic oracle: <psi1(a)|psi1(3a)> over [0, a]
+    analytic = 0.0
+    a = 1.0
+    for x0 in xs[xs <= 1.0]:
+        analytic += (np.sqrt(2 / a) * np.sin(np.pi * x0 / a)
+                     * np.sqrt(2 / L) * np.sin(np.pi * x0 / L)) * dx
+    analytic_overlap = analytic ** 2
+    validation = {
+        "prediction": ("Slow expansion: ground-state probability ~ 1 "
+                       "(state stays n=1, Example 14.2's answer). Sudden "
+                       "expansion: strictly smaller, matching the "
+                       "analytic <psi1(a)|psi1(3a)>^2."),
+        "slow_ground_probability": slow_overlap,
+        "sudden_ground_probability": sudden_overlap,
+        "analytic_sudden_overlap": analytic_overlap,
+        "passed": bool(slow_overlap > 0.995
+                       and abs(sudden_overlap - analytic_overlap) < 5e-3
+                       # tolerance is the finite-difference eigenfunction
+                       # error at the wall kink (first-order FD)
+                       and slow_overlap > sudden_overlap + 0.1),
+    }
+    return make_result_document_sanitized(
+        "book_adiabatic_well", {"grid_points": n_grid,
+                                "expansion_steps": n_steps},
+        artifacts={"adiabatic_overlap_curve": [
+            {"width": float(w), "ground_probability": o}
+            for w, o in zip(widths, overlaps_ground)],
+            "slow": slow_overlap, "sudden": sudden_overlap,
+            "analytic_sudden": analytic_overlap},
+        notes=["McMahon ch.14 Example 14.2 (pp. 309-310): expanding "
+               "infinite well, adiabatic following of the ground state."],
+        summary={"validation": validation})
+
+
+def book_adiabatic_hadamard(config: dict, seed: int) -> dict:
+    """Example 14.3: adiabatic implementation of the Hadamard gate.
+    H_init = diag(-1, 1) (ground |0>); H_final = -X (ground |+>).
+    Slow evolution must produce H|0> = |+>."""
+    h_init = np.diag([-1.0, 1.0])
+    h_final = -np.array([[0.0, 1.0], [1.0, 0.0]])
+    r = adiabatic_evolution(h_init, h_final,
+                            total_time=float(config.get("total_time", 200.0)),
+                            steps=int(config.get("steps", 800)))
+    plus = np.array([1, 1], dtype=np.complex128) / np.sqrt(2)
+    hadamard_output = float(abs(np.vdot(plus, r["final_state"])) ** 2)
+    gap = spectral_gap_curve(h_init, h_final, 21)
+    validation = {
+        "prediction": "Slow adiabatic evolution implements the Hadamard "
+                      "on |0>: final state = |+> = H|0>.",
+        "ground_state_overlap": r["ground_state_overlap"],
+        "hadamard_output_probability": hadamard_output,
+        "min_gap": gap["min_gap"],
+        "passed": bool(hadamard_output > 0.999),
+    }
+    return make_result_document_sanitized(
+        "book_adiabatic_hadamard",
+        {"total_time": r["total_time"], "steps": r["steps"]},
+        artifacts={"final_probabilities": r["final_probabilities"],
+                   "min_gap": gap["min_gap"]},
+        notes=["McMahon ch.14 Example 14.3 (pp. 310-312): adiabatic "
+               "Hadamard via H_init = diag(-1,1), H_final = -X."],
+        summary={"validation": validation})

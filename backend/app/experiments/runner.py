@@ -1380,6 +1380,8 @@ RUNNER_REGISTRY = {
     "book_qi_metrics": _book("book_qi_metrics"),
     "book_adiabatic": _book("book_adiabatic"),
     "book_cluster_state": _book("book_cluster_state"),
+    "book_adiabatic_well": _book("book_adiabatic_well"),
+    "book_adiabatic_hadamard": _book("book_adiabatic_hadamard"),
 }
 
 

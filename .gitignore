@@ -16,3 +16,8 @@ e2e/screenshots/
 e2e/e2e-test.db
 e2e/e2e-test.db-wal
 e2e/e2e-test.db-shm
+
+# Playwright connectivity probe (generated)
+e2e/probe.png
+
+.env

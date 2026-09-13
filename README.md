@@ -76,3 +76,11 @@ docs/                      development status, roadmap, architecture, science…
 ```bash
 cd backend && ..\.venv\Scripts\python -m pytest tests --timeout=300
 ```
+
+## Configuration
+
+Copy `.env.example` to `.env` (or export the variables directly).
+No external API keys are required -- every result is computed locally.
+
+- `QUANTUMLAB_DB` -- SQLite database path (default `backend/quantumlab.db`)
+- `QUANTUMLAB_CORS_ORIGINS` -- comma-separated CORS origins for the API

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { get, post } from "../lib/api";
+import { get, post, API } from "../lib/api";
 import { useInterval } from "../lib/charts";
 
 const TEMPLATES: Record<string, any> = {
@@ -113,7 +113,7 @@ export default function Experiments() {
   useEffect(() => {
     // Live job progress over WebSocket (directive §118).
     try {
-      const ws = new WebSocket("ws://127.0.0.1:8000/ws/jobs");
+      const ws = new WebSocket(`${API.replace(/^http/, "ws")}/ws/jobs`);
       ws.onmessage = (ev) => {
         const msg = JSON.parse(ev.data);
         if (msg.type === "job.progress") refresh();

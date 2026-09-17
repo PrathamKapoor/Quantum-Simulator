@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /** Minimal SVG chart primitives — full control, no heavy dependencies.
  *  Plots always render the actual stored data (directive §266). */
@@ -58,11 +58,8 @@ export function LineChart({
     if (Math.abs(v) >= 1000 || (Math.abs(v) < 0.001 && v !== 0)) return v.toExponential(1);
     return String(Math.round(v * 10000) / 10000);
   };
-  const ticks = useMemo(() => {
-    const out: number[] = [];
-    for (let i = 0; i <= 4; i++) out.push(ymin + (spanY * i) / 4);
-    return out;
-  }, [ymin, spanY]);
+  const ticks: number[] = [];
+  for (let i = 0; i <= 4; i++) ticks.push(ymin + (spanY * i) / 4);
 
   return (
     <div>

@@ -1,4 +1,11 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { API } from "./api";
+
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
 
 interface AppState {
   theme: "dark" | "light";
@@ -31,7 +38,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let alive = true;
     const check = async () => {
       try {
-        const res = await fetch("http://127.0.0.1:8000/api/health");
+        const res = await fetch(`${API}/api/health`);
         if (alive) setBackendOk(res.ok);
       } catch {
         if (alive) setBackendOk(false);

@@ -1,9 +1,9 @@
 import { test, expect, request as pwRequest } from "@playwright/test";
 import { ErrorMonitor, gotoPage } from "./helpers";
 
-const API = "http://127.0.0.1:8000";
+const API = process.env.QUANTUMLAB_E2E_API_ORIGIN!;
 
-/** Live WebSocket progress capture: real ws://127.0.0.1:8000/ws/jobs frames
+/** Live WebSocket progress capture from the isolated backend's /ws/jobs route
  * (§53, §127 — no fabricated events). */
 function captureProgress(page: import("@playwright/test").Page) {
   const frames: any[] = [];

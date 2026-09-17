@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { get, post } from "../lib/api";
 
 /** Book Laboratory (milestone 22): the McMahon chapter topics as
@@ -71,17 +71,109 @@ const EXPERIMENTS: BookExperiment[] = [
   { module: "book_cluster_state", chapter: "Ch. 15", title: "Cluster states",
     description: "Graph-state preparation, stabilizer verification, witness, node measurement.",
     config: { length: 4 } },
+  { module: "book_gram_schmidt", chapter: "Ch. 2-3", title: "Gram-Schmidt & independence",
+    description: "Orthonormalization, span preservation, and the numerical linear-independence test.",
+    config: { dimension: 4 } },
+  { module: "book_purification", chapter: "Ch. 7", title: "Purification of a mixed state",
+    description: "Pure extension |Psi>_AB with Tr_B|Psi><Psi| = rho; Schmidt spectrum oracle.",
+    config: {} },
+  { module: "book_entanglement_swapping", chapter: "Ch. 10", title: "Entanglement swapping",
+    description: "Bell measurement on two pairs entangles the untouched outer qubits.",
+    config: {} },
+  { module: "book_qec_codes", chapter: "Ch. 12-13", title: "Error-correcting codes",
+    description: "Bit-flip/phase-flip, Shor-9, Steane-7, 5-qubit: encode, inject, syndrome-decode, verify.",
+    config: {} },
+  { module: "book_state_tomography", chapter: "Ch. 6", title: "State tomography",
+    description: "Pauli measurements, raw inversion and physical Bloch-ball reconstruction; statistical shot noise.",
+    config: { theta: 1.1, phi: 0.5, shots: 20000 } },
+  { module: "book_rabi_oscillations", chapter: "Ch. 14", title: "Rabi oscillations",
+    description: "Driven two-level system: resonant and detuned Rabi dynamics vs the closed form.",
+    config: { rabi_frequency: 1.0 } },
+  { module: "book_helstrom", chapter: "Ch. 6 / 13", title: "Helstrom state discrimination",
+    description: "Optimal binary measurement, unequal priors and mixed states against the Helstrom bound.",
+    config: { theta: 1.5707963267948966, phi: 0.4, prior: 0.5, mixing: 0 } },
+  { module: "book_channel_algebra", chapter: "Ch. 12", title: "Channel composition and Choi",
+    description: "Noncommuting noise channels, Choi positivity and process/average gate fidelity.",
+    config: { flip_probability: 0.3, gamma: 0.4 } },
+  { module: "book_mbqc", chapter: "Ch. 15", title: "Adaptive cluster-state computation",
+    description: "Two equatorial measurements with outcome-conditioned angles; all four branches vs a circuit oracle.",
+    config: { theta: 1.0, phi: 0.37, alpha: 0.4, beta: 1.1 } },
+  { module: "book_simon", chapter: "Research", title: "Simon's algorithm (rank acquisition)",
+    description: "Hidden-mask recovery from rank-acquired equations; honest budget exhaustion.",
+    config: { n_qubits: 3, secret: 5, shots: 64 } },
+  { module: "book_qft", chapter: "Ch. 9", title: "Quantum Fourier Transform",
+    description: "Exact vs approximate QFT: cutoff drops CP(2*pi/2^m) rotations; DFT oracle.",
+    config: { n_qubits: 3, cutoff_exponent: 2, input_mode: "basis", basis_state: 3 } },
+  { module: "book_qpe", chapter: "Ch. 9", title: "Phase estimation",
+    description: "Arbitrary complex eigenvector; exact geometric-sum probability oracle.",
+    config: { theta: 1.0, phi: 0.3, eigenphase: 0.375, precision_bits: 4, shots: 128 } },
+  { module: "book_multigrover", chapter: "Ch. 9", title: "Multi-target Grover",
+    description: "Marked sets with analytic sin^2((2k+1)asin(sqrt(M/N))) trajectories.",
+    config: { n_qubits: 3, marked_indices: [1, 5], max_iterations: 4, shots: 128 } },
 ];
 
+const SESSION_KEY = "quantumlab.book-session.v1";
+
+function readBookSession() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(SESSION_KEY) ?? "null");
+    if (saved && EXPERIMENTS.some((ex) => ex.module === saved.module)
+        && typeof saved.configText === "string" && Number.isSafeInteger(saved.seed)
+        && saved.seed >= 0 && (saved.runId === null ||
+          (Number.isSafeInteger(saved.runId) && saved.runId > 0))) return saved;
+  } catch { /* Unavailable or invalid session storage starts a fresh worksheet. */ }
+  return { module: EXPERIMENTS[5].module,
+    configText: JSON.stringify(EXPERIMENTS[5].config, null, 2), seed: 42, runId: null };
+}
+
 export default function BookLab() {
-  const [selected, setSelected] = useState<BookExperiment>(EXPERIMENTS[5]);
-  const [configText, setConfigText] = useState(
-    JSON.stringify(EXPERIMENTS[5].config, null, 2));
+  const [saved] = useState(readBookSession);
+  const [selected, setSelected] = useState<BookExperiment>(
+    EXPERIMENTS.find((ex) => ex.module === saved.module)!);
+  const [configText, setConfigText] = useState<string>(saved.configText);
   const [result, setResult] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [seed, setSeed] = useState<number>(saved.seed);
+  const [runId, setRunId] = useState<number | null>(saved.runId);
+  const requestVersion = useRef(0);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify({
+        module: selected.module, configText, seed, runId }));
+    } catch { /* Backend persistence remains authoritative if storage is unavailable. */ }
+  }, [selected.module, configText, seed, runId]);
+
+  useEffect(() => {
+    if (runId === null) return;
+    let active = true;
+    const version = ++requestVersion.current;
+    const restore = async () => {
+      try {
+        const run = await get<{status: string; error_message?: string}>(`/api/runs/${runId}`);
+        if (!active || version !== requestVersion.current) return;
+        if (run.status !== "COMPLETED") {
+          if (["FAILED", "CANCELLED"].includes(run.status)) {
+            throw new Error(run.error_message ?? `Run ${run.status.toLowerCase()}.`);
+          }
+          throw new Error("Saved run is still pending; inspect its status in Experiments.");
+        }
+        const doc = await get<{document: {module: string}}>(`/api/runs/${runId}/result`);
+        if (!active || version !== requestVersion.current) return;
+        if (doc.document.module !== selected.module) throw new Error("Saved run does not match the selected experiment.");
+        setResult(doc.document);
+      } catch (e: unknown) {
+        if (active && version === requestVersion.current) setError(e instanceof Error ? e.message : String(e));
+      }
+    };
+    void restore();
+    return () => { active = false; };
+  }, [runId, selected.module]);
 
   const run = async () => {
+    requestVersion.current += 1;
+    setRunId(null);
     setBusy(true); setError(null); setResult(null);
     try {
       let config: Record<string, unknown> = {};
@@ -90,26 +182,39 @@ export default function BookLab() {
       } catch {
         throw new Error("Configuration is not valid JSON.");
       }
+      if (config === null || Array.isArray(config) || typeof config !== "object") {
+        throw new Error("Configuration must be a JSON object.");
+      }
+      if (!Number.isSafeInteger(seed) || seed < 0) {
+        throw new Error("Seed must be a nonnegative safe integer.");
+      }
       const created = await post("/api/experiments", {
         name: `book: ${selected.title}`,
         module: selected.module,
-        config, seed: Math.floor(Math.random() * 1e6),
+        config, seed,
       });
       const expId = created.experiment_id ?? created.id;
       const runIds: number[] = created.run_ids;
       await post("/api/runs/execute-batch", { run_ids: runIds });
       let finalStatus = "";
+      let failureMessage = "Experiment failed.";
       for (let i = 0; i < 600; i++) {
         const exp: any = await get(`/api/experiments/${expId}`);
         const run = (exp.runs ?? []).find(
           (r: any) => r.id === runIds[0]);
         finalStatus = run?.status ?? "";
-        if (finalStatus === "COMPLETED" || finalStatus === "FAILED") break;
+        failureMessage = run?.error_message ?? failureMessage;
+        if (["COMPLETED", "FAILED", "CANCELLED"].includes(finalStatus)) break;
         await new Promise((r) => setTimeout(r, 250));
       }
-      if (finalStatus === "FAILED") throw new Error("experiment failed");
+      if (finalStatus === "FAILED") throw new Error(failureMessage);
+      if (finalStatus === "CANCELLED") throw new Error("Experiment was cancelled.");
+      if (finalStatus !== "COMPLETED") {
+        throw new Error("Run is still pending; inspect its status in Experiments.");
+      }
       const doc: any = await get(`/api/runs/${runIds[0]}/result`);
       setResult(doc.document);
+      setRunId(runIds[0]);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -132,8 +237,11 @@ export default function BookLab() {
         <label className="field">Experiment
           <select
             value={selected.module}
+            disabled={busy}
             onChange={(e) => {
               const ex = EXPERIMENTS.find((x) => x.module === e.target.value)!;
+              requestVersion.current += 1;
+              setRunId(null);
               setSelected(ex);
               setConfigText(JSON.stringify(ex.config, null, 2));
               setResult(null); setError(null);
@@ -147,6 +255,10 @@ export default function BookLab() {
             ))}
           </select>
         </label>
+        <label className="field">Seed
+          <input type="number" min={0} step={1} value={seed}
+            disabled={busy} onChange={(e) => setSeed(e.target.valueAsNumber)} />
+        </label>
         <button className="btn" disabled={busy} onClick={run}>
           {busy ? "Running…" : "Run experiment"}
         </button>
@@ -158,13 +270,14 @@ export default function BookLab() {
         Configuration (JSON)
         <textarea
           value={configText}
+          disabled={busy}
           onChange={(e) => setConfigText(e.target.value)}
           rows={4}
           style={{ width: "100%", maxWidth: 480, fontFamily: "monospace",
                    fontSize: 12 }}
         />
       </label>
-      {error && <div className="error-box">{error}</div>}
+      {error && <div className="error-box" role="alert">{error}</div>}
       {result && (
         <>
           <p className="kv" style={{ marginTop: 10 }}>
@@ -175,6 +288,9 @@ export default function BookLab() {
             </span>{" "}
             · module <b>{result.module}</b>
           </p>
+          {result.notes?.length > 0 && <ul>
+            {result.notes.map((note: string, index: number) => <li key={index}>{note}</li>)}
+          </ul>}
           <div className="metric-cards" style={{ marginTop: 8 }}>
             <Metric label="Prediction"
                     value={String(result.summary?.validation?.prediction
@@ -185,14 +301,14 @@ export default function BookLab() {
               Validation (backend-computed)
             </summary>
             <pre className="event-log">{JSON.stringify(
-              result.summary?.validation, null, 2).slice(0, 2400)}</pre>
+              result.summary?.validation, null, 2)}</pre>
           </details>
           <details style={{ marginTop: 6 }}>
             <summary className="kv" style={{ cursor: "pointer" }}>
               Artifacts (observables, raw data)
             </summary>
             <pre className="event-log">{JSON.stringify(
-              result.artifacts, null, 2).slice(0, 2400)}</pre>
+              result.artifacts, null, 2)}</pre>
           </details>
         </>
       )}

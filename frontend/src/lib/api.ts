@@ -1,6 +1,8 @@
 /** Shared API client + types for the QuantumLab frontend. */
 
-const API = "http://127.0.0.1:8000";
+// API origin: production/dev default stays on 127.0.0.1:8000; override with
+// VITE_API_BASE_URL (e.g. isolated E2E port or remote host).
+export const API = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 export async function api<T = any>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}${path}`, {

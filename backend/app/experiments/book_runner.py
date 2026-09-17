@@ -10,6 +10,8 @@ section stating the predicted invariant and whether it held.
 """
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 from ..quantum.adiabatic import adiabatic_evolution, spectral_gap_curve
@@ -380,29 +382,37 @@ def book_gate_decomposition(config: dict, seed: int) -> dict:
 
 def book_grover_scan(config: dict, seed: int) -> dict:
     from ..algorithms.core_algorithms import run_grover
-    n_qubits = int(config.get("n_qubits", 3))
-    target = int(config.get("target", 5))
-    max_iter = int(config.get("max_iterations", 4))
+    n_qubits = config.get("n_qubits", 3)
+    target = config.get("target", 5)
+    max_iter = config.get("max_iterations", 4)
+    for name, value, lower, upper in (("n_qubits", n_qubits, 1, 6),
+                                      ("max_iterations", max_iter, 1, 8)):
+        if isinstance(value, bool) or not isinstance(value, int) or not lower <= value <= upper:
+            raise ValueError(f"{name} must be an integer in [{lower}, {upper}].")
+    theta = math.asin(math.sqrt(1 / (2 ** n_qubits)))
     rows = []
     for it in range(1, max_iter + 1):
-        r = run_grover(n_qubits, target, iterations=it, shots=64, seed=seed)
+        result = run_grover(n_qubits, target, iterations=it, shots=64, seed=seed + it)
         rows.append({"iterations": it,
-                     "success_probability":
-                         float(r.success_probability_estimate)})
-    optimal = int(np.pi / 4 * np.sqrt(2 ** n_qubits))
+                     "success_probability": float(result.success_probability_estimate),
+                     "shots": 64,
+                     "successes": result.counts.get(format(target, f"0{n_qubits}b"), 0),
+                     "exact_success_probability": result.per_iteration_probabilities[-1],
+                     "analytic_success_probability": math.sin((2 * it + 1) * theta) ** 2})
+    max_error = max(abs(row["exact_success_probability"] - row["analytic_success_probability"])
+                    for row in rows)
     validation = {
-        "prediction": "Success probability peaks near the optimal "
-                      f"iteration count ~pi/4*sqrt(N) = {optimal}.",
-        "optimal_iterations_theory": r.optimal_iterations,
-        "measured_peak_iterations": max(rows,
-                                        key=lambda r: r["success_probability"])[
-                                            "iterations"],
-        "passed": True,
+        "prediction": "Exact marked-state probability is sin((2k+1) asin(1/sqrt(N)))^2.",
+        "optimal_iterations_theory": result.optimal_iterations,
+        "measured_peak_iterations": max(rows, key=lambda row: row["success_probability"])["iterations"],
+        "max_exact_probability_error": max_error,
+        "passed": max_error < 1e-10,
     }
     return make_result_document_sanitized(
         "book_grover_scan", {"n_qubits": n_qubits, "target": target},
         artifacts={"scan": rows},
-        notes=["McMahon ch.9: amplitude amplification, iteration count."],
+        notes=["McMahon ch.9: amplitude amplification, iteration count.",
+               "64 shots per point; sampled peaks fluctuate and may miss the optimum. Validation uses exact probabilities, not a sampled peak threshold."],
         summary={"validation": validation})
 
 

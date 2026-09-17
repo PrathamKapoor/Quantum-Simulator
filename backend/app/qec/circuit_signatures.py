@@ -192,15 +192,13 @@ class SignatureDB:
 
 
 def _shift(s: FaultSignature, delta: int) -> FaultSignature:
-    """Translate a mid-round signature to injection round 1 + delta:
-    drop the first `delta` contribution rounds (they belonged to rounds
-    before the fault existed)."""
+    """Keep the injection transient and truncate the shorter history's tail."""
     return FaultSignature(
-        contrib=tuple(s.contrib[delta:]),
+        contrib=tuple(s.contrib[:len(s.contrib) - delta]),
         data_x=s.data_x, data_z=s.data_z, flagged=s.flagged,
         n_reset=s.n_reset, n_prep=s.n_prep, n_gate=s.n_gate,
         n_readout=s.n_readout, example=s.example,
-        pair_contrib=tuple(s.pair_contrib[delta:]))
+        pair_contrib=tuple(s.pair_contrib[:len(s.pair_contrib) - delta]))
 
 
 def _events_from_contrib(contrib: tuple) -> tuple:

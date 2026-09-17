@@ -176,18 +176,22 @@ def decode_correlation_aware(code, rounds: int, p_gate: float,
         for sig, t in db.translated_mid():
             if not sig.data_x and not sig.data_z:
                 continue
-            if not sig.events_set.issubset(events):
+            sig_events = {(layer + t - 1, kind, index)
+                          for layer, kind, index in sig.events}
+            if not sig_events.issubset(events):
                 continue
             price = sig.log_odds_cost(p_gate, p_readout, p_reset, p_prep)
-            if price < touched(sig.events):
+            if price < touched(sig_events):
                 candidates.append((price, sig, t))
         for sig in db.final:
             if not sig.data_x and not sig.data_z:
                 continue
-            if not sig.events_set.issubset(events):
+            sig_events = {(layer + rounds - 1, kind, index)
+                          for layer, kind, index in sig.events}
+            if not sig_events.issubset(events):
                 continue
             price = sig.log_odds_cost(p_gate, p_readout, p_reset, p_prep)
-            if price < touched(sig.events):
+            if price < touched(sig_events):
                 candidates.append((price, sig, rounds))
 
         # ---- two-fault candidates (AD-025) ----
@@ -199,16 +203,20 @@ def decode_correlation_aware(code, rounds: int, p_gate: float,
             # the corruption half of a two-fault history.
             base_sigs = []
             for sig, t in db.translated_mid():
-                if not sig.events_set.issubset(events):
+                sig_events = {(layer + t - 1, kind, index)
+                              for layer, kind, index in sig.events}
+                if not sig_events.issubset(events):
                     continue
                 price = sig.log_odds_cost(p_gate, p_readout, p_reset, p_prep)
-                if price < touched(sig.events):
+                if price < touched(sig_events):
                     base_sigs.append((price, sig, t))
             for sig in db.final:
-                if not sig.events_set.issubset(events):
+                sig_events = {(layer + rounds - 1, kind, index)
+                              for layer, kind, index in sig.events}
+                if not sig_events.issubset(events):
                     continue
                 price = sig.log_odds_cost(p_gate, p_readout, p_reset, p_prep)
-                if price < touched(sig.events):
+                if price < touched(sig_events):
                     base_sigs.append((price, sig, rounds))
             base = sorted(base_sigs, key=lambda c: c[0])[:K_PAIR_BASE]
             for (p1, s1, t1), (p2, s2, t2) in itertools.combinations(base, 2):
@@ -228,12 +236,14 @@ def decode_correlation_aware(code, rounds: int, p_gate: float,
                     data_z=s1.data_z ^ s2.data_z, flagged=False,
                     n_reset=0, n_prep=0, n_gate=0, n_readout=0,
                     example=("PAIR", s1.example, s2.example))
-                if not comb_sig.events_set.issubset(events):
+                combined_events = {(layer + t1 - 1, kind, index)
+                                   for layer, kind, index in comb_sig.events}
+                if not combined_events.issubset(events):
                     continue
                 if not (comb_sig.data_x or comb_sig.data_z):
                     continue
                 price12 = p1 + p2
-                if price12 < touched(set(comb_sig.events)):
+                if price12 < touched(combined_events):
                     pair_candidates.append((price12, comb_sig, t1))
         candidates = candidates + pair_candidates
 

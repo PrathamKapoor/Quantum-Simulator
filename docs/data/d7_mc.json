@@ -1,0 +1,1231 @@
+{
+  "metadata": {
+    "started_utc": "2026-09-17T01:32:58.877646+00:00",
+    "command": [
+      "C:\\Users\\LENOVO\\AppData\\Local\\Microsoft\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\\python.exe",
+      "backend/scripts/d7_study.py",
+      "--phase",
+      "mc",
+      "--trials",
+      "1000",
+      "--output",
+      "docs/data/d7_mc.json"
+    ],
+    "python": "3.13.14 (tags/v3.13.14:fd17997, Jun 10 2026, 13:03:48) [MSC v.1944 64 bit (AMD64)]",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "machine": "AMD64",
+    "packages": {
+      "numpy": "2.5.2",
+      "scipy": "1.17.1"
+    },
+    "git_head": "d76a26c63f47969cf14314f1977bdb5a7a6246db",
+    "source_sha256": {
+      "backend/app/qec/circuit_level.py": "940e6577ca398363d0b940a0ce3c4d8e1838192be0dcbb8a4ea722be175eecfa",
+      "backend/app/qec/circuit_extraction.py": "d306ad1c77ff7a61653f6363600447066c3e504c8184d17d18a1abe6b73b009e",
+      "backend/app/qec/circuit_signatures.py": "78ee87c8d2c56924e196b8758c9c7be9e67f9170d64ffbee9569f744c081173d",
+      "backend/app/qec/correlation_decoder.py": "4416ae96277cdc82a849c9e0b6584bbeaf45c5f5b3d7419d1d1604208cb3e86b",
+      "backend/app/qec/repeated_round.py": "ae7c24c0fece90e7ea21728ebe804225fcf30340018ff64730edaf18cf3e2521",
+      "backend/app/qec/rotated_surface_code.py": "a94b43cafcba5ddcc6967fb30a22e5e31a3f8bd12de2616878a80b70ffb3bd38",
+      "backend/app/qec/matching.py": "c95aaa660c2275d7989e6820ebf2e3c0a6aef5eb9dc1c1773e1dcb0d71511e3a"
+    },
+    "script_sha256": "abf84c5a56d68ee7b448375e8c8041c455828645f69dbfd2917ab23f880fe32d",
+    "rounds": 3,
+    "trials": 1000,
+    "seed": 20260917,
+    "trial_seed_rule": "cell_seed + trial_index * 7919",
+    "scope": "Pauli-error-frame model only; no hardware or threshold inference",
+    "completed_utc": "2026-09-17T01:36:24.858805+00:00",
+    "total_seconds": 205.75406209999346,
+    "sources_unchanged": true
+  },
+  "mc": [
+    {
+      "d": 3,
+      "rounds": 3,
+      "p_gate": 0.001,
+      "p_readout": 0.0,
+      "p_reset": 0.0,
+      "p_prep": 0.0,
+      "trials": 1000,
+      "seed": 20560917,
+      "extraction_model": "baseline_h_cnot_h",
+      "phenomenological": {
+        "logical_failures": 21,
+        "logical_error_rate": 0.021,
+        "ci95": [
+          0.013775634089646441,
+          0.03189053475611568
+        ]
+      },
+      "correlation_aware": {
+        "logical_failures": 11,
+        "logical_error_rate": 0.011,
+        "ci95": [
+          0.006153110089114165,
+          0.01958959672837577
+        ],
+        "signature_attributions": 106,
+        "avg_candidates": 0.875,
+        "decode_seconds": 0.3630500998988282
+      },
+      "correlation_aware_two_fault": {
+        "logical_failures": 12,
+        "logical_error_rate": 0.012,
+        "ci95": [
+          0.006877579092159561,
+          0.020857473928157594
+        ],
+        "pair_attributions": 2
+      },
+      "note": "Paired decoder comparison on identical circuit-level trials (same seeds, same noise sampling). phenomenological = repeated-round MWPM (the milestone control); correlation_aware = the control plus likelihood-priced circuit-fault signature attribution (AD-024). Wilson 95% intervals; no threshold or hardware claims.",
+      "regime": "gate_low",
+      "measured_wall_seconds": 0.8327862999867648,
+      "instrumented_decoder_seconds": {
+        "control": 0.06354939923039638,
+        "correlation": 0.15058230006252415,
+        "two_fault": 0.20753789989976212
+      },
+      "discordant_pairs": {
+        "correlation": {
+          "control_only_fails": 10,
+          "candidate_only_fails": 0,
+          "both_fail": 11,
+          "neither_fails": 979
+        },
+        "two_fault": {
+          "control_only_fails": 10,
+          "candidate_only_fails": 1,
+          "both_fail": 11,
+          "neither_fails": 978
+        }
+      },
+      "decoder_overhead_ratio": {
+        "correlation": 2.369531449331137,
+        "two_fault": 3.2657728068732785
+      },
+      "measurement_note": "DB prebuilt; lazy event/translation initialization may occur in first trial. Original correlation_aware.decode_seconds combines single and two-fault calls; use instrumented split times."
+    },
+    {
+      "d": 3,
+      "rounds": 3,
+      "p_gate": 0.001,
+      "p_readout": 0.001,
+      "p_reset": 0.001,
+      "p_prep": 0.001,
+      "trials": 1000,
+      "seed": 20570917,
+      "extraction_model": "baseline_h_cnot_h",
+      "phenomenological": {
+        "logical_failures": 21,
+        "logical_error_rate": 0.021,
+        "ci95": [
+          0.013775634089646441,
+          0.03189053475611568
+        ]
+      },
+      "correlation_aware": {
+        "logical_failures": 16,
+        "logical_error_rate": 0.016,
+        "ci95": [
+          0.009872155867426248,
+          0.02583228196419978
+        ],
+        "signature_attributions": 140,
+        "avg_candidates": 1.083,
+        "decode_seconds": 0.38175619961111806
+      },
+      "correlation_aware_two_fault": {
+        "logical_failures": 16,
+        "logical_error_rate": 0.016,
+        "ci95": [
+          0.009872155867426248,
+          0.02583228196419978
+        ],
+        "pair_attributions": 4
+      },
+      "note": "Paired decoder comparison on identical circuit-level trials (same seeds, same noise sampling). phenomenological = repeated-round MWPM (the milestone control); correlation_aware = the control plus likelihood-priced circuit-fault signature attribution (AD-024). Wilson 95% intervals; no threshold or hardware claims.",
+      "regime": "combined_low",
+      "measured_wall_seconds": 0.8870941999775823,
+      "instrumented_decoder_seconds": {
+        "control": 0.06396409994340502,
+        "correlation": 0.15200629984610714,
+        "two_fault": 0.22518199976184405
+      },
+      "discordant_pairs": {
+        "correlation": {
+          "control_only_fails": 5,
+          "candidate_only_fails": 0,
+          "both_fail": 16,
+          "neither_fails": 979
+        },
+        "two_fault": {
+          "control_only_fails": 5,
+          "candidate_only_fails": 0,
+          "both_fail": 16,
+          "neither_fails": 979
+        }
+      },
+      "decoder_overhead_ratio": {
+        "correlation": 2.3764314667227593,
+        "two_fault": 3.5204434981666823
+      },
+      "measurement_note": "DB prebuilt; lazy event/translation initialization may occur in first trial. Original correlation_aware.decode_seconds combines single and two-fault calls; use instrumented split times."
+    },
+    {
+      "d": 3,
+      "rounds": 3,
+      "p_gate": 0.005,
+      "p_readout": 0.005,
+      "p_reset": 0.003,
+      "p_prep": 0.003,
+      "trials": 1000,
+      "seed": 20580917,
+      "extraction_model": "baseline_h_cnot_h",
+      "phenomenological": {
+        "logical_failures": 117,
+        "logical_error_rate": 0.117,
+        "ci95": [
+          0.09852807434893382,
+          0.13840332996824137
+        ]
+      },
+      "correlation_aware": {
+        "logical_failures": 89,
+        "logical_error_rate": 0.089,
+        "ci95": [
+          0.0728879752136599,
+          0.10825773542435312
+        ],
+        "signature_attributions": 580,
+        "avg_candidates": 4.195,
+        "decode_seconds": 1.9166457998217084
+      },
+      "correlation_aware_two_fault": {
+        "logical_failures": 90,
+        "logical_error_rate": 0.09,
+        "ci95": [
+          0.07379587888497004,
+          0.10934217795587022
+        ],
+        "pair_attributions": 71
+      },
+      "note": "Paired decoder comparison on identical circuit-level trials (same seeds, same noise sampling). phenomenological = repeated-round MWPM (the milestone control); correlation_aware = the control plus likelihood-priced circuit-fault signature attribution (AD-024). Wilson 95% intervals; no threshold or hardware claims.",
+      "regime": "combined_mid",
+      "measured_wall_seconds": 2.645007600018289,
+      "instrumented_decoder_seconds": {
+        "control": 0.11236939922673628,
+        "correlation": 0.736709099408472,
+        "two_fault": 1.1715390000317711
+      },
+      "discordant_pairs": {
+        "correlation": {
+          "control_only_fails": 31,
+          "candidate_only_fails": 3,
+          "both_fail": 86,
+          "neither_fails": 880
+        },
+        "two_fault": {
+          "control_only_fails": 32,
+          "candidate_only_fails": 5,
+          "both_fail": 85,
+          "neither_fails": 878
+        }
+      },
+      "decoder_overhead_ratio": {
+        "correlation": 6.556136318945321,
+        "two_fault": 10.425783247873985
+      },
+      "measurement_note": "DB prebuilt; lazy event/translation initialization may occur in first trial. Original correlation_aware.decode_seconds combines single and two-fault calls; use instrumented split times."
+    },
+    {
+      "d": 5,
+      "rounds": 3,
+      "p_gate": 0.001,
+      "p_readout": 0.0,
+      "p_reset": 0.0,
+      "p_prep": 0.0,
+      "trials": 1000,
+      "seed": 20760917,
+      "extraction_model": "baseline_h_cnot_h",
+      "phenomenological": {
+        "logical_failures": 51,
+        "logical_error_rate": 0.051,
+        "ci95": [
+          0.03900075064262791,
+          0.06643580428795079
+        ]
+      },
+      "correlation_aware": {
+        "logical_failures": 36,
+        "logical_error_rate": 0.036,
+        "ci95": [
+          0.026115418024352906,
+          0.0494359438638175
+        ],
+        "signature_attributions": 305,
+        "avg_candidates": 2.44,
+        "decode_seconds": 3.023262600065209
+      },
+      "correlation_aware_two_fault": {
+        "logical_failures": 38,
+        "logical_error_rate": 0.038,
+        "ci95": [
+          0.027808845539615407,
+          0.05172720875420944
+        ],
+        "pair_attributions": 24
+      },
+      "note": "Paired decoder comparison on identical circuit-level trials (same seeds, same noise sampling). phenomenological = repeated-round MWPM (the milestone control); correlation_aware = the control plus likelihood-priced circuit-fault signature attribution (AD-024). Wilson 95% intervals; no threshold or hardware claims.",
+      "regime": "gate_low",
+      "measured_wall_seconds": 4.784679299977142,
+      "instrumented_decoder_seconds": {
+        "control": 0.2258655999903567,
+        "correlation": 1.1853587997029535,
+        "two_fault": 1.8290742998360656
+      },
+      "discordant_pairs": {
+        "correlation": {
+          "control_only_fails": 17,
+          "candidate_only_fails": 2,
+          "both_fail": 34,
+          "neither_fails": 947
+        },
+        "two_fault": {
+          "control_only_fails": 17,
+          "candidate_only_fails": 4,
+          "both_fail": 34,
+          "neither_fails": 945
+        }
+      },
+      "decoder_overhead_ratio": {
+        "correlation": 5.248071418372529,
+        "two_fault": 8.098064955062469
+      },
+      "measurement_note": "DB prebuilt; lazy event/translation initialization may occur in first trial. Original correlation_aware.decode_seconds combines single and two-fault calls; use instrumented split times."
+    },
+    {
+      "d": 5,
+      "rounds": 3,
+      "p_gate": 0.001,
+      "p_readout": 0.001,
+      "p_reset": 0.001,
+      "p_prep": 0.001,
+      "trials": 1000,
+      "seed": 20770917,
+      "extraction_model": "baseline_h_cnot_h",
+      "phenomenological": {
+        "logical_failures": 59,
+        "logical_error_rate": 0.059,
+        "ci95": [
+          0.04601408784574914,
+          0.07536123670744732
+        ]
+      },
+      "correlation_aware": {
+        "logical_failures": 34,
+        "logical_error_rate": 0.034,
+        "ci95": [
+          0.024431201022401962,
+          0.04713546846011402
+        ],
+        "signature_attributions": 411,
+        "avg_candidates": 3.175,
+        "decode_seconds": 3.956621899822494
+      },
+      "correlation_aware_two_fault": {
+        "logical_failures": 31,
+        "logical_error_rate": 0.031,
+        "ci95": [
+          0.02192386473850233,
+          0.04366576613553198
+        ],
+        "pair_attributions": 37
+      },
+      "note": "Paired decoder comparison on identical circuit-level trials (same seeds, same noise sampling). phenomenological = repeated-round MWPM (the milestone control); correlation_aware = the control plus likelihood-priced circuit-fault signature attribution (AD-024). Wilson 95% intervals; no threshold or hardware claims.",
+      "regime": "combined_low",
+      "measured_wall_seconds": 5.9913707000087015,
+      "instrumented_decoder_seconds": {
+        "control": 0.2474635003018193,
+        "correlation": 1.5336872003390454,
+        "two_fault": 2.4125920998340007
+      },
+      "discordant_pairs": {
+        "correlation": {
+          "control_only_fails": 25,
+          "candidate_only_fails": 0,
+          "both_fail": 34,
+          "neither_fails": 941
+        },
+        "two_fault": {
+          "control_only_fails": 29,
+          "candidate_only_fails": 1,
+          "both_fail": 30,
+          "neither_fails": 940
+        }
+      },
+      "decoder_overhead_ratio": {
+        "correlation": 6.197629947319427,
+        "two_fault": 9.749284629415968
+      },
+      "measurement_note": "DB prebuilt; lazy event/translation initialization may occur in first trial. Original correlation_aware.decode_seconds combines single and two-fault calls; use instrumented split times."
+    },
+    {
+      "d": 5,
+      "rounds": 3,
+      "p_gate": 0.005,
+      "p_readout": 0.005,
+      "p_reset": 0.003,
+      "p_prep": 0.003,
+      "trials": 1000,
+      "seed": 20780917,
+      "extraction_model": "baseline_h_cnot_h",
+      "phenomenological": {
+        "logical_failures": 224,
+        "logical_error_rate": 0.224,
+        "ci95": [
+          0.1992430020288567,
+          0.25086944599083094
+        ]
+      },
+      "correlation_aware": {
+        "logical_failures": 190,
+        "logical_error_rate": 0.19,
+        "ci95": [
+          0.16688886767222819,
+          0.21548380945133397
+        ],
+        "signature_attributions": 942,
+        "avg_candidates": 7.158,
+        "decode_seconds": 11.165443599864375
+      },
+      "correlation_aware_two_fault": {
+        "logical_failures": 189,
+        "logical_error_rate": 0.189,
+        "ci95": [
+          0.1659414607063728,
+          0.21443887021436217
+        ],
+        "pair_attributions": 232
+      },
+      "note": "Paired decoder comparison on identical circuit-level trials (same seeds, same noise sampling). phenomenological = repeated-round MWPM (the milestone control); correlation_aware = the control plus likelihood-priced circuit-fault signature attribution (AD-024). Wilson 95% intervals; no threshold or hardware claims.",
+      "regime": "combined_mid",
+      "measured_wall_seconds": 13.30087390000699,
+      "instrumented_decoder_seconds": {
+        "control": 0.36691509932279587,
+        "correlation": 4.594959300389746,
+        "two_fault": 6.556036599999061
+      },
+      "discordant_pairs": {
+        "correlation": {
+          "control_only_fails": 37,
+          "candidate_only_fails": 3,
+          "both_fail": 187,
+          "neither_fails": 773
+        },
+        "two_fault": {
+          "control_only_fails": 42,
+          "candidate_only_fails": 7,
+          "both_fail": 182,
+          "neither_fails": 769
+        }
+      },
+      "decoder_overhead_ratio": {
+        "correlation": 12.523222153763975,
+        "two_fault": 17.867993473420253
+      },
+      "measurement_note": "DB prebuilt; lazy event/translation initialization may occur in first trial. Original correlation_aware.decode_seconds combines single and two-fault calls; use instrumented split times."
+    },
+    {
+      "d": 7,
+      "rounds": 3,
+      "p_gate": 0.001,
+      "p_readout": 0.0,
+      "p_reset": 0.0,
+      "p_prep": 0.0,
+      "trials": 1000,
+      "seed": 20960917,
+      "extraction_model": "baseline_h_cnot_h",
+      "phenomenological": {
+        "logical_failures": 97,
+        "logical_error_rate": 0.097,
+        "ci95": [
+          0.08016887955855043,
+          0.11691560070208037
+        ]
+      },
+      "correlation_aware": {
+        "logical_failures": 60,
+        "logical_error_rate": 0.06,
+        "ci95": [
+          0.046896260125365796,
+          0.07647141063065788
+        ],
+        "signature_attributions": 539,
+        "avg_candidates": 4.142,
+        "decode_seconds": 9.51967169920681
+      },
+      "correlation_aware_two_fault": {
+        "logical_failures": 57,
+        "logical_error_rate": 0.057,
+        "ci95": [
+          0.04425323441955428,
+          0.07313739772798773
+        ],
+        "pair_attributions": 61
+      },
+      "note": "Paired decoder comparison on identical circuit-level trials (same seeds, same noise sampling). phenomenological = repeated-round MWPM (the milestone control); correlation_aware = the control plus likelihood-priced circuit-fault signature attribution (AD-024). Wilson 95% intervals; no threshold or hardware claims.",
+      "regime": "gate_low",
+      "measured_wall_seconds": 12.782412700005807,
+      "instrumented_decoder_seconds": {
+        "control": 0.5371675002097618,
+        "correlation": 3.8254069999966305,
+        "two_fault": 5.68329600058496
+      },
+      "discordant_pairs": {
+        "correlation": {
+          "control_only_fails": 40,
+          "candidate_only_fails": 3,
+          "both_fail": 57,
+          "neither_fails": 900
+        },
+        "two_fault": {
+          "control_only_fails": 45,
+          "candidate_only_fails": 5,
+          "both_fail": 52,
+          "neither_fails": 898
+        }
+      },
+      "decoder_overhead_ratio": {
+        "correlation": 7.121441633201607,
+        "two_fault": 10.580118861185115
+      },
+      "measurement_note": "DB prebuilt; lazy event/translation initialization may occur in first trial. Original correlation_aware.decode_seconds combines single and two-fault calls; use instrumented split times."
+    },
+    {
+      "d": 7,
+      "rounds": 3,
+      "p_gate": 0.001,
+      "p_readout": 0.001,
+      "p_reset": 0.001,
+      "p_prep": 0.001,
+      "trials": 1000,
+      "seed": 20970917,
+      "extraction_model": "baseline_h_cnot_h",
+      "phenomenological": {
+        "logical_failures": 101,
+        "logical_error_rate": 0.101,
+        "ci95": [
+          0.08382372191011535,
+          0.12123014316182433
+        ]
+      },
+      "correlation_aware": {
+        "logical_failures": 64,
+        "logical_error_rate": 0.064,
+        "ci95": [
+          0.05043597980625934,
+          0.08090107576107321
+        ],
+        "signature_attributions": 631,
+        "avg_candidates": 4.768,
+        "decode_seconds": 12.485393500101054
+      },
+      "correlation_aware_two_fault": {
+        "logical_failures": 65,
+        "logical_error_rate": 0.065,
+        "ci95": [
+          0.05132354738787931,
+          0.08200585438228047
+        ],
+        "pair_attributions": 92
+      },
+      "note": "Paired decoder comparison on identical circuit-level trials (same seeds, same noise sampling). phenomenological = repeated-round MWPM (the milestone control); correlation_aware = the control plus likelihood-priced circuit-fault signature attribution (AD-024). Wilson 95% intervals; no threshold or hardware claims.",
+      "regime": "combined_low",
+      "measured_wall_seconds": 16.38669720001053,
+      "instrumented_decoder_seconds": {
+        "control": 0.6079451997065917,
+        "correlation": 5.008685700304341,
+        "two_fault": 7.464218400273239
+      },
+      "discordant_pairs": {
+        "correlation": {
+          "control_only_fails": 38,
+          "candidate_only_fails": 1,
+          "both_fail": 63,
+          "neither_fails": 898
+        },
+        "two_fault": {
+          "control_only_fails": 40,
+          "candidate_only_fails": 4,
+          "both_fail": 61,
+          "neither_fails": 895
+        }
+      },
+      "decoder_overhead_ratio": {
+        "correlation": 8.238712473955955,
+        "two_fault": 12.277781622217994
+      },
+      "measurement_note": "DB prebuilt; lazy event/translation initialization may occur in first trial. Original correlation_aware.decode_seconds combines single and two-fault calls; use instrumented split times."
+    },
+    {
+      "d": 7,
+      "rounds": 3,
+      "p_gate": 0.005,
+      "p_readout": 0.005,
+      "p_reset": 0.003,
+      "p_prep": 0.003,
+      "trials": 1000,
+      "seed": 20980917,
+      "extraction_model": "baseline_h_cnot_h",
+      "phenomenological": {
+        "logical_failures": 349,
+        "logical_error_rate": 0.349,
+        "ci95": [
+          0.32008546510610214,
+          0.3790702582669878
+        ]
+      },
+      "correlation_aware": {
+        "logical_failures": 340,
+        "logical_error_rate": 0.34,
+        "ci95": [
+          0.31130136795291313,
+          0.369923239594732
+        ],
+        "signature_attributions": 994,
+        "avg_candidates": 7.881,
+        "decode_seconds": 30.069900999689708
+      },
+      "correlation_aware_two_fault": {
+        "logical_failures": 340,
+        "logical_error_rate": 0.34,
+        "ci95": [
+          0.31130136795291313,
+          0.369923239594732
+        ],
+        "pair_attributions": 194
+      },
+      "note": "Paired decoder comparison on identical circuit-level trials (same seeds, same noise sampling). phenomenological = repeated-round MWPM (the milestone control); correlation_aware = the control plus likelihood-priced circuit-fault signature attribution (AD-024). Wilson 95% intervals; no threshold or hardware claims.",
+      "regime": "combined_mid",
+      "measured_wall_seconds": 34.31991809999454,
+      "instrumented_decoder_seconds": {
+        "control": 1.0476042997615878,
+        "correlation": 13.102221200999338,
+        "two_fault": 16.949743599252542
+      },
+      "discordant_pairs": {
+        "correlation": {
+          "control_only_fails": 13,
+          "candidate_only_fails": 4,
+          "both_fail": 336,
+          "neither_fails": 647
+        },
+        "two_fault": {
+          "control_only_fails": 15,
+          "candidate_only_fails": 6,
+          "both_fail": 334,
+          "neither_fails": 645
+        }
+      },
+      "decoder_overhead_ratio": {
+        "correlation": 12.506841756931623,
+        "two_fault": 16.17952847569444
+      },
+      "measurement_note": "DB prebuilt; lazy event/translation initialization may occur in first trial. Original correlation_aware.decode_seconds combines single and two-fault calls; use instrumented split times."
+    },
+    {
+      "d": 3,
+      "rounds": 3,
+      "p_gate": 0.001,
+      "p_readout": 0.0,
+      "p_reset": 0.0,
+      "p_prep": 0.0,
+      "trials": 1000,
+      "seed": 20560917,
+      "extraction_model": "fitted_pair",
+      "phenomenological": {
+        "logical_failures": 24,
+        "logical_error_rate": 0.024,
+        "ci95": [
+          0.016180052367186296,
+          0.03546315508705749
+        ]
+      },
+      "correlation_aware": {
+        "logical_failures": 10,
+        "logical_error_rate": 0.01,
+        "ci95": [
+          0.005440695309270557,
+          0.01830966530539216
+        ],
+        "signature_attributions": 115,
+        "avg_candidates": 0.907,
+        "decode_seconds": 0.5241127005137969
+      },
+      "correlation_aware_two_fault": {
+        "logical_failures": 11,
+        "logical_error_rate": 0.011,
+        "ci95": [
+          0.006153110089114165,
+          0.01958959672837577
+        ],
+        "pair_attributions": 3
+      },
+      "note": "Paired decoder comparison on identical circuit-level trials (same seeds, same noise sampling). phenomenological = repeated-round MWPM (the milestone control); correlation_aware = the control plus likelihood-priced circuit-fault signature attribution (AD-024). Wilson 95% intervals; no threshold or hardware claims.",
+      "regime": "gate_low",
+      "measured_wall_seconds": 1.3861964000097942,
+      "instrumented_decoder_seconds": {
+        "control": 0.08740299972123466,
+        "correlation": 0.21555489959428087,
+        "two_fault": 0.3022220008133445
+      },
+      "discordant_pairs": {
+        "correlation": {
+          "control_only_fails": 14,
+          "candidate_only_fails": 0,
+          "both_fail": 10,
+          "neither_fails": 976
+        },
+        "two_fault": {
+          "control_only_fails": 14,
+          "candidate_only_fails": 1,
+          "both_fail": 10,
+          "neither_fails": 975
+        }
+      },
+      "decoder_overhead_ratio": {
+        "correlation": 2.466218554074541,
+        "two_fault": 3.4577989517208674
+      },
+      "measurement_note": "DB prebuilt; lazy event/translation initialization may occur in first trial. Original correlation_aware.decode_seconds combines single and two-fault calls; use instrumented split times."
+    },
+    {
+      "d": 3,
+      "rounds": 3,
+      "p_gate": 0.001,
+      "p_readout": 0.001,
+      "p_reset": 0.001,
+      "p_prep": 0.001,
+      "trials": 1000,
+      "seed": 20570917,
+      "extraction_model": "fitted_pair",
+      "phenomenological": {
+        "logical_failures": 37,
+        "logical_error_rate": 0.037,
+        "ci95": [
+          0.02696102468045289,
+          0.05058268341054474
+        ]
+      },
+      "correlation_aware": {
+        "logical_failures": 25,
+        "logical_error_rate": 0.025,
+        "ci95": [
+          0.016990011790561223,
+          0.036645541866509784
+        ],
+        "signature_attributions": 132,
+        "avg_candidates": 1.356,
+        "decode_seconds": 0.6698387002688833
+      },
+      "correlation_aware_two_fault": {
+        "logical_failures": 25,
+        "logical_error_rate": 0.025,
+        "ci95": [
+          0.016990011790561223,
+          0.036645541866509784
+        ],
+        "pair_attributions": 3
+      },
+      "note": "Paired decoder comparison on identical circuit-level trials (same seeds, same noise sampling). phenomenological = repeated-round MWPM (the milestone control); correlation_aware = the control plus likelihood-priced circuit-fault signature attribution (AD-024). Wilson 95% intervals; no threshold or hardware claims.",
+      "regime": "combined_low",
+      "measured_wall_seconds": 1.6597861999762245,
+      "instrumented_decoder_seconds": {
+        "control": 0.0909823997062631,
+        "correlation": 0.26846210021176375,
+        "two_fault": 0.39421079988824204
+      },
+      "discordant_pairs": {
+        "correlation": {
+          "control_only_fails": 26,
+          "candidate_only_fails": 14,
+          "both_fail": 11,
+          "neither_fails": 949
+        },
+        "two_fault": {
+          "control_only_fails": 26,
+          "candidate_only_fails": 14,
+          "both_fail": 11,
+          "neither_fails": 949
+        }
+      },
+      "decoder_overhead_ratio": {
+        "correlation": 2.9507036644284423,
+        "two_fault": 4.332824822833346
+      },
+      "measurement_note": "DB prebuilt; lazy event/translation initialization may occur in first trial. Original correlation_aware.decode_seconds combines single and two-fault calls; use instrumented split times."
+    },
+    {
+      "d": 3,
+      "rounds": 3,
+      "p_gate": 0.005,
+      "p_readout": 0.005,
+      "p_reset": 0.003,
+      "p_prep": 0.003,
+      "trials": 1000,
+      "seed": 20580917,
+      "extraction_model": "fitted_pair",
+      "phenomenological": {
+        "logical_failures": 161,
+        "logical_error_rate": 0.161,
+        "ci95": [
+          0.13952416184016234,
+          0.1850704754014105
+        ]
+      },
+      "correlation_aware": {
+        "logical_failures": 154,
+        "logical_error_rate": 0.154,
+        "ci95": [
+          0.1329558947664042,
+          0.17769231905537805
+        ],
+        "signature_attributions": 525,
+        "avg_candidates": 4.603,
+        "decode_seconds": 2.2225433002167847
+      },
+      "correlation_aware_two_fault": {
+        "logical_failures": 150,
+        "logical_error_rate": 0.15,
+        "ci95": [
+          0.1292097149821607,
+          0.1734691140283127
+        ],
+        "pair_attributions": 55
+      },
+      "note": "Paired decoder comparison on identical circuit-level trials (same seeds, same noise sampling). phenomenological = repeated-round MWPM (the milestone control); correlation_aware = the control plus likelihood-priced circuit-fault signature attribution (AD-024). Wilson 95% intervals; no threshold or hardware claims.",
+      "regime": "combined_mid",
+      "measured_wall_seconds": 3.2534488999808673,
+      "instrumented_decoder_seconds": {
+        "control": 0.12452500051585957,
+        "correlation": 0.8781290996412281,
+        "two_fault": 1.3357296002504881
+      },
+      "discordant_pairs": {
+        "correlation": {
+          "control_only_fails": 84,
+          "candidate_only_fails": 77,
+          "both_fail": 77,
+          "neither_fails": 762
+        },
+        "two_fault": {
+          "control_only_fails": 86,
+          "candidate_only_fails": 75,
+          "both_fail": 75,
+          "neither_fails": 764
+        }
+      },
+      "decoder_overhead_ratio": {
+        "correlation": 7.05182972096747,
+        "two_fault": 10.726597829488616
+      },
+      "measurement_note": "DB prebuilt; lazy event/translation initialization may occur in first trial. Original correlation_aware.decode_seconds combines single and two-fault calls; use instrumented split times."
+    },
+    {
+      "d": 5,
+      "rounds": 3,
+      "p_gate": 0.001,
+      "p_readout": 0.0,
+      "p_reset": 0.0,
+      "p_prep": 0.0,
+      "trials": 1000,
+      "seed": 20760917,
+      "extraction_model": "fitted_pair",
+      "phenomenological": {
+        "logical_failures": 49,
+        "logical_error_rate": 0.049,
+        "ci95": [
+          0.03726084730617148,
+          0.06419101521875278
+        ]
+      },
+      "correlation_aware": {
+        "logical_failures": 34,
+        "logical_error_rate": 0.034,
+        "ci95": [
+          0.024431201022401962,
+          0.04713546846011402
+        ],
+        "signature_attributions": 344,
+        "avg_candidates": 2.509,
+        "decode_seconds": 3.0119610003894195
+      },
+      "correlation_aware_two_fault": {
+        "logical_failures": 34,
+        "logical_error_rate": 0.034,
+        "ci95": [
+          0.024431201022401962,
+          0.04713546846011402
+        ],
+        "pair_attributions": 32
+      },
+      "note": "Paired decoder comparison on identical circuit-level trials (same seeds, same noise sampling). phenomenological = repeated-round MWPM (the milestone control); correlation_aware = the control plus likelihood-priced circuit-fault signature attribution (AD-024). Wilson 95% intervals; no threshold or hardware claims.",
+      "regime": "gate_low",
+      "measured_wall_seconds": 5.383455700008199,
+      "instrumented_decoder_seconds": {
+        "control": 0.2225985995901283,
+        "correlation": 1.1906479001627304,
+        "two_fault": 1.8124097000691108
+      },
+      "discordant_pairs": {
+        "correlation": {
+          "control_only_fails": 17,
+          "candidate_only_fails": 2,
+          "both_fail": 32,
+          "neither_fails": 949
+        },
+        "two_fault": {
+          "control_only_fails": 19,
+          "candidate_only_fails": 4,
+          "both_fail": 30,
+          "neither_fails": 947
+        }
+      },
+      "decoder_overhead_ratio": {
+        "correlation": 5.3488562028470765,
+        "two_fault": 8.142053469367319
+      },
+      "measurement_note": "DB prebuilt; lazy event/translation initialization may occur in first trial. Original correlation_aware.decode_seconds combines single and two-fault calls; use instrumented split times."
+    },
+    {
+      "d": 5,
+      "rounds": 3,
+      "p_gate": 0.001,
+      "p_readout": 0.001,
+      "p_reset": 0.001,
+      "p_prep": 0.001,
+      "trials": 1000,
+      "seed": 20770917,
+      "extraction_model": "fitted_pair",
+      "phenomenological": {
+        "logical_failures": 58,
+        "logical_error_rate": 0.058,
+        "ci95": [
+          0.045133070071593756,
+          0.07424990827877548
+        ]
+      },
+      "correlation_aware": {
+        "logical_failures": 35,
+        "logical_error_rate": 0.035,
+        "ci95": [
+          0.025272112485012703,
+          0.0482869032003305
+        ],
+        "signature_attributions": 367,
+        "avg_candidates": 3.381,
+        "decode_seconds": 4.270625300210668
+      },
+      "correlation_aware_two_fault": {
+        "logical_failures": 34,
+        "logical_error_rate": 0.034,
+        "ci95": [
+          0.024431201022401962,
+          0.04713546846011402
+        ],
+        "pair_attributions": 38
+      },
+      "note": "Paired decoder comparison on identical circuit-level trials (same seeds, same noise sampling). phenomenological = repeated-round MWPM (the milestone control); correlation_aware = the control plus likelihood-priced circuit-fault signature attribution (AD-024). Wilson 95% intervals; no threshold or hardware claims.",
+      "regime": "combined_low",
+      "measured_wall_seconds": 7.081582300015725,
+      "instrumented_decoder_seconds": {
+        "control": 0.24661129948799498,
+        "correlation": 1.6736186991038267,
+        "two_fault": 2.5870714998454787
+      },
+      "discordant_pairs": {
+        "correlation": {
+          "control_only_fails": 25,
+          "candidate_only_fails": 2,
+          "both_fail": 33,
+          "neither_fails": 940
+        },
+        "two_fault": {
+          "control_only_fails": 26,
+          "candidate_only_fails": 2,
+          "both_fail": 32,
+          "neither_fails": 940
+        }
+      },
+      "decoder_overhead_ratio": {
+        "correlation": 6.78646397216401,
+        "two_fault": 10.490482411862953
+      },
+      "measurement_note": "DB prebuilt; lazy event/translation initialization may occur in first trial. Original correlation_aware.decode_seconds combines single and two-fault calls; use instrumented split times."
+    },
+    {
+      "d": 5,
+      "rounds": 3,
+      "p_gate": 0.005,
+      "p_readout": 0.005,
+      "p_reset": 0.003,
+      "p_prep": 0.003,
+      "trials": 1000,
+      "seed": 20780917,
+      "extraction_model": "fitted_pair",
+      "phenomenological": {
+        "logical_failures": 259,
+        "logical_error_rate": 0.259,
+        "ci95": [
+          0.23280577181548165,
+          0.2870387933031586
+        ]
+      },
+      "correlation_aware": {
+        "logical_failures": 242,
+        "logical_error_rate": 0.242,
+        "ci95": [
+          0.2164738374441772,
+          0.26950084222640036
+        ],
+        "signature_attributions": 866,
+        "avg_candidates": 7.338,
+        "decode_seconds": 12.03744410048239
+      },
+      "correlation_aware_two_fault": {
+        "logical_failures": 239,
+        "logical_error_rate": 0.239,
+        "ci95": [
+          0.21359749233628916,
+          0.2664001487258067
+        ],
+        "pair_attributions": 185
+      },
+      "note": "Paired decoder comparison on identical circuit-level trials (same seeds, same noise sampling). phenomenological = repeated-round MWPM (the milestone control); correlation_aware = the control plus likelihood-priced circuit-fault signature attribution (AD-024). Wilson 95% intervals; no threshold or hardware claims.",
+      "regime": "combined_mid",
+      "measured_wall_seconds": 14.982808400003705,
+      "instrumented_decoder_seconds": {
+        "control": 0.39663419997668825,
+        "correlation": 4.92087019974133,
+        "two_fault": 7.101865000382531
+      },
+      "discordant_pairs": {
+        "correlation": {
+          "control_only_fails": 38,
+          "candidate_only_fails": 21,
+          "both_fail": 221,
+          "neither_fails": 720
+        },
+        "two_fault": {
+          "control_only_fails": 43,
+          "candidate_only_fails": 23,
+          "both_fail": 216,
+          "neither_fails": 718
+        }
+      },
+      "decoder_overhead_ratio": {
+        "correlation": 12.406570588291551,
+        "two_fault": 17.905326874989438
+      },
+      "measurement_note": "DB prebuilt; lazy event/translation initialization may occur in first trial. Original correlation_aware.decode_seconds combines single and two-fault calls; use instrumented split times."
+    },
+    {
+      "d": 7,
+      "rounds": 3,
+      "p_gate": 0.001,
+      "p_readout": 0.0,
+      "p_reset": 0.0,
+      "p_prep": 0.0,
+      "trials": 1000,
+      "seed": 20960917,
+      "extraction_model": "fitted_pair",
+      "phenomenological": {
+        "logical_failures": 103,
+        "logical_error_rate": 0.103,
+        "ci95": [
+          0.08565451806760464,
+          0.12338403940998945
+        ]
+      },
+      "correlation_aware": {
+        "logical_failures": 65,
+        "logical_error_rate": 0.065,
+        "ci95": [
+          0.05132354738787931,
+          0.08200585438228047
+        ],
+        "signature_attributions": 573,
+        "avg_candidates": 4.201,
+        "decode_seconds": 10.026874500123085
+      },
+      "correlation_aware_two_fault": {
+        "logical_failures": 58,
+        "logical_error_rate": 0.058,
+        "ci95": [
+          0.045133070071593756,
+          0.07424990827877548
+        ],
+        "pair_attributions": 70
+      },
+      "note": "Paired decoder comparison on identical circuit-level trials (same seeds, same noise sampling). phenomenological = repeated-round MWPM (the milestone control); correlation_aware = the control plus likelihood-priced circuit-fault signature attribution (AD-024). Wilson 95% intervals; no threshold or hardware claims.",
+      "regime": "gate_low",
+      "measured_wall_seconds": 14.784590399998706,
+      "instrumented_decoder_seconds": {
+        "control": 0.5740652003150899,
+        "correlation": 4.061869399214629,
+        "two_fault": 5.952703699818812
+      },
+      "discordant_pairs": {
+        "correlation": {
+          "control_only_fails": 43,
+          "candidate_only_fails": 5,
+          "both_fail": 60,
+          "neither_fails": 892
+        },
+        "two_fault": {
+          "control_only_fails": 51,
+          "candidate_only_fails": 6,
+          "both_fail": 52,
+          "neither_fails": 891
+        }
+      },
+      "decoder_overhead_ratio": {
+        "correlation": 7.075623808907371,
+        "two_fault": 10.369386084632065
+      },
+      "measurement_note": "DB prebuilt; lazy event/translation initialization may occur in first trial. Original correlation_aware.decode_seconds combines single and two-fault calls; use instrumented split times."
+    },
+    {
+      "d": 7,
+      "rounds": 3,
+      "p_gate": 0.001,
+      "p_readout": 0.001,
+      "p_reset": 0.001,
+      "p_prep": 0.001,
+      "trials": 1000,
+      "seed": 20970917,
+      "extraction_model": "fitted_pair",
+      "phenomenological": {
+        "logical_failures": 112,
+        "logical_error_rate": 0.112,
+        "ci95": [
+          0.09391923505867933,
+          0.13305043824435975
+        ]
+      },
+      "correlation_aware": {
+        "logical_failures": 80,
+        "logical_error_rate": 0.08,
+        "ci95": [
+          0.06474778552394919,
+          0.09846680928861887
+        ],
+        "signature_attributions": 626,
+        "avg_candidates": 5.297,
+        "decode_seconds": 14.030536800069967
+      },
+      "correlation_aware_two_fault": {
+        "logical_failures": 82,
+        "logical_error_rate": 0.082,
+        "ci95": [
+          0.06655169717368087,
+          0.10064759004454163
+        ],
+        "pair_attributions": 115
+      },
+      "note": "Paired decoder comparison on identical circuit-level trials (same seeds, same noise sampling). phenomenological = repeated-round MWPM (the milestone control); correlation_aware = the control plus likelihood-priced circuit-fault signature attribution (AD-024). Wilson 95% intervals; no threshold or hardware claims.",
+      "regime": "combined_low",
+      "measured_wall_seconds": 19.57438939998974,
+      "instrumented_decoder_seconds": {
+        "control": 0.6498355998191983,
+        "correlation": 5.5977189002151135,
+        "two_fault": 8.419312200654531
+      },
+      "discordant_pairs": {
+        "correlation": {
+          "control_only_fails": 32,
+          "candidate_only_fails": 0,
+          "both_fail": 80,
+          "neither_fails": 888
+        },
+        "two_fault": {
+          "control_only_fails": 33,
+          "candidate_only_fails": 3,
+          "both_fail": 79,
+          "neither_fails": 885
+        }
+      },
+      "decoder_overhead_ratio": {
+        "correlation": 8.614053926520107,
+        "two_fault": 12.956064892408188
+      },
+      "measurement_note": "DB prebuilt; lazy event/translation initialization may occur in first trial. Original correlation_aware.decode_seconds combines single and two-fault calls; use instrumented split times."
+    },
+    {
+      "d": 7,
+      "rounds": 3,
+      "p_gate": 0.005,
+      "p_readout": 0.005,
+      "p_reset": 0.003,
+      "p_prep": 0.003,
+      "trials": 1000,
+      "seed": 20980917,
+      "extraction_model": "fitted_pair",
+      "phenomenological": {
+        "logical_failures": 386,
+        "logical_error_rate": 0.386,
+        "ci95": [
+          0.3563168275168739,
+          0.4165557053608233
+        ]
+      },
+      "correlation_aware": {
+        "logical_failures": 383,
+        "logical_error_rate": 0.383,
+        "ci95": [
+          0.3533721971089626,
+          0.4135232971602528
+        ],
+        "signature_attributions": 947,
+        "avg_candidates": 7.95,
+        "decode_seconds": 32.285999799729325
+      },
+      "correlation_aware_two_fault": {
+        "logical_failures": 383,
+        "logical_error_rate": 0.383,
+        "ci95": [
+          0.3533721971089626,
+          0.4135232971602528
+        ],
+        "pair_attributions": 108
+      },
+      "note": "Paired decoder comparison on identical circuit-level trials (same seeds, same noise sampling). phenomenological = repeated-round MWPM (the milestone control); correlation_aware = the control plus likelihood-priced circuit-fault signature attribution (AD-024). Wilson 95% intervals; no threshold or hardware claims.",
+      "regime": "combined_mid",
+      "measured_wall_seconds": 38.485284800000954,
+      "instrumented_decoder_seconds": {
+        "control": 1.2269025003770366,
+        "correlation": 14.367806499794824,
+        "two_fault": 17.8981087001157
+      },
+      "discordant_pairs": {
+        "correlation": {
+          "control_only_fails": 23,
+          "candidate_only_fails": 20,
+          "both_fail": 363,
+          "neither_fails": 594
+        },
+        "two_fault": {
+          "control_only_fails": 24,
+          "candidate_only_fails": 21,
+          "both_fail": 362,
+          "neither_fails": 593
+        }
+      },
+      "decoder_overhead_ratio": {
+        "correlation": 11.71063429684061,
+        "two_fault": 14.588044848401134
+      },
+      "measurement_note": "DB prebuilt; lazy event/translation initialization may occur in first trial. Original correlation_aware.decode_seconds combines single and two-fault calls; use instrumented split times."
+    }
+  ]
+}

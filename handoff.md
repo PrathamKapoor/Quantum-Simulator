@@ -373,3 +373,31 @@ is the operator's decision, not the agent's.
   tractable?), OR a code-family comparison (check-weight-variance
   variants) where fan-in-2 confinement could compound. Neither is
   begun; both are new-milestone-scale.
+
+## 16. Session addendum — 2026-09-17 (current verified state)
+
+- **Commits:** `567764b` fix(book): Grover scan validates exact rotation
+  probabilities (was: sampled-peak validation with hard-coded pass); regression
+  `tests/test_book_grover_scan.py` covers a scan ending before the optimum.
+- **Verification (fresh, this session):** backend **1083 passed** (two runs;
+  durable log `.pytest_full_final.log` corroborates 1083 dots, 0 F/E);
+  Playwright **61 passed (2.1 m)** incl. 9 visual + 10 Book Lab;
+  `npm run build` (tsc -b && vite build) passed; oxlint 0 errors / 10 warnings
+  (pre-existing); targeted suites: preservation 163, process/API workers 34,
+  correlation decoder 31, semantics 3, Grover contracts 7.
+- **Book coverage:** `docs/book_coverage.json` rebuilt (schema v2): 413
+  top-level rows preserved (NOT_STARTED 33 / PRIMITIVE_ONLY 318 / UNVERIFIED 62),
+  563 identified task-output groups + 92 body/figure groups (explicitly
+  non-exhaustive), source-digest provenance, per-entry evidence freshness,
+  source visual/OCR limitations itemized. No whole-book validation claim;
+  prior 97.78% scorecard retracted. **Book Lab exposes 31 experiments.**
+- **D7 research re-run (fresh, verified provenance, `sources_unchanged=true`):**
+  full 4-phase study at 300 trials/cell × 18 cells, seed 20260917, 245.3 s.
+  Correlation-aware ≥ control in 17/18 cells (largest: fitted d3 gate_low
+  7→0); d7 combined_mid statistically indistinguishable (105/106 vs 108);
+  overhead 2.1–12.2× (single) / 2.7–17.6× (two-fault). Data:
+  `docs/data/d7_study_verified.json`; narrative: `docs/D7_SCALING_STUDY.md`
+  (1,000-trial historical tables retained there).
+- **Report:** `docs/QUANTUMLAB_MASTER_COMPLETION_REPORT.md` (29 required
+  sections). Final assessment: **PARTIAL** — remaining book gaps itemized in
+  the report §26; no threshold/fault-tolerance/security claims made.

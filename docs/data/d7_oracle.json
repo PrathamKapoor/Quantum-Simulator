@@ -1,0 +1,145 @@
+{
+  "metadata": {
+    "started_utc": "2026-09-17T01:31:37.751468+00:00",
+    "command": [
+      "C:\\Users\\LENOVO\\AppData\\Local\\Microsoft\\WindowsApps\\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\\python.exe",
+      "backend/scripts/d7_study.py",
+      "--phase",
+      "oracle",
+      "--output",
+      "docs/data/d7_oracle.json"
+    ],
+    "python": "3.13.14 (tags/v3.13.14:fd17997, Jun 10 2026, 13:03:48) [MSC v.1944 64 bit (AMD64)]",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "machine": "AMD64",
+    "packages": {
+      "numpy": "2.5.2",
+      "scipy": "1.17.1"
+    },
+    "git_head": "d76a26c63f47969cf14314f1977bdb5a7a6246db",
+    "source_sha256": {
+      "backend/app/qec/circuit_level.py": "940e6577ca398363d0b940a0ce3c4d8e1838192be0dcbb8a4ea722be175eecfa",
+      "backend/app/qec/circuit_extraction.py": "d306ad1c77ff7a61653f6363600447066c3e504c8184d17d18a1abe6b73b009e",
+      "backend/app/qec/circuit_signatures.py": "78ee87c8d2c56924e196b8758c9c7be9e67f9170d64ffbee9569f744c081173d",
+      "backend/app/qec/correlation_decoder.py": "4416ae96277cdc82a849c9e0b6584bbeaf45c5f5b3d7419d1d1604208cb3e86b",
+      "backend/app/qec/repeated_round.py": "ae7c24c0fece90e7ea21728ebe804225fcf30340018ff64730edaf18cf3e2521",
+      "backend/app/qec/rotated_surface_code.py": "a94b43cafcba5ddcc6967fb30a22e5e31a3f8bd12de2616878a80b70ffb3bd38",
+      "backend/app/qec/matching.py": "c95aaa660c2275d7989e6820ebf2e3c0a6aef5eb9dc1c1773e1dcb0d71511e3a"
+    },
+    "script_sha256": "abf84c5a56d68ee7b448375e8c8041c455828645f69dbfd2917ab23f880fe32d",
+    "rounds": 3,
+    "trials": 300,
+    "seed": 20260917,
+    "trial_seed_rule": "cell_seed + trial_index * 7919",
+    "scope": "Pauli-error-frame model only; no hardware or threshold inference",
+    "completed_utc": "2026-09-17T01:31:38.068082+00:00",
+    "total_seconds": 0.005415799998445436,
+    "sources_unchanged": true
+  },
+  "oracle": {
+    "scope": "One isolated noiseless weight-4 X or Z check using the source's ancilla/reset/H/CNOT/readout structure; exact state-vector branches. Not a full surface-code circuit.",
+    "interpretation": "Same XOR parity distribution does not imply same postmeasurement instrument. Production fitted routine models pair_bits as Pauli-frame flips, not Born measurements of the data state.",
+    "results": [
+      {
+        "kind": "Z",
+        "extraction_model": "baseline_h_cnot_h",
+        "input": "(|0000>+|0101>)/sqrt(2), H on all data for X",
+        "fidelity_to_input": 0.9999999999999997,
+        "purity": 0.9999999999999996,
+        "outcomes": [
+          {
+            "ancilla_bits": "0",
+            "probability": 0.9999999999999998,
+            "xor": 0
+          },
+          {
+            "ancilla_bits": "1",
+            "probability": 0.0,
+            "xor": 1
+          }
+        ],
+        "trace": 0.9999999999999998
+      },
+      {
+        "kind": "Z",
+        "extraction_model": "fitted_pair",
+        "input": "(|0000>+|0101>)/sqrt(2), H on all data for X",
+        "fidelity_to_input": 0.49999999999999983,
+        "purity": 0.4999999999999998,
+        "outcomes": [
+          {
+            "ancilla_bits": "00",
+            "probability": 0.4999999999999999,
+            "xor": 0
+          },
+          {
+            "ancilla_bits": "01",
+            "probability": 0.0,
+            "xor": 1
+          },
+          {
+            "ancilla_bits": "10",
+            "probability": 0.0,
+            "xor": 1
+          },
+          {
+            "ancilla_bits": "11",
+            "probability": 0.4999999999999999,
+            "xor": 0
+          }
+        ],
+        "trace": 0.9999999999999998
+      },
+      {
+        "kind": "X",
+        "extraction_model": "baseline_h_cnot_h",
+        "input": "(|0000>+|0101>)/sqrt(2), H on all data for X",
+        "fidelity_to_input": 0.9999999999999981,
+        "purity": 0.999999999999998,
+        "outcomes": [
+          {
+            "ancilla_bits": "0",
+            "probability": 0.9999999999999989,
+            "xor": 0
+          },
+          {
+            "ancilla_bits": "1",
+            "probability": 0.0,
+            "xor": 1
+          }
+        ],
+        "trace": 0.9999999999999989
+      },
+      {
+        "kind": "X",
+        "extraction_model": "fitted_pair",
+        "input": "(|0000>+|0101>)/sqrt(2), H on all data for X",
+        "fidelity_to_input": 0.4999999999999989,
+        "purity": 0.4999999999999986,
+        "outcomes": [
+          {
+            "ancilla_bits": "00",
+            "probability": 0.4999999999999993,
+            "xor": 0
+          },
+          {
+            "ancilla_bits": "01",
+            "probability": 0.0,
+            "xor": 1
+          },
+          {
+            "ancilla_bits": "10",
+            "probability": 0.0,
+            "xor": 1
+          },
+          {
+            "ancilla_bits": "11",
+            "probability": 0.4999999999999993,
+            "xor": 0
+          }
+        ],
+        "trace": 0.9999999999999986
+      }
+    ]
+  }
+}

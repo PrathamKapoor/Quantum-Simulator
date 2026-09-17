@@ -14,7 +14,7 @@ from app.quantum.density import DensityMatrix
 from app.quantum.states import StateVector, QuantumCoreError
 from app.quantum.qi_tools import (
     bures_distance, entanglement_of_formation, generalized_measure,
-    gram_schmidt, no_cloning_report, partial_transpose, purification,
+    gram_schmidt, helstrom_measurement, no_cloning_report, partial_transpose, purification,
     povm_probabilities, validate_povm)
 from app.quantum.adiabatic import (
     adiabatic_evolution, interpolated_hamiltonian, spectral_gap_curve)
@@ -157,6 +157,87 @@ class TestPOVM:
             generalized_measure(_imax_rho(), [np.eye(2, dtype=complex) * 0.5])
 
 
+
+class TestHelstrom:
+    def test_pure_complex_states_unequal_prior_matches_closed_form(self):
+        ket0 = np.array([1.0, 1j]) / np.sqrt(2)
+        ket1 = np.array([np.sqrt(0.8), np.sqrt(0.2) * np.exp(0.3j)])
+        rho = DensityMatrix.pure(StateVector(ket0, 1))
+        sigma = DensityMatrix.pure(StateVector(ket1, 1))
+        prior = 0.7
+        effects = helstrom_measurement(rho, sigma, prior)
+        overlap_squared = abs(np.vdot(ket0, ket1)) ** 2
+        expected = 0.5 * (1 + np.sqrt(1 - 4 * prior * (1 - prior) * overlap_squared))
+        success = (prior * povm_probabilities(rho, effects)[0]
+                   + (1 - prior) * povm_probabilities(sigma, effects)[1])
+        assert success == pytest.approx(expected, abs=1e-12)
+        assert np.allclose(effects[0] + effects[1], np.eye(2), atol=1e-12)
+        for effect in effects:
+            assert np.allclose(effect, effect.conj().T, atol=1e-12)
+            assert np.linalg.eigvalsh(effect).min() >= -1e-12
+
+    @pytest.mark.parametrize("prior, expected", [
+        (0.0, [0.0, 1.0]), (0.2, [0.0, 1.0]),
+        (0.8, [1.0, 0.0]), (1.0, [1.0, 0.0]),
+    ])
+    def test_identical_states_follow_stronger_prior(self, prior, expected):
+        rho = DensityMatrix.maximally_mixed(1)
+        effects = helstrom_measurement(rho, rho, prior)
+        assert povm_probabilities(rho, effects) == pytest.approx(expected, abs=1e-12)
+
+    def test_equal_identical_states_assign_zero_eigenspace_to_guess_zero(self):
+        rho = DensityMatrix.maximally_mixed(1)
+        effects = helstrom_measurement(rho, rho)
+        assert povm_probabilities(rho, effects) == pytest.approx([1.0, 0.0], abs=1e-12)
+
+    def test_orthogonal_states_perfect_discrimination(self):
+        rho = DensityMatrix(np.diag([1.0, 0.0]), 1)
+        sigma = DensityMatrix(np.diag([0.0, 1.0]), 1)
+        effects = helstrom_measurement(rho, sigma, prior=0.3)
+        assert povm_probabilities(rho, effects) == pytest.approx([1.0, 0.0], abs=1e-12)
+        assert povm_probabilities(sigma, effects) == pytest.approx([0.0, 1.0], abs=1e-12)
+
+    def test_mixed_commuting_states_match_classical_optimum(self):
+        probabilities0 = np.array([0.55, 0.25, 0.15, 0.05])
+        probabilities1 = np.array([0.10, 0.15, 0.25, 0.50])
+        rho = DensityMatrix(np.diag(probabilities0), 2)
+        sigma = DensityMatrix(np.diag(probabilities1), 2)
+        prior = 0.6
+        effects = helstrom_measurement(rho, sigma, prior)
+        expected = np.maximum(prior * probabilities0, (1 - prior) * probabilities1).sum()
+        success = (prior * povm_probabilities(rho, effects)[0]
+                   + (1 - prior) * povm_probabilities(sigma, effects)[1])
+        assert success == pytest.approx(expected, abs=1e-12)
+
+    @pytest.mark.parametrize("prior", [-0.1, 1.1, float("nan"), float("inf"), -float("inf")])
+    def test_invalid_prior_rejected(self, prior):
+        rho = DensityMatrix.maximally_mixed(1)
+        with pytest.raises(QuantumCoreError):
+            helstrom_measurement(rho, rho, prior)
+
+    @pytest.mark.parametrize("invalid_first", [True, False])
+    def test_non_psd_state_rejected(self, invalid_first):
+        invalid = DensityMatrix(np.diag([1.1, -0.1]), 1)
+        valid = DensityMatrix.maximally_mixed(1)
+        rho, sigma = (invalid, valid) if invalid_first else (valid, invalid)
+        with pytest.raises(QuantumCoreError):
+            helstrom_measurement(rho, sigma)
+
+    @pytest.mark.parametrize("invalid_first", [True, False])
+    def test_non_unit_trace_state_rejected(self, invalid_first):
+        # DensityMatrix accepts this trace deviation; the POVM consumer does not.
+        invalid = DensityMatrix(np.diag([0.5002, 0.5]), 1)
+        valid = DensityMatrix.maximally_mixed(1)
+        rho, sigma = (invalid, valid) if invalid_first else (valid, invalid)
+        with pytest.raises(QuantumCoreError):
+            helstrom_measurement(rho, sigma)
+
+    def test_dimension_mismatch_rejected(self):
+        with pytest.raises(QuantumCoreError):
+            helstrom_measurement(DensityMatrix.maximally_mixed(1),
+                                DensityMatrix.maximally_mixed(2))
+
+
 class TestNoCloning:
     def test_superposition_is_not_cloned(self):
         rep = no_cloning_report(1 / np.sqrt(2), 1 / np.sqrt(2))
@@ -258,6 +339,58 @@ class TestGraphStates:
         with pytest.raises(QuantumCoreError):
             stabilizer_report(cluster_state_1d(3), a)
 
+
+
+class TestAdaptiveMBQC:
+    """Equatorial bases implement H Rz(-beta) H Rz(-alpha).
+
+    Graph nodes follow tensor (MSB-first) order, unlike simulator qubits.
+    Every forced branch must implement the same nontrivial unitary.
+    """
+
+    GAMMA1 = 0.4
+    GAMMA2 = 1.1
+
+    def _cluster3(self):
+        adj = np.zeros((3, 3), dtype=int)
+        adj[0, 1] = adj[1, 0] = adj[1, 2] = adj[2, 1] = 1
+        return adj
+
+    def _target(self):
+        h = np.array([[1, 1], [1, -1]], dtype=complex) / np.sqrt(2)
+        phase1 = np.diag([np.exp(0.5j * self.GAMMA1),
+                          np.exp(-0.5j * self.GAMMA1)])
+        phase2 = np.diag([np.exp(0.5j * self.GAMMA2),
+                          np.exp(-0.5j * self.GAMMA2)])
+        return h @ phase2 @ h @ phase1
+
+    def test_both_branches_reproduce_target(self):
+        from app.quantum.graph_states import run_mbqc_pattern
+        alpha = np.exp(0.37j)
+        ket = np.array([np.cos(0.5), np.sin(0.5) * alpha], dtype=complex)
+        ket /= np.linalg.norm(ket)
+        for branch0 in (0, 1):
+            for branch1 in (0, 1):
+                out = run_mbqc_pattern(
+                    self._cluster3(), ket, [self.GAMMA1, self.GAMMA2],
+                    outcomes=[branch0, branch1])
+                target = self._target() @ ket
+                fidelity = abs(np.vdot(target, out["state"].amplitudes)) ** 2
+                assert fidelity == pytest.approx(1.0, abs=1e-9)
+                assert abs(np.vdot(target, ket)) ** 2 < 0.99
+
+    def test_random_branches_still_recover_target(self):
+        from app.quantum.graph_states import run_mbqc_pattern
+        rng = np.random.default_rng(7)
+        ket = np.array([0.6 + 0.2j, 0.5 - 0.4j], dtype=complex)
+        ket /= np.linalg.norm(ket)
+        out = run_mbqc_pattern(self._cluster3(), ket,
+                               [self.GAMMA1, self.GAMMA2], rng=rng)
+        assert out["probabilities"][0] == pytest.approx(0.5, abs=1e-12)
+        assert out["probabilities"][1] == pytest.approx(0.5, abs=1e-12)
+        target = self._target() @ ket
+        fidelity = abs(np.vdot(target, out["state"].amplitudes)) ** 2
+        assert fidelity == pytest.approx(1.0, abs=1e-9)
 
 class TestB92:
     def test_ideal_no_eve_no_errors(self):

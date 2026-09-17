@@ -421,11 +421,8 @@ def run_teleportation(theta: float, phi: float, *, seed: int = 0) -> dict:
     s = np.exp(1j * phi) * np.sin(theta / 2)
     n = 3
 
-    def embed(state3: np.ndarray) -> np.ndarray:
-        return state3
-
     # --- step 0: |q0> on qubit 0, |00> on qubits 1,2 (Bell not yet shared)
-    init = np.array([c, s, 0, 0, 0, 0, 0, 0], dtype=np.complex128)
+    init = np.array([c, 0, 0, 0, s, 0, 0, 0], dtype=np.complex128)
     h = np.array([[1, 1], [1, -1]], dtype=np.complex128) / np.sqrt(2)
     x = np.array([[0, 1], [1, 0]], dtype=np.complex128)
     z = np.array([[1, 0], [0, -1]], dtype=np.complex128)
@@ -463,7 +460,6 @@ def run_teleportation(theta: float, phi: float, *, seed: int = 0) -> dict:
             idx = [i for i in range(8)
                    if format(i, "03b")[0] == str(m1)
                    and format(i, "03b")[1] == str(m2)]
-            post = amplitudes[idx].sum() * 0  # placeholder
             vec = np.zeros(8, dtype=np.complex128)
             for i in idx:
                 vec[i] = amplitudes[i]
@@ -471,14 +467,13 @@ def run_teleportation(theta: float, phi: float, *, seed: int = 0) -> dict:
             if p < 1e-15:
                 continue
             v = vec / np.linalg.norm(vec)
-            # Bob's byproduct correction for THIS circuit: X on qubit 2
-            # iff m2 == 1 (validated numerically below — the outcome map
-            # of this circuit assigns the X role to the second measured
-            # bit; no Z byproduct occurs).
-            b = v.reshape(2, 2, 2)
+            # Tensor order is Alice input, Alice resource, Bob (MSB first).
+            # Bob receives X^m2 Z^m1 |psi>; apply X then Z to undo it.
+            bob = v.reshape(2, 2, 2)[m1, m2, :]
             if m2:
-                b = np.flip(b, axis=2)
-            bob = b[m1, m2, :]
+                bob = x @ bob
+            if m1:
+                bob = z @ bob
             target = np.array([c, s], dtype=np.complex128)
             fid = float(abs(np.vdot(target, bob)) ** 2)
             branches.append({"m1": m1, "m2": m2, "probability": p,
@@ -497,8 +492,8 @@ def run_teleportation(theta: float, phi: float, *, seed: int = 0) -> dict:
         "classical_bits_example": [best["m1"], best["m2"]],
         "teleportation_fidelity": fid_weighted,
         "note": ("Five-step teleportation: shared Bell pair, Alice CNOT, "
-                 "Alice H, Alice Z-basis measurements (both branches "
+                 "Alice H, Alice Z-basis measurements (all four branches "
                  "listed with probabilities), classical communication of "
-                 "2 bits, Bob X^m1 Z^m2 correction. Fidelity computed "
+                 "2 bits, Bob Z^m1 X^m2 correction. Fidelity computed "
                  "against the input state."),
     }

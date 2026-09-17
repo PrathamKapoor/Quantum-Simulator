@@ -21,7 +21,8 @@ from ..quantum.graph_states import (
     graph_state, measure_node_x, stabilizer_report)
 from ..quantum.qi_tools import (
     bures_distance, entanglement_of_formation, generalized_measure,
-    gram_schmidt, no_cloning_report, partial_transpose, povm_probabilities)
+    gram_schmidt, no_cloning_report, partial_transpose, povm_probabilities,
+    purification)
 from ..quantum.states import StateVector
 from ..protocols.b92 import run_b92
 from ..protocols.communication import (
@@ -53,6 +54,8 @@ def _jsonable(obj):
         return [_jsonable(v) for v in obj]
     if isinstance(obj, complex):
         return [obj.real, obj.imag]
+    if isinstance(obj, _np.bool_):
+        return bool(obj)
     if isinstance(obj, _np.integer):
         return int(obj)
     if isinstance(obj, _np.floating):
@@ -123,7 +126,9 @@ def book_qubit_state(config: dict, seed: int) -> dict:
     bloch = rho.bloch_vector()
     px = rho.matrix[0, 0].real * 0  # computed below from projections
     proj_x = abs(vec[0] + vec[1]) ** 2 / 2
-    proj_y = abs(vec[0] + 1j * vec[1]) ** 2 / 2
+    # P(Y=+1) = |<+Y|psi>|^2 with |+Y>=(1,i)/sqrt(2): (1 + 2*Im(a0* a1))/2.
+    # (The literal |a0 + i a1|^2/2 equals the minus branch and was the bug.)
+    proj_y = (1 + 2 * float(np.imag(np.conjugate(vec[0]) * vec[1]))) / 2
     validation = {
         "prediction": "Bloch vector = (sin t cos p, sin t sin p, cos t); "
                       "<Z> = cos t; state norm 1.",
@@ -158,9 +163,14 @@ def book_operator_report(config: dict, seed: int) -> dict:
     b_name = str(config.get("operator_b", "Y"))
     a, b = pauli_matrix(a_name), pauli_matrix(b_name)
     comm = a @ b - b @ a
-    anticommute = bool(np.max(np.abs(comm)) < 1e-12)
     # uncertainty: prepare (|0>+|1>)/sqrt(2) and measure A and B variances
     psi = np.array([1, 1], dtype=np.complex128) / np.sqrt(2)
+    # Anticommutation (Pauli algebra sense): {A,B} = 0 while [A,B] != 0
+    # (e.g. {X,Y}=0, [X,Y]=2iZ). Requiring a nonzero commutator excludes
+    # degenerate pairs like (I, I).
+    anticomm_norm = float(np.max(np.abs(a @ b + b @ a)))
+    anticommute = bool(anticomm_norm < 1e-12
+                       and float(np.max(np.abs(comm))) > 1e-12)
     exp_a = float(np.vdot(psi, a @ psi).real)
     exp_a2 = float(np.vdot(psi, a @ a @ psi).real)
     exp_b = float(np.vdot(psi, b @ psi).real)
@@ -175,7 +185,8 @@ def book_operator_report(config: dict, seed: int) -> dict:
         "product_std": product, "robertson_bound": comm_bound,
         "satisfies_inequality": product + 1e-12 >= comm_bound - 1e-12,
         "anticommutes": anticommute,
-        "passed": True,
+        "passed": bool(product + 1e-12 >= comm_bound - 1e-12
+                       and var_a >= -1e-12 and var_b >= -1e-12),
     }
     return make_result_document_sanitized(
         "book_operator_report",
@@ -548,6 +559,9 @@ def book_channel_scan(config: dict, seed: int) -> dict:
 
 def book_qi_metrics(config: dict, seed: int) -> dict:
     from ..quantum.density import trace_distance as td
+    from ..quantum.info_theory import concurrence as _conc
+    from ..quantum.channels import (
+        depolarizing_channel, amplitude_damping_channel, phase_damping_channel)
     bell, imax = _bell(), _imax()
     rows = []
     for w in (0.0, 0.25, 0.5, 0.75, 1.0):
@@ -557,32 +571,81 @@ def book_qi_metrics(config: dict, seed: int) -> dict:
                      "trace_distance": td(rho, imax),
                      "fidelity": float(rho.fidelity_with(imax)),
                      "bures": bures_distance(rho, imax),
-                     "concurrence": float(np.trace(
-                         rho.matrix @ rho.matrix).real * 0) or None,
+                     "concurrence": float(_conc(rho)),
                      "eof": entanglement_of_formation(rho)})
-    # concurrence needs the physical state, fill properly:
-    from ..quantum.info_theory import concurrence as _conc
-    for r, w in zip(rows, (0.0, 0.25, 0.5, 0.75, 1.0)):
-        rho = DensityMatrix((1 - w) * bell.matrix + w * imax.matrix, 2)
-        r["concurrence"] = _conc(rho)
     nc = [no_cloning_report(np.cos(t / 2), np.exp(1j * t / 4) * np.sin(t / 2))
           for t in (0.4, 1.2, 2.3)]
+    # The same CPTP map acts on BOTH members of a fixed noncommuting pair.
+    # This is distinct from comparing unrelated points in the Werner sweep.
+    r, s = np.array([0.6, 0.2, 0.3]), np.array([-0.2, 0.5, -0.4])
+
+    def bloch_density(v):
+        x, y, z = v
+        return DensityMatrix(np.array([[1 + z, x - 1j * y],
+                                       [x + 1j * y, 1 - z]]) / 2, 1)
+
+    rho, sigma = bloch_density(r), bloch_density(s)
+    distance_before = td(rho, sigma)
+    fidelity_before = float(rho.fidelity_with(sigma))
+    contractivity = []
+    for name, factory in (("depolarizing", depolarizing_channel),
+                          ("amplitude_damping", amplitude_damping_channel),
+                          ("phase_damping", phase_damping_channel)):
+        for strength in (0.0, 0.25, 0.5, 0.75, 1.0):
+            channel = factory(strength)
+            after_rho, after_sigma = channel.apply(rho), channel.apply(sigma)
+            distance_after = td(after_rho, after_sigma)
+            fidelity_after = float(after_rho.fidelity_with(after_sigma))
+            # Independent affine Bloch-vector formulas, not Kraus re-use.
+            if name == "depolarizing":
+                a, b = (1 - strength) * r, (1 - strength) * s
+            elif name == "amplitude_damping":
+                a, b = [np.array([np.sqrt(1 - strength) * v[0],
+                                  np.sqrt(1 - strength) * v[1],
+                                  (1 - strength) * v[2] + strength]) for v in (r, s)]
+            else:
+                a, b = [v * [1 - strength, 1 - strength, 1] for v in (r, s)]
+            expected_distance = float(np.linalg.norm(a - b) / 2)
+            expected_fidelity = float((1 + a @ b + np.sqrt(max(
+                0.0, (1 - a @ a) * (1 - b @ b)))) / 2)
+            contractivity.append({
+                "channel": name, "strength": strength,
+                "trace_distance_before": distance_before,
+                "trace_distance_after": distance_after,
+                "fidelity_before": fidelity_before,
+                "fidelity_after": fidelity_after,
+                "expected_trace_distance_after": expected_distance,
+                "expected_fidelity_after": expected_fidelity,
+                "passed": bool(distance_after <= distance_before + 1e-9
+                               and fidelity_after >= fidelity_before - 1e-9
+                               and abs(distance_after - expected_distance) < 1e-9
+                               and abs(fidelity_after - expected_fidelity) < 1e-9),
+            })
+    sweep_monotone = all(
+        all(a[key] >= b[key] - 1e-9 for a, b in zip(rows, rows[1:]))
+        for key in ("trace_distance", "bures", "concurrence", "eof"))
     validation = {
-        "prediction": "Trace distance and Bures distance decrease "
-                      "monotonically toward the mixed state; EoF "
-                      "decreases with mixing; cloning fidelity < 1 for "
-                      "every superposition.",
+        "prediction": "A common CPTP channel cannot increase trace distance "
+                      "or decrease squared Uhlmann fidelity. The separate Werner "
+                      "sweep approaches the mixed state monotonically. The three "
+                      "tested CNOT-cloning superpositions have fidelity below one.",
         "cloning_fidelities": [round(c["clone_fidelity"], 6) for c in nc],
-        "passed": (rows[0]["concurrence"] > rows[-1]["concurrence"]
-                   and all(c["clone_fidelity"] < 1 for c in nc)
-                   and rows[0]["trace_distance"] >= rows[-1]["trace_distance"]),
+        "contractivity": contractivity,
+        "passed": bool(sweep_monotone
+                       and all(c["clone_fidelity"] < 1 for c in nc)
+                       and all(c["passed"] for c in contractivity)),
     }
     return make_result_document_sanitized(
         "book_qi_metrics", {"mixing_points": 5},
         artifacts={"sweep": rows, "no_cloning": validation[
-            "cloning_fidelities"]},
+            "cloning_fidelities"], "contractivity": contractivity,
+            "contractivity_input_bloch_vectors": [r, s]},
         notes=["McMahon ch.13: trace distance, fidelity, Bures distance, "
-               "concurrence, EoF, no-cloning."],
+               "concurrence, EoF, no-cloning.",
+               "Fidelity means squared Uhlmann fidelity and is nondecreasing "
+               "under a common channel; trace distance is nonincreasing. "
+               "Fifteen one-qubit cases are checked against affine Bloch "
+               "formulas, not a proof for every CPTP map or postselected branch."],
         summary={"validation": validation})
 
 
@@ -805,3 +868,1010 @@ def book_adiabatic_hadamard(config: dict, seed: int) -> dict:
         notes=["McMahon ch.14 Example 14.3 (pp. 310-312): adiabatic "
                "Hadamard via H_init = diag(-1,1), H_final = -X."],
         summary={"validation": validation})
+
+
+# ===========================================================================
+# Milestone 23 additions to backend/app/experiments/book_runner.py
+# (promoted primitives + dedicated chapter experiments). Appended verbatim.
+# All primitives reused from the existing modules; no hard-coded textbook
+# values (directive 110): every check computes its own oracle.
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# Chapter 2/3 - Gram-Schmidt orthonormalization (promoted primitive).
+# ---------------------------------------------------------------------------
+
+def book_gram_schmidt(config: dict, seed: int) -> dict:
+    """McMahon ch.2-3: Gram-Schmidt orthonormalization and the numerical
+    linear-independence test.
+
+    A deliberately rank-deficient input set {v0, v1, v0 + 2 v1} in C^d is
+    orthonormalized with the existing `qi_tools.gram_schmidt`. Three
+    independent invariants are checked (nothing hard-coded):
+      * orthonormality of the surviving basis vectors: <b_i|b_j> = delta_ij;
+      * span preservation: every input reconstructs from its projection onto
+        the basis, v = sum_i <b_i|v> b_i;
+      * rank detection: the dependent vector leaves a numerically zero
+        residual norm, the independent ones do not (rank matches numpy's
+        matrix_rank of the input as the oracle).
+    """
+    dim = int(config.get("dimension", 4))
+    if dim < 2:
+        raise ValueError("dimension must be >= 2.")
+    rng = np.random.default_rng(seed if seed else 13)
+    v0 = rng.normal(size=dim) + 1j * rng.normal(size=dim)
+    v1 = rng.normal(size=dim) + 1j * rng.normal(size=dim)
+    v2 = v0 + 2.0 * v1                       # linearly dependent by construction
+    vectors = [v0, v1, v2]
+    basis, norms = gram_schmidt(vectors)
+    rank = int(sum(1 for x in norms if x > 1e-10))
+
+    ortho_err = 0.0
+    for i in range(rank):
+        for j in range(rank):
+            expect = 1.0 if i == j else 0.0
+            ortho_err = max(ortho_err, abs(np.vdot(basis[i], basis[j]) - expect))
+
+    recon_err = 0.0
+    for v in vectors:
+        recon = np.zeros(dim, dtype=np.complex128)
+        for b in basis:
+            recon = recon + np.vdot(b, v) * b
+        recon_err = max(recon_err, float(np.max(np.abs(recon - v))))
+
+    oracle_rank = int(np.linalg.matrix_rank(np.array(vectors).T))
+    validation = {
+        "prediction": ("Gram-Schmidt returns an orthonormal basis spanning "
+                       "the input; the rank-deficient set (v0, v1, v0 + 2 v1) "
+                       "has rank 2 and its dependent vector normalizes to 0."),
+        "orthonormality_error": ortho_err,
+        "reconstruction_error": recon_err,
+        "detected_rank": rank,
+        "numpy_matrix_rank_oracle": oracle_rank,
+        "dependent_residual_norm": float(norms[2]),
+        "passed": bool(ortho_err < 1e-10 and recon_err < 1e-10
+                       and rank == oracle_rank == 2 and norms[2] < 1e-10),
+    }
+    return make_result_document_sanitized(
+        "book_gram_schmidt",
+        {"dimension": dim, "detected_rank": rank,
+         "orthonormality_error": ortho_err},
+        artifacts={"basis": [[complex(z) for z in b] for b in basis],
+                   "norms_before_normalization": [float(x) for x in norms],
+                   "input_vectors": [[complex(z) for z in v] for v in vectors]},
+        notes=["McMahon ch.2-3: vector spaces, inner products, "
+               "Gram-Schmidt orthonormalization, linear independence.",
+               "Deterministic given (dimension, seed); no sampling."],
+        summary={"validation": validation})
+
+
+# ---------------------------------------------------------------------------
+# Chapter 7 - purification of a mixed state (promoted primitive).
+# ---------------------------------------------------------------------------
+
+def book_purification(config: dict, seed: int) -> dict:
+    """McMahon ch.7: purification of a mixed state.
+
+    Any mixed state rho_A admits a pure extension |Psi>_AB on a larger
+    Hilbert space with Tr_B|Psi><Psi| = rho_A. Two representative states are
+    purified: a single-qubit Bloch state and a two-qubit Werner state.
+    Invariants (each computed here, none hard-coded):
+      * the reduced state of |Psi> (tracing out the environment) equals rho
+        (trace distance ~ 0);
+      * the singular values of the amplitude matrix equal sqrt(eigenvalues of
+        rho) - the Schmidt-spectrum oracle via `schmidt_decomposition`;
+      * |Psi> is pure, and its entanglement entropy across the A|B split
+        equals the von Neumann entropy of rho; its Schmidt rank equals the
+        rank of rho.
+    """
+    pop0 = float(config.get("pop0", 0.7))
+    coherence = float(config.get("coherence", 0.2))
+    single = DensityMatrix(
+        np.array([[pop0, coherence], [np.conj(coherence), 1 - pop0]],
+                 dtype=np.complex128), 1)
+    w = float(config.get("werner_weight", 0.6))
+    werner = DensityMatrix((1 - w) * _bell().matrix + w * _imax().matrix, 2)
+
+    from ..quantum.density import trace_distance
+    from ..quantum.info_theory import (
+        schmidt_decomposition, schmidt_rank, von_neumann_entropy_bits)
+
+    rows = []
+    for label, rho in (("single_qubit", single), ("werner_2q", werner)):
+        psi, env_labels = purification(rho)
+        n_env = len(env_labels)
+        n_sys = rho.n_qubits
+        full = DensityMatrix(np.outer(psi.amplitudes, psi.amplitudes.conj()),
+                             n_sys + n_env)
+        keep = list(range(n_env, n_sys + n_env))          # the SYSTEM qubits
+        reduced = full.partial_trace(keep)
+        td = float(trace_distance(reduced, rho))
+
+        s, _, _ = schmidt_decomposition(psi, n_sys)       # split A = system
+        oracle = np.sqrt(np.sort(np.linalg.eigvalsh(rho.matrix))[::-1])
+        spec_err = float(np.max(np.abs(np.sort(s)[::-1] - oracle)))
+        rd = int(schmidt_rank(psi, n_sys))
+        s_rho = float(von_neumann_entropy_bits(rho))
+        s_pur = float(full.partial_trace(keep).entropy())
+        rows.append({
+            "state": label,
+            "trace_distance_to_rho": td,
+            "purity_of_purification": float(np.trace(
+                full.matrix @ full.matrix).real),
+            "schmidt_spectrum_error": spec_err,
+            "schmidt_rank": rd,
+            "rho_rank": int(np.sum(np.linalg.eigvalsh(rho.matrix) > 1e-10)),
+            "rho_entropy_bits": s_rho,
+            "purification_entanglement_bits": s_pur,
+        })
+
+    ok = all(r["trace_distance_to_rho"] < 1e-9
+             and r["schmidt_spectrum_error"] < 1e-9
+             and abs(r["purity_of_purification"] - 1.0) < 1e-9
+             and r["schmidt_rank"] == r["rho_rank"]
+             for r in rows)
+    validation = {
+        "prediction": ("Purifying rho onto system+environment yields a pure "
+                       "|Psi> whose reduced state is exactly rho and whose "
+                       "Schmidt coefficients squared are the eigenvalues of "
+                       "rho; the Schmidt rank equals rank(rho)."),
+        "states": rows,
+        "passed": bool(ok),
+    }
+    return make_result_document_sanitized(
+        "book_purification",
+        {"states_purified": len(rows),
+         "single_qubit_trace_distance": rows[0]["trace_distance_to_rho"]},
+        artifacts={"purifications": rows},
+        notes=["McMahon ch.7: Schmidt decomposition and purification "
+               "(any mixed state is the reduction of a pure state on a "
+               "larger space).",
+               "Environment register has the same dimension as the system "
+               "(one ancillary level per spectral branch)."],
+        summary={"validation": validation})
+
+
+# ---------------------------------------------------------------------------
+# Chapter 10 - entanglement swapping (dedicated book-shaped experiment).
+# ---------------------------------------------------------------------------
+
+def _bits(i: int, q: int) -> int:
+    return (i >> q) & 1
+
+
+def _apply_1q(state: np.ndarray, mat: np.ndarray, q: int, n: int) -> np.ndarray:
+    """Apply a single-qubit matrix to qubit q (little-endian ordering)."""
+    ops = [np.eye(2, dtype=np.complex128)] * n
+    ops[q] = np.asarray(mat, dtype=np.complex128)
+    full = np.array([[1.0 + 0j]])
+    for k in range(n - 1, -1, -1):          # qubit n-1 is most significant
+        full = np.kron(full, ops[k])
+    return full @ state
+
+
+def _cnot(state: np.ndarray, control: int, target: int, n: int) -> np.ndarray:
+    out = np.zeros_like(state)
+    for i, a in enumerate(state):
+        j = i ^ (1 << target) if _bits(i, control) else i
+        out[j] += a
+    return out
+
+
+def _hz(state: np.ndarray, q: int, n: int) -> np.ndarray:
+    h = np.array([[1, 1], [1, -1]], dtype=np.complex128) / np.sqrt(2)
+    return _apply_1q(state, h, q, n)
+
+
+def book_entanglement_swapping(config: dict, seed: int) -> dict:
+    """McMahon ch.10 extension: entanglement swapping.
+
+    Two independent Bell pairs (A-B and C-D) are prepared; a Bell-basis
+    measurement on the middle qubits (B, C) projects the outer qubits
+    (A, D) onto a maximally entangled state, teleporting entanglement
+    without ever interacting A and D. Validated against:
+      * the pre-measurement outer pair is a product state (concurrence 0);
+      * for EVERY Bell-measurement outcome (with the standard Pauli
+        corrections) the outer pair reaches concurrence 1 and negativity
+        1/2 (maximal two-qubit entanglement);
+      * the four outcome probabilities sum to 1.
+    """
+    n = 4
+    psi = np.zeros(1 << n, dtype=np.complex128)
+    psi[0] = 1.0
+    psi = _hz(psi, 0, n)
+    psi = _cnot(psi, 0, 1, n)               # Bell pair on qubits (0, 1)
+    psi = _hz(psi, 2, n)
+    psi = _cnot(psi, 2, 3, n)               # Bell pair on qubits (2, 3)
+
+    from ..quantum.info_theory import concurrence, negativity
+
+    def outer_pair(state_vec: np.ndarray):
+        dm = DensityMatrix(np.outer(state_vec, state_vec.conj()), n)
+        reduced = dm.partial_trace([0, 3])
+        return reduced, float(concurrence(reduced)), float(negativity(reduced))
+
+    _, c_no, n_no = outer_pair(psi)          # control: no measurement yet
+    # Bell-basis measurement on qubits 1 and 2: CNOT(1 -> 2), H(1), read out.
+    bsm = _hz(_cnot(psi, 1, 2, n), 1, n)
+    x = np.array([[0, 1], [1, 0]], dtype=np.complex128)
+    z = np.array([[1, 0], [0, -1]], dtype=np.complex128)
+
+    outcomes = []
+    for m1 in (0, 1):
+        for m2 in (0, 1):
+            proj = bsm.copy()
+            for i in range(1 << n):
+                if _bits(i, 1) != m1 or _bits(i, 2) != m2:
+                    proj[i] = 0.0
+            prob = float(np.linalg.norm(proj) ** 2)
+            if prob < 1e-15:
+                continue
+            proj = proj / np.sqrt(prob)
+            before, _, _ = outer_pair(proj)
+            # In the reduced |D A> ordering, the analytical branch is
+            # (|m2,0> + (-1)^m1 |1-m2,1>)/sqrt(2).
+            target = np.zeros(4, dtype=complex)
+            target[2 * m2] = 1 / np.sqrt(2)
+            target[2 * (1 - m2) + 1] = (-1) ** m1 / np.sqrt(2)
+            branch_fidelity = float(np.vdot(target, before.matrix @ target).real)
+            # corrections on the receiving qubit (3)
+            if m2 == 1:
+                proj = _apply_1q(proj, x, 3, n)
+            if m1 == 1:
+                proj = _apply_1q(proj, z, 3, n)
+            after, conc, neg = outer_pair(proj)
+            phi_plus = np.array([1, 0, 0, 1], dtype=complex) / np.sqrt(2)
+            corrected_fidelity = float(np.vdot(phi_plus, after.matrix @ phi_plus).real)
+            outcomes.append({"outcome_bc": [m1, m2], "probability": prob,
+                             "outer_concurrence": conc,
+                             "outer_negativity": neg,
+                             "conditional_target_fidelity": branch_fidelity,
+                             "corrected_target_fidelity": corrected_fidelity,
+                             "outer_density_before_correction": before.matrix,
+                             "outer_density_after_correction": after.matrix})
+
+    total_p = float(sum(o["probability"] for o in outcomes))
+    validation = {
+        "prediction": ("A Bell measurement on the middle qubits of two Bell "
+                       "pairs leaves the outer qubits maximally entangled "
+                       "(concurrence 1, negativity 1/2), while before the "
+                       "measurement the outer pair is a product state."),
+        "outer_concurrence_before_bsm": c_no,
+        "outer_negativity_before_bsm": n_no,
+        "outcomes": outcomes,
+        "total_probability": total_p,
+        "passed": bool(abs(c_no) < 1e-9 and abs(n_no) < 1e-9
+                       and len(outcomes) == 4
+                       and all(abs(o["probability"] - 0.25) < 1e-9
+                               and o["conditional_target_fidelity"] > 1 - 1e-9
+                               and o["corrected_target_fidelity"] > 1 - 1e-9
+                               for o in outcomes)
+                       and all(o["outer_concurrence"] > 1 - 1e-9
+                               for o in outcomes)
+                       and all(abs(o["outer_negativity"] - 0.5) < 1e-9
+                               for o in outcomes)
+                       and abs(total_p - 1.0) < 1e-9),
+    }
+    return make_result_document_sanitized(
+        "book_entanglement_swapping",
+        {"bell_measurement_outcomes": len(outcomes),
+         "outer_concurrence_after_swap":
+             outcomes[0]["outer_concurrence"] if outcomes else None},
+        artifacts={"outcomes": outcomes,
+                   "control": {"concurrence": c_no, "negativity": n_no}},
+        notes=["McMahon ch.10: entanglement as a resource; swapping extends "
+               "teleportation to a relay (A-B and C-D -> A-D entangled).",
+               "Exact statevector computation; the four BSM outcomes are "
+               "enumerated deterministically (no sampling). Each uncorrected "
+               "branch is checked against its outcome-dependent Bell state; "
+               "Z^m1 X^m2 on D must restore Phi+, not merely entanglement."],
+        summary={"validation": validation})
+
+
+# ---------------------------------------------------------------------------
+# Chapters 12-13 - quantum error-correcting codes (small, deterministic).
+# ---------------------------------------------------------------------------
+
+def _encoded_states(code) -> tuple[np.ndarray, np.ndarray]:
+    """Project |0L>, then fix |1L>'s relative phase with logical X."""
+    from ..qec.stabilizer import apply_pauli_string
+
+    dim = 1 << code.n
+    for k in range(dim):
+        state = np.zeros(dim, dtype=np.complex128)
+        state[k] = 1
+        for generator in (*code.generators, code.logical_z):
+            state = (state + apply_pauli_string(state, generator)) / 2
+        norm = float(np.linalg.norm(state))
+        if norm > 1e-10:
+            zero = state / norm
+            return zero, apply_pauli_string(zero, code.logical_x)
+    raise ValueError(f"Code {code.name} has no logical-zero eigenspace")
+
+
+def _syndrome_branches(state, code):
+    """Exact joint stabilizer measurement; retain every nonzero branch."""
+    from ..qec.stabilizer import apply_pauli_string
+
+    branches = [((), state)]
+    for generator in code.generators:
+        next_branches = []
+        for syndrome, vector in branches:
+            acted = apply_pauli_string(vector, generator)
+            for bit, sign in ((0, 1), (1, -1)):
+                projected = (vector + sign * acted) / 2
+                if float(np.vdot(projected, projected).real) > 1e-14:
+                    next_branches.append((syndrome + (bit,), projected))
+        branches = next_branches
+    return branches
+
+
+def book_qec_codes(config: dict, seed: int) -> dict:
+    """Ideal syndrome recovery of complex logical states and coherent errors.
+
+    The existing recovery table is driven by measured projector branches,
+    not by knowledge of the injected error. Repetition codes only guarantee
+    their named Pauli axis; general codes protect any one-qubit Pauli and
+    the tested coherent rotation about each axis. This is not a noisy
+    extraction circuit or a multi-fault/fault-tolerance demonstration.
+    """
+    from ..qec.codes import build_recovery_table, decode_and_recover, get_code
+    from ..qec.stabilizer import apply_pauli_string, syndrome_of
+
+    names = config.get("codes") or [
+        "bit-flip-3", "phase-flip-3", "shor-9", "steane-7", "five-qubit"]
+    logical_states = [
+        (0, np.array([1, 0], dtype=complex)),
+        (1, np.array([0, 1], dtype=complex)),
+        ("plus", np.array([1, 1], dtype=complex) / np.sqrt(2)),
+        ("plus_i", np.array([1, 1j], dtype=complex) / np.sqrt(2)),
+        ("complex", np.array([np.sqrt(0.3), np.exp(0.7j) * np.sqrt(0.7)])),
+    ]
+    angle = 0.73
+    rows = []
+    for name in names:
+        code = get_code(str(name))
+        table = build_recovery_table(code)
+        psi0, psi1 = _encoded_states(code)
+        basis = np.column_stack((psi0, psi1))
+        basis_error = float(np.max(np.abs(basis.conj().T @ basis - np.eye(2))))
+        for vector in (psi0, psi1):
+            for generator in code.generators:
+                basis_error = max(basis_error, float(np.linalg.norm(
+                    apply_pauli_string(vector, generator) - vector)))
+        guaranteed = set(code.corrects_paulis)
+        cases = []
+        for logical, amplitudes in logical_states:
+            encoded = basis @ amplitudes
+            for q in range(code.n):
+                for pauli in ("X", "Y", "Z"):
+                    chars = ["I"] * code.n
+                    chars[code.n - 1 - q] = pauli
+                    error = "".join(chars)
+                    _, ok_flag = decode_and_recover(code, table, error)
+                    acted = apply_pauli_string(encoded, error)
+                    for noise, damaged in (
+                        ("pauli", acted),
+                        ("coherent_rotation", np.cos(angle / 2) * encoded
+                         - 1j * np.sin(angle / 2) * acted),
+                    ):
+                        branches = []
+                        for syndrome, projected in _syndrome_branches(damaged, code):
+                            probability = float(np.vdot(projected, projected).real)
+                            recovery = table.get(syndrome)
+                            corrected = projected / np.sqrt(probability)
+                            if recovery is not None:
+                                corrected = apply_pauli_string(corrected, recovery)
+                            decoded = basis.conj().T @ corrected
+                            branches.append({
+                                "syndrome": list(syndrome),
+                                "probability": probability,
+                                "recovery": recovery,
+                                "state_fidelity": float(abs(np.vdot(encoded, corrected)) ** 2),
+                                "logical_density": np.outer(decoded, decoded.conj()),
+                                "codespace_population": float(np.vdot(decoded, decoded).real),
+                            })
+                        fidelity = sum(b["probability"] * b["state_fidelity"] for b in branches)
+                        expected_syndrome = list(syndrome_of(error, list(code.generators)))
+                        cases.append({
+                            "logical": logical, "qubit": q, "pauli": pauli,
+                            "noise": noise, "guaranteed": pauli in guaranteed,
+                            "decoder_reports_corrected": bool(ok_flag),
+                            "state_fidelity": float(fidelity),
+                            "total_probability": sum(b["probability"] for b in branches),
+                            "syndrome_matches_pauli_algebra": noise != "pauli" or (
+                                len(branches) == 1 and branches[0]["syndrome"] == expected_syndrome),
+                            "branches": branches,
+                        })
+        good = [c for c in cases if c["guaranteed"]]
+        bad = [c for c in cases if not c["guaranteed"]]
+        rows.append({
+            "code": code.name, "n": code.n, "k": code.k,
+            "distance": code.distance,
+            "corrects": list(code.corrects_paulis),
+            "recovery_table_size": len(table),
+            "basis_error": basis_error,
+            "guaranteed_cases": len(good),
+            "guaranteed_success": sum(
+                1 for c in good if c["state_fidelity"] > 1 - 1e-9
+                and all(b["recovery"] is not None and b["state_fidelity"] > 1 - 1e-9
+                        for b in c["branches"])),
+            "unguaranteed_cases": len(bad),
+            "unguaranteed_failures": sum(1 for c in bad if c["state_fidelity"] < 1 - 1e-9),
+            "cases": cases,
+        })
+    all_ok = all(r["guaranteed_success"] == r["guaranteed_cases"]
+                 and r["guaranteed_cases"] > 0 and r["basis_error"] < 1e-9
+                 and all(abs(c["total_probability"] - 1) < 1e-9
+                         and c["syndrome_matches_pauli_algebra"] for c in r["cases"])
+                 for r in rows)
+    validation = {
+        "prediction": ("Every guaranteed one-qubit Pauli and coherent axis rotation "
+                       "is corrected in every nonzero ideal syndrome branch, preserving "
+                       "complex logical coherence. Unguaranteed errors may fail."),
+        "codes": rows,
+        "passed": bool(all_ok),
+    }
+    return make_result_document_sanitized(
+        "book_qec_codes",
+        {"codes_tested": len(rows),
+         "guaranteed_cases": sum(r["guaranteed_cases"] for r in rows),
+         "guaranteed_success": sum(r["guaranteed_success"] for r in rows)},
+        artifacts={"codes": rows, "logical_states": [
+            {"label": label, "amplitudes": a} for label, a in logical_states],
+            "coherent_angle": angle},
+        notes=["McMahon ch.12-13: existing stabilizer codes and recovery tables; "
+               "exact syndrome projectors, no sampling or noisy extraction.",
+               "Repetition-code distance here denotes protection along the named "
+               "axis, not distance three against arbitrary quantum errors.",
+               "Qubit indices are little-endian. Five logical probes include complex "
+               "relative phases; coherent rotations use exp(-i angle P/2). "
+               "Zero branches below probability 1e-14 are omitted.",
+               "The tested weight-one errors do not establish multi-error or "
+               "fault-tolerant recovery. Logical density is not renormalized after "
+               "codespace projection, so leakage remains visible."],
+        summary={"validation": validation})
+
+
+# ===========================================================================
+# Milestone 23 additions (part 2): genuinely-new experiments.
+# ===========================================================================
+
+
+def book_state_tomography(config: dict, seed: int) -> dict:
+    """Measurement-based single-qubit quantum state tomography.
+
+    A known state (fixed by its Bloch vector) is measured along the three
+    Pauli axes with `shots` projective measurements per axis; the state is
+    reconstructed by linear inversion followed by Euclidean projection onto
+    the Bloch ball. Raw estimates are retained: finite-shot inversion need
+    not be positive. The projected estimate is physical, not an unbiased
+    estimator or a maximum-likelihood fit. Ideal inversion is exact; the
+    shot scan reports realizations and analytic RMS error, not a promise
+    that each larger sample has smaller error.
+    """
+    from ..quantum.operators import pauli_matrix
+    theta = float(config.get("theta", 1.1))
+    phi = float(config.get("phi", 0.5))
+    shots = int(config.get("shots", 20000))
+    if shots < 10:
+        raise ValueError("shots must be >= 10.")
+    rng = np.random.default_rng(seed if seed else 7)
+
+    axes = {"X": pauli_matrix("X"), "Y": pauli_matrix("Y"),
+            "Z": pauli_matrix("Z")}
+    target = np.array([np.sin(theta) * np.cos(phi),
+                       np.sin(theta) * np.sin(phi),
+                       np.cos(theta)])
+    rho_true = DensityMatrix(
+        0.5 * (np.eye(2, dtype=np.complex128)
+               + target[0] * axes["X"] + target[1] * axes["Y"]
+               + target[2] * axes["Z"]), 1)
+
+    ideal = {}
+    measured = {}
+    for name, pauli in axes.items():
+        ev = float(np.real(np.trace(rho_true.matrix @ pauli)))   # exact <P>
+        p_plus = (1.0 + ev) / 2.0
+        ideal[name] = ev
+        n_plus = int(rng.binomial(shots, p_plus))
+        measured[name] = (2.0 * n_plus - shots) / shots          # observed <P>
+
+    def _rho_from(vec):
+        return DensityMatrix(
+            0.5 * (np.eye(2, dtype=np.complex128)
+                   + vec[0] * axes["X"] + vec[1] * axes["Y"]
+                   + vec[2] * axes["Z"]), 1)
+
+    vec_ideal = np.array([ideal["X"], ideal["Y"], ideal["Z"]])
+    vec_raw = np.array([measured["X"], measured["Y"], measured["Z"]])
+    raw_norm = float(np.linalg.norm(vec_raw))
+    vec_meas = vec_raw / max(1.0, raw_norm)
+    rho_ideal = _rho_from(vec_ideal)
+    rho_meas = _rho_from(vec_meas)
+
+    ideal_err = float(np.max(np.abs(vec_ideal - target)))
+    finite_err = float(np.max(np.abs(vec_meas - target)))
+    min_eig_ideal = float(np.linalg.eigvalsh(rho_ideal.matrix).min())
+    min_eig_meas = float(np.linalg.eigvalsh(rho_meas.matrix).min())
+    stat_bound = 6.0 / np.sqrt(shots)
+
+    # Single realizations need not decrease monotonically with sample size.
+    scan = []
+    for s in (500, 2000, 8000, 32000):
+        rng_s = np.random.default_rng((seed or 7) + s)
+        err = 0.0
+        for name, pauli in axes.items():
+            ev = float(np.real(np.trace(rho_true.matrix @ pauli)))
+            n_plus = int(rng_s.binomial(s, (1.0 + ev) / 2.0))
+            err = max(err, abs((2.0 * n_plus - s) / s - ev))
+        scan.append({"shots": s, "max_abs_bloch_error": err,
+                     "analytic_rms_bloch_error": float(np.sqrt(
+                         np.sum(1.0 - vec_ideal ** 2) / s))})
+
+    validation = {
+        "prediction": ("Ideal Pauli inversion is exact. Bloch-ball projection "
+                       "makes the finite-shot estimate PSD and unit trace; "
+                       "raw estimator RMS error scales as 1/sqrt(shots) in "
+                       "expectation, not monotonically per realization."),
+        "target_bloch": [float(x) for x in target],
+        "ideal_reconstruction_error": ideal_err,
+        "finite_shot_error": finite_err,
+        "statistical_bound": float(stat_bound),
+        "min_eigenvalue_ideal": min_eig_ideal,
+        "min_eigenvalue_finite": min_eig_meas,
+        "min_eigenvalue_raw": (1.0 - raw_norm) / 2.0,
+        "raw_l2_error": float(np.linalg.norm(vec_raw - target)),
+        "projected_l2_error": float(np.linalg.norm(vec_meas - target)),
+        "within_statistical_bound": bool(finite_err < stat_bound),
+        "shot_scan": scan,
+        "passed": bool(ideal_err < 1e-12 and min_eig_ideal > -1e-9
+                       and min_eig_meas >= -1e-12
+                       and np.linalg.norm(vec_meas - target)
+                       <= np.linalg.norm(vec_raw - target) + 1e-12),
+    }
+    return make_result_document_sanitized(
+        "book_state_tomography",
+        {"shots_per_basis": shots,
+         "finite_shot_bloch_error": finite_err},
+        artifacts={"measured_expectations": measured,
+                   "ideal_expectations": ideal,
+                   "reconstructed_bloch_finite": [float(x) for x in vec_meas],
+                   "raw_bloch_finite": [float(x) for x in vec_raw],
+                   "shot_scan": scan},
+        notes=["Single-qubit state tomography: Pauli-basis frequencies -> "
+               "Bloch vector by linear inversion, followed by Euclidean "
+               "projection onto the unit Bloch ball; raw estimates retained.",
+               "Finite-shot errors are statistical and seeded (deterministic "
+               "given the run seed)."],
+        summary={"validation": validation})
+
+
+def book_rabi_oscillations(config: dict, seed: int) -> dict:
+    """Driven two-level system: Rabi oscillations (rotating-wave model).
+
+    A qubit starts in |0> and is driven by the time-independent RWA
+    Hamiltonian H = (Delta/2) sigma_z + (Omega/2) sigma_x (hbar = 1). The
+    excited-state population is evolved numerically by stepwise propagation
+    and validated against the closed-form generalized Rabi law
+    P_e(t) = (Omega^2/(Omega^2+Delta^2)) sin^2( sqrt(Omega^2+Delta^2) t / 2 ).
+
+    Invariants (each computed, none hard-coded):
+      * the full numerically evolved trajectory matches the analytic law to
+        machine precision;
+      * at resonance the first maximum is at t = pi/Omega with peak
+        population 1 (the Rabi period 2 pi / Omega);
+      * off resonance the peak population is Omega^2/(Omega^2+Delta^2).
+    """
+    from ..quantum.operators import pauli_matrix
+    omega = float(config.get("rabi_frequency", 1.0))
+    detunings = [float(d) for d in (config.get("detunings")
+                                    or [0.0, 0.5, 1.0, 2.0])]
+    steps = int(config.get("steps", 4000))
+    if omega <= 0 or steps < 100:
+        raise ValueError("rabi_frequency and steps must be positive.")
+    sz, sx = pauli_matrix("Z"), pauli_matrix("X")
+    ident = np.eye(2, dtype=np.complex128)
+
+    rows = []
+    for delta in detunings:
+        gen = float(np.hypot(omega, delta))            # generalized Rabi freq
+        h = 0.5 * delta * sz + 0.5 * omega * sx
+        t_max = 4.0 * np.pi / gen
+        dt = t_max / steps
+        half = gen * dt / 2.0                        # h eigenvalues = +/- gen/2
+        u = (np.cos(half) * ident
+             - 1j * np.sin(half) / (gen / 2.0) * h)   # exact step propagator
+        psi = np.array([1.0, 0.0], dtype=np.complex128)
+        traj, max_err = [], 0.0
+        for k in range(steps + 1):
+            t = k * dt
+            p_num = float(abs(psi[1]) ** 2)
+            p_for = (omega ** 2 / gen ** 2) * np.sin(gen * t / 2.0) ** 2
+            max_err = max(max_err, abs(p_num - p_for))
+            traj.append({"t": t, "p_numeric": p_num, "p_analytic": float(p_for)})
+            if k < steps:
+                psi = u @ psi
+        peak_num = max(p["p_numeric"] for p in traj)
+        t_star = next((traj[i]["t"] for i in range(1, len(traj) - 1)
+                       if traj[i]["p_numeric"] >= traj[i - 1]["p_numeric"]
+                       and traj[i]["p_numeric"] > traj[i + 1]["p_numeric"]),
+                      None)
+        rows.append({
+            "detuning": delta,
+            "generalized_rabi_frequency": gen,
+            "peak_excited_population_numeric": peak_num,
+            "peak_excited_population_analytic": omega ** 2 / gen ** 2,
+            "sampled_peak_analytic": max(p["p_analytic"] for p in traj),
+            "time_step": dt,
+            "first_maximum_time": t_star,
+            "analytic_first_maximum_time": float(np.pi / gen),
+            "max_trajectory_error": max_err,
+        })
+
+    res = next((r for r in rows if r["detuning"] == 0.0), None)
+    max_err_all = max(r["max_trajectory_error"] for r in rows)
+    validation = {
+        "prediction": ("Rabi dynamics follow the generalized Rabi law: the "
+                       "resonant first maximum is at t = pi/Omega with peak 1, "
+                       "and off resonance the peak scales as "
+                       "Omega^2/(Omega^2+Delta^2)."),
+        "max_trajectory_error": max_err_all,
+        "resonant_first_maximum_time": res["first_maximum_time"] if res else None,
+        "analytic_first_maximum_time": res["analytic_first_maximum_time"] if res else None,
+        "resonant_peak_population": res["peak_excited_population_numeric"] if res else None,
+        "detuned_peaks": [{"detuning": r["detuning"],
+                           "peak": r["peak_excited_population_numeric"],
+                           "analytic": r["peak_excited_population_analytic"]}
+                          for r in rows],
+        "passed": bool(max_err_all < 1e-9
+                       and all(r["first_maximum_time"] is not None
+                               and abs(r["first_maximum_time"]
+                                       - r["analytic_first_maximum_time"]) <= r["time_step"]
+                               and abs(r["peak_excited_population_numeric"]
+                                       - r["sampled_peak_analytic"]) < 1e-9
+                               for r in rows)),
+    }
+    return make_result_document_sanitized(
+        "book_rabi_oscillations",
+        {"detunings": len(rows), "max_trajectory_error": max_err_all},
+        artifacts={"sweeps": rows},
+        notes=["Rotating-wave two-level model H = (Delta/2) sigma_z + "
+               "(Omega/2) sigma_x; the numerical stepwise evolution is the "
+               "experiment and the closed-form Rabi law is the oracle.",
+               "Curves are sampled at the configured number of steps."],
+        summary={"validation": validation})
+
+
+def book_helstrom(config: dict, seed: int) -> dict:
+    """Binary minimum-error discrimination of depolarized qubit states.
+
+    rho0 is a noisy |0>, rho1 a noisy Bloch(theta, phi) state. mixing is
+    the shared white-noise weight. Exact Born probabilities, no sampling.
+    """
+    from ..quantum.qi_tools import helstrom_measurement, validate_povm
+    from ..quantum.operators import pauli_matrix
+
+    theta = float(config.get("theta", np.pi / 2))
+    phi = float(config.get("phi", 0.4))
+    prior = float(config.get("prior", 0.5))
+    mixing = float(config.get("mixing", 0.0))
+    if not np.all(np.isfinite([theta, phi, prior, mixing])):
+        raise ValueError("Angles and probabilities must be finite.")
+    if not (0 <= prior <= 1 and 0 <= mixing <= 1):
+        raise ValueError("prior and mixing must be in [0, 1].")
+    ident = np.eye(2, dtype=np.complex128)
+    r0 = (1 - mixing) * np.array([0.0, 0.0, 1.0])
+    r1 = (1 - mixing) * np.array([np.sin(theta) * np.cos(phi),
+                                  np.sin(theta) * np.sin(phi), np.cos(theta)])
+    paulis = [pauli_matrix(axis) for axis in ("X", "Y", "Z")]
+    rho0, rho1 = [DensityMatrix((ident + sum(v * p for v, p in zip(r, paulis))) / 2, 1)
+                  for r in (r0, r1)]
+    effects = helstrom_measurement(rho0, rho1, prior)
+    probabilities = [povm_probabilities(rho, effects) for rho in (rho0, rho1)]
+    success = prior * probabilities[0][0] + (1 - prior) * probabilities[1][1]
+    # Qubit weighted-difference eigenvalues are (a +/- |b|)/2. Its trace
+    # norm is max(|a|, |b|): independent of the eigensolver constructing POVM.
+    oracle = (1 + max(abs(2 * prior - 1),
+                      float(np.linalg.norm(prior * r0 - (1 - prior) * r1)))) / 2
+    report = validate_povm(effects, 1)
+    validation = {"prediction": "Optimal binary discrimination attains the Helstrom bound.",
+                  "analytic_success_probability": oracle,
+                  "success_error": abs(success - oracle),
+                  "povm": report,
+                  "passed": bool(abs(success - oracle) < 1e-10
+                                 and report["complete"] and report["positive"])}
+    return make_result_document_sanitized(
+        "book_helstrom", {"success_probability": success,
+                          "error_probability": 1 - success,
+                          "prior_only_success": max(prior, 1 - prior)},
+        artifacts={"effects": effects, "conditional_probabilities": probabilities,
+                   "state_bloch_vectors": [r0, r1]},
+        notes=["Two known single-qubit alternatives; exact probabilities, not finite-shot inference.",
+               "mixing=1 makes both states maximally mixed; no measurement can beat the prior.",
+               "Helstrom-Holevo theorem; IBM Quantum Learning, discrimination and tomography."],
+        summary={"validation": validation})
+
+
+def book_channel_algebra(config: dict, seed: int) -> dict:
+    """Bit flip and amplitude damping: composition order, Choi and fidelity."""
+    from ..quantum.channels import bit_flip_channel, amplitude_damping_channel
+    from ..quantum.channel_algebra import (
+        compose_channels, choi_matrix, validate_choi, verify_composition_identity,
+        process_fidelity_to_unitary, average_gate_fidelity)
+    from ..quantum.density import trace_distance
+    from ..quantum.operators import pauli_matrix
+
+    p = float(config.get("flip_probability", 0.3))
+    gamma = float(config.get("gamma", 0.4))
+    if not (0 <= p <= 1 and 0 <= gamma <= 1):
+        raise ValueError("flip_probability and gamma must be in [0, 1].")
+    flip, damping = bit_flip_channel(p), amplitude_damping_channel(gamma)
+    forward = compose_channels(flip, damping)
+    reverse = compose_channels(damping, flip)
+    ground = DensityMatrix.computational_mixture([1.0, 0.0])
+    output_forward, output_reverse = forward.apply(ground), reverse.apply(ground)
+    order_distance = trace_distance(output_forward, output_reverse)
+    ident = np.eye(2, dtype=np.complex128)
+    basis = [ident] + [pauli_matrix(axis) for axis in ("X", "Y", "Z")]
+    composition = verify_composition_identity(flip, damping, basis)
+    choi_report = validate_choi(forward)
+    process_fidelity = process_fidelity_to_unitary(forward, ident)
+    average_fidelity = average_gate_fidelity(forward, ident)
+    # Sum |Tr K|^2 / 4 for damping after bit-flip, expanded analytically.
+    process_oracle = ((1 - p) * (1 + np.sqrt(1 - gamma)) ** 2 + p * gamma) / 4
+    # Six axial pure states form a qubit state 2-design: exact Haar average.
+    axial_fidelities = []
+    for pauli in basis[1:]:
+        for sign in (-1, 1):
+            rho = DensityMatrix((ident + sign * pauli) / 2, 1)
+            axial_fidelities.append(float(np.trace(rho.matrix @ forward.apply(rho).matrix).real))
+    average_oracle = float(np.mean(axial_fidelities))
+    validation = {
+        "prediction": "Composition agrees on an operator basis; channel order changes ground-state output by p*gamma; Choi is CP/TP and fidelities match independent oracles.",
+        "composition": composition, "choi": choi_report,
+        "order_trace_distance_oracle": p * gamma,
+        "process_fidelity_oracle": process_oracle,
+        "average_fidelity_six_state_oracle": average_oracle,
+        "passed": bool(composition["agrees"] and choi_report["all_valid"]
+                       and abs(order_distance - p * gamma) < 1e-10
+                       and abs(process_fidelity - process_oracle) < 1e-10
+                       and abs(average_fidelity - average_oracle) < 1e-10)}
+    return make_result_document_sanitized(
+        "book_channel_algebra",
+        {"order_trace_distance": order_distance, "process_fidelity": process_fidelity,
+         "average_gate_fidelity": average_fidelity},
+        artifacts={"choi_matrix": choi_matrix(forward),
+                   "flip_then_damping": output_forward.matrix,
+                   "damping_then_flip": output_reverse.matrix,
+                   "six_state_fidelities": axial_fidelities},
+        notes=["Unnormalized Choi convention: trace J=2 and partial trace over output is I.",
+               "Exact one-qubit channel algebra, not process tomography or a diamond-norm estimate."],
+        summary={"validation": validation})
+
+
+
+def book_mbqc(config: dict, seed: int) -> dict:
+    """Three-node cluster processing; exhaustive branches and one seeded run."""
+    from ..quantum.graph_states import run_mbqc_pattern
+    theta, phi, alpha, beta = (float(config.get(key, default)) for key, default
+                               in (("theta", 1.0), ("phi", 0.37),
+                                   ("alpha", 0.4), ("beta", 1.1)))
+    if not np.all(np.isfinite([theta, phi, alpha, beta])):
+        raise ValueError("MBQC state and measurement angles must be finite.")
+    ket = np.array([np.cos(theta / 2), np.exp(1j * phi) * np.sin(theta / 2)])
+    adjacency = [[0, 1, 0], [1, 0, 1], [0, 1, 0]]
+    h = np.array([[1, 1], [1, -1]]) / np.sqrt(2)
+    target = (h @ np.diag(np.exp(np.array([1, -1]) * 0.5j * beta)) @ h
+              @ np.diag(np.exp(np.array([1, -1]) * 0.5j * alpha)) @ ket)
+
+    def record(result):
+        return {"outcomes": result["outcomes"],
+                "measurement_angles": result["measurement_angles"],
+                "probability": float(np.prod(result["probabilities"])),
+                "fidelity": float(abs(np.vdot(target, result["state"].amplitudes)) ** 2),
+                "uncorrected_fidelity": float(abs(np.vdot(target, result["raw_state"].amplitudes)) ** 2),
+                "output_state": result["state"].amplitudes,
+                "correction": result["correction"]}
+
+    branches = [record(run_mbqc_pattern(adjacency, ket, [alpha, beta],
+                                        outcomes=[first, second]))
+                for first in (0, 1) for second in (0, 1)]
+    sample = record(run_mbqc_pattern(adjacency, ket, [alpha, beta],
+                                     rng=np.random.default_rng(seed)))
+    min_fidelity = min(row["fidelity"] for row in branches)
+    probability_sum = sum(row["probability"] for row in branches)
+    return make_result_document_sanitized(
+        "book_mbqc", {"minimum_branch_fidelity": min_fidelity},
+        summary={"validation": {
+            "prediction": "All four corrected branches equal H Rz(-beta) H Rz(-alpha)|input>.",
+            "minimum_branch_fidelity": min_fidelity,
+            "branch_probability_sum": probability_sum,
+            "passed": bool(abs(min_fidelity - 1) < 1e-10
+                           and abs(probability_sum - 1) < 1e-10)}},
+        artifacts={"branches": branches, "sample": sample,
+                   "target_state": target, "input_state": ket, "seed": seed},
+        notes=["Chapter 15 cluster-state processing: a bounded three-node adaptive pattern, not a general MBQC compiler.",
+               "Nodes use MSB-first tensor order. Second angle depends on first outcome; final X then Z corrections remove byproducts.",
+               "Exact state-vector branch probabilities; the displayed sample uses the supplied seed. No hardware-noise model."])
+
+
+def book_simon(config: dict, seed: int) -> dict:
+    """Acquire Simon equations under an explicitly nonzero two-to-one promise."""
+    from ..algorithms.core_algorithms import make_simon_problem, run_simon
+
+    n = config.get("n_qubits", 3)
+    secret = config.get("secret", 5)
+    shots = config.get("shots", 64)
+    if not isinstance(n, int) or isinstance(n, bool) or not 1 <= n <= 4:
+        raise ValueError("n_qubits must be an integer in [1, 4].")
+    if not isinstance(secret, int) or isinstance(secret, bool) or not 1 <= secret < (1 << n):
+        raise ValueError("secret must be a nonzero n-bit integer.")
+    if not isinstance(shots, int) or isinstance(shots, bool) or not 1 <= shots <= 128:
+        raise ValueError("shots must be an integer query budget in [1, 128].")
+    result = run_simon(make_simon_problem(n, format(secret, f"0{n}b")), shots=shots, seed=seed)
+    equations = [int(y, 2) for y in result["independent_equations"]]
+    candidates = [s for s in range(1, 1 << n)
+                  if all((s & y).bit_count() % 2 == 0 for y in equations)]
+    violations = sum(count for key, count in result["counts"].items()
+                     if (int(key, 2) & secret).bit_count() % 2)
+    # T independent uniform vectors in GF(2)^(n-1) span with this exact
+    # probability. It describes the fixed budget, not an optional-stopping CI.
+    log_recovery = sum(float(np.log1p(-2.0 ** (j - shots))) for j in range(n - 1)) if shots >= n - 1 else None
+    recovery_probability = float(np.exp(log_recovery)) if log_recovery is not None else 0.0
+    failure_probability = float(-np.expm1(log_recovery)) if log_recovery is not None else 1.0
+    passed = result["correct"] and candidates == [secret] and violations == 0
+    return make_result_document_sanitized(
+        "book_simon", {"rank": result["rank"], "target_rank": n - 1,
+                       "shots_used": result["shots_used"], "recovered_mask": result["recovered_mask"],
+                       "correct": result["correct"]},
+        artifacts={"acquisition": result, "candidate_masks": candidates,
+                   "ideal_equation_probabilities": {format(y, f"0{n}b"): 1 / (1 << (n - 1))
+                       for y in range(1 << n) if (y & secret).bit_count() % 2 == 0}, "seed": seed},
+        summary={"validation": {"prediction": "Independent low-register equations uniquely identify the nonzero mask at rank n-1.",
+                  "orthogonality_violations": violations, "candidate_count": len(candidates),
+                  "budget_recovery_probability": recovery_probability,
+                  "budget_failure_probability": failure_probability,
+                  "stopping_reason": result["stopping_reason"], "passed": bool(passed)}},
+        notes=["Dense bounded Simon oracle; zero masks and broken two-to-one promises are rejected.",
+               "shots is a maximum query budget. Exhausted rank acquisition is inconclusive and does not pass validation.",
+               "The exact ideal budget-recovery probability is not a confidence interval for this adaptively stopped run."])
+
+
+def book_qft(config: dict, seed: int) -> dict:
+    """Exact DFT versus a rotation-truncated QFT, including complex amplitudes."""
+    from ..algorithms.qft import build_qft
+    from ..circuits.simulate import simulate
+
+    n = config.get("n_qubits", 3)
+    cutoff = config.get("cutoff_exponent", 2)
+    if not isinstance(n, int) or isinstance(n, bool) or not 1 <= n <= 6:
+        raise ValueError("n_qubits must be an integer in [1, 6].")
+    if cutoff is not None and (not isinstance(cutoff, int) or isinstance(cutoff, bool) or not 1 <= cutoff <= 6):
+        raise ValueError("cutoff_exponent must be null or an integer in [1, 6].")
+    dim = 1 << n
+    mode = config.get("input_mode", "basis")
+    if mode == "basis":
+        index = config.get("basis_state", 3)
+        if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < dim:
+            raise ValueError("basis_state must be an integer in the register range.")
+        initial = StateVector.basis_state(n, index)
+    elif mode == "seeded_random":
+        rng = np.random.default_rng(seed)
+        initial = StateVector.from_amplitudes(rng.normal(size=dim) + 1j * rng.normal(size=dim), normalize_if_needed=True)
+    else:
+        raise ValueError("input_mode must be basis or seeded_random.")
+    exact, _ = build_qft(n)
+    approximate, info = build_qft(n, cutoff_exponent=cutoff)
+    exact_state = simulate(exact, initial_state=initial).final_state.amplitudes
+    approximate_state = simulate(approximate, initial_state=initial).final_state.amplitudes
+    indices = np.arange(dim)
+    dft = np.exp(2j * np.pi * np.outer(indices, indices) / dim) / np.sqrt(dim)
+    reference = dft @ initial.amplitudes
+    # Independent binary-fraction formula: each input/output bit pair adds
+    # 2pi/2^(n-a-b). H contributes exponent 1; only larger exponents truncate.
+    phase = np.zeros((dim, dim))
+    for a in range(n):
+        for b in range(n - a):
+            exponent = n - a - b
+            if exponent == 1 or cutoff is None or exponent <= cutoff:
+                phase += np.outer((indices >> b) & 1, (indices >> a) & 1) / (2 ** exponent)
+    truncated_reference = np.exp(2j * np.pi * phase) @ initial.amplitudes / np.sqrt(dim)
+    exact_error = float(np.max(np.abs(exact_state - reference)))
+    truncated_error = float(np.max(np.abs(approximate_state - truncated_reference)))
+    state_error = float(np.linalg.norm(approximate_state - reference))
+    fidelity = float(abs(np.vdot(reference, approximate_state)) ** 2)
+    return make_result_document_sanitized(
+        "book_qft", {"state_error": state_error, "fidelity_to_exact": fidelity,
+                     "dropped_rotations": info.dropped_rotations, "approximate": info.approximate},
+        artifacts={"input_state": initial.amplitudes, "exact_state": exact_state,
+                   "approximate_state": approximate_state, "dft_reference": reference,
+                   "truncated_reference": truncated_reference, "input_mode": mode,
+                   "cutoff_exponent": cutoff, "cutoff_convention": info.cutoff_convention, "seed": seed},
+        summary={"validation": {"prediction": "Exact QFT agrees with DFT; truncated QFT agrees with retained binary-fraction phases.",
+                  "dft_max_error": exact_error, "truncated_oracle_max_error": truncated_error,
+                  "passed": bool(exact_error < 1e-10 and truncated_error < 1e-10)}},
+        notes=["cutoff_exponent=m retains CP(2pi/2^j) iff j<=m; equality is retained. Null means exact.",
+               "Exact noiseless amplitudes, not samples. Basis-state probabilities are uniform even when phases change; amplitude error exposes this."] + info.warnings)
+
+
+def book_qpe(config: dict, seed: int) -> dict:
+    """Arbitrary Bloch eigenstate, exact QPE distribution and finite-shot counts."""
+    from ..algorithms.phase_estimation_shor import run_phase_estimation
+    from ..analytics.statistics import proportion_summary
+
+    theta = float(config.get("theta", 1.0))
+    phi = float(config.get("phi", 0.3))
+    eigenphase = float(config.get("eigenphase", 0.375))
+    precision = config.get("precision_bits", 4)
+    shots = config.get("shots", 128)
+    if not np.all(np.isfinite([theta, phi, eigenphase])) or not 0 <= eigenphase < 1:
+        raise ValueError("Angles must be finite and eigenphase must lie in [0, 1).")
+    if not isinstance(precision, int) or isinstance(precision, bool) or not 2 <= precision <= 6:
+        raise ValueError("precision_bits must be an integer in [2, 6].")
+    if not isinstance(shots, int) or isinstance(shots, bool) or not 1 <= shots <= 256:
+        raise ValueError("shots must be an integer in [1, 256].")
+    psi = np.array([np.cos(theta / 2), np.exp(1j * phi) * np.sin(theta / 2)])
+    unitary = np.eye(2) + (np.exp(2j * np.pi * eigenphase) - 1) * np.outer(psi, psi.conj())
+    result = run_phase_estimation(unitary, StateVector(psi, 1), precision,
+                                  known_eigenphase=eigenphase, seed=seed, shots=shots)
+    dim = 1 << precision
+    reference = np.abs(np.exp(2j * np.pi * np.outer(eigenphase - np.arange(dim) / dim,
+                                                  np.arange(dim))).mean(axis=1)) ** 2
+    rows = [{"integer": y, "phase": y / dim, "probability": result.probabilities[format(y, f"0{precision}b")],
+             "analytic_probability": float(reference[y]),
+             "sampling": proportion_summary(result.counts.get(format(y, f"0{precision}b"), 0), shots)}
+            for y in range(dim)]
+    error = max(abs(row["probability"] - row["analytic_probability"]) for row in rows)
+    return make_result_document_sanitized(
+        "book_qpe", {"estimated_phase": result.estimated_phase, "eigenphase": eigenphase,
+                     "circular_phase_error": result.error, "distribution_max_error": error},
+        artifacts={"distribution": rows, "counts": result.counts, "eigenstate": psi,
+                   "unitary": unitary, "precision_bits": precision, "shots": shots, "seed": seed},
+        summary={"validation": {"prediction": "QPE probabilities equal the squared finite geometric sum for an arbitrary eigenstate.",
+                  "distribution_max_error": error, "eigenstate_residual": result.eigenstate_residual,
+                  "passed": bool(error < 1e-10 and result.eigenstate_residual < 1e-10)}},
+        notes=["Eigenstate preparation uses the common StateVector simulator, not a basis-only approximation.",
+               "Per-bin 95% Wilson intervals are marginal, not simultaneous; finite-shot mode/error need not equal the true phase.",
+               "Validation compares exact simulated probabilities with a mathematical oracle; sampling fluctuations do not decide pass/fail."])
+
+
+def book_multigrover(config: dict, seed: int) -> dict:
+    """Distinct-set Grover sweep including the zero-query baseline."""
+    from ..algorithms.core_algorithms import run_grover
+    from ..analytics.statistics import proportion_summary
+
+    n = config.get("n_qubits", 3)
+    marked = config.get("marked_indices", [1, 5])
+    maximum = config.get("max_iterations", 4)
+    shots = config.get("shots", 128)
+    if not isinstance(n, int) or isinstance(n, bool) or not 2 <= n <= 5:
+        raise ValueError("n_qubits must be an integer in [2, 5].")
+    if not isinstance(marked, list) or not marked or any(not isinstance(x, int) or isinstance(x, bool)
+                                                       or not 0 <= x < (1 << n) for x in marked):
+        raise ValueError("marked_indices must be a nonempty list of register indices.")
+    if len(set(marked)) != len(marked):
+        raise ValueError("marked_indices must be distinct.")
+    if not isinstance(maximum, int) or isinstance(maximum, bool) or not 0 <= maximum <= 8:
+        raise ValueError("max_iterations must be an integer in [0, 8].")
+    if not isinstance(shots, int) or isinstance(shots, bool) or not 1 <= shots <= 256:
+        raise ValueError("shots must be an integer in [1, 256].")
+    angle = np.arcsin(np.sqrt(len(marked) / (1 << n)))
+    rows = []
+    for k in range(maximum + 1):
+        result = run_grover(n, marked_indices=marked, iterations=k, shots=shots, seed=seed + k)
+        successes = sum(result.counts.get(format(x, f"0{n}b"), 0) for x in marked)
+        rows.append({"iterations": k, "exact_success_probability": result.exact_success_probability,
+                     "analytic_success_probability": float(np.sin((2 * k + 1) * angle) ** 2),
+                     "sampling": proportion_summary(successes, shots), "counts": result.counts})
+    error = max(abs(row["exact_success_probability"] - row["analytic_success_probability"]) for row in rows)
+    return make_result_document_sanitized(
+        "book_multigrover", {"marked_fraction": len(marked) / (1 << n),
+                             "optimal_iterations": result.optimal_iterations, "max_probability_error": error},
+        artifacts={"sweep": rows, "marked_indices": sorted(marked), "shots_per_iteration": shots, "seed": seed},
+        summary={"validation": {"prediction": "Marked probability follows sin^2((2k+1)asin(sqrt(M/N))) including k=0 and high marked fractions.",
+                  "max_probability_error": error, "passed": bool(error < 1e-10)}},
+        notes=["Distinct marked states share one phase oracle and the existing diffusion engine; no replacement algorithm.",
+               "optimal_iterations is the nearest first-peak prescription, not a global optimum over later oscillations.",
+               "Each sweep point has its own seed (seed+k), shot count and marginal 95% Wilson interval; validation uses exact probabilities."])

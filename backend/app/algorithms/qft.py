@@ -7,9 +7,9 @@ final qubit reversal) under QuantumLab's little-endian convention. Correctness
 is verified against the explicit discrete-Fourier-transform matrix
 F_{kj} = e^{2πi jk/N}/√N in tests (directive §151).
 
-Approximate QFT: controlled rotations with angle below `cutoff_exponent`
-(2π/2^m with m > cutoff) are dropped, reducing gate count. When approximation
-is active, results carry an explicit warning flag — never silently (§46).
+Approximate QFT: controlled rotations CP(2π/2^m) with m > cutoff_exponent
+are dropped, reducing gate count. Equality is retained. When rotations are
+dropped, results carry an explicit warning flag — never silently (§46).
 """
 from __future__ import annotations
 
@@ -27,6 +27,8 @@ class QFTInfo:
     approximate: bool
     dropped_rotations: int
     warnings: list[str] = field(default_factory=list)
+    cutoff_exponent: int | None = None
+    cutoff_convention: str = "retain CP(2π/2^m) exactly when m <= cutoff_exponent"
 
 
 def build_qft(n_qubits: int, *, inverse: bool = False, cutoff_exponent: int | None = None) -> tuple[Circuit, QFTInfo]:
@@ -37,8 +39,13 @@ def build_qft(n_qubits: int, *, inverse: bool = False, cutoff_exponent: int | No
     """
     if n_qubits < 1:
         raise ValueError("QFT requires at least 1 qubit.")
+    if cutoff_exponent is not None and (
+        not isinstance(cutoff_exponent, int) or isinstance(cutoff_exponent, bool) or cutoff_exponent < 1
+    ):
+        raise ValueError("QFT cutoff_exponent must be a positive integer or None.")
     circuit = Circuit(num_qubits=n_qubits, num_clbits=0, name=f"{'iqft' if inverse else 'qft'}-{n_qubits}")
-    info = QFTInfo(n_qubits=n_qubits, approximate=False, dropped_rotations=0)
+    info = QFTInfo(n_qubits=n_qubits, approximate=False, dropped_rotations=0,
+                   cutoff_exponent=cutoff_exponent)
 
     def add_cp(control: int, target: int, angle: float) -> None:
         # CP(angle) == CRZ-like controlled phase; expressed via RZZ+RZ pair:
@@ -58,7 +65,7 @@ def build_qft(n_qubits: int, *, inverse: bool = False, cutoff_exponent: int | No
         distance = 1
         for control in range(target - 1, -1, -1):
             angle = math.pi / (2 ** distance)
-            if cutoff_exponent is not None and distance > cutoff_exponent:
+            if cutoff_exponent is not None and distance + 1 > cutoff_exponent:
                 info.dropped_rotations += 1
             else:
                 add_cp(control, target, angle)

@@ -36,6 +36,9 @@ class PhaseEstimationResult:
     measured_integer: int
     error: float | None
     counts: dict[str, int]
+    probabilities: dict[str, float]
+    eigenphase: float
+    eigenstate_residual: float
 
 
 def controlled_full_matrix(unitary: np.ndarray) -> np.ndarray:
@@ -109,42 +112,49 @@ def run_phase_estimation(
     shots: int = 256,
     known_eigenphase: float | None = None,
 ) -> PhaseEstimationResult:
-    """Run QPE where `initial_state` is prepared as system register content.
+    """Estimate a normalized arbitrary eigenvector's phase using the common engine.
 
-    The system qubits are initialized to `initial_state` by inserting X gates
-    when it is a computational basis state (the common case); superposition
-    inputs are rejected with a clear message rather than silently misrun.
+    The precision register occupies the low bits. ``probabilities`` is the full
+    exact precision marginal before measurement, distinct from sampled counts.
+    Phase errors are circular distances modulo one.
     """
-    if not np.allclose(np.abs(initial_state.amplitudes) ** 2,
-                       (np.abs(initial_state.amplitudes) ** 2).astype(int)):
-        raise QuantumCoreError(
-            "QPE runner currently accepts computational-basis input states only; "
-            "build a state-preparation prefix into the circuit for other states."
-        )
-    basis_index = int(np.argmax(np.abs(initial_state.amplitudes) ** 2))
+    if not isinstance(precision_bits, int) or isinstance(precision_bits, bool) or precision_bits < 1:
+        raise QuantumCoreError("QPE precision_bits must be a positive integer.")
+    if not isinstance(shots, int) or isinstance(shots, bool) or shots < 1:
+        raise QuantumCoreError("QPE shots must be a positive integer.")
+    unitary = np.asarray(unitary, dtype=np.complex128)
+    psi = np.asarray(initial_state.amplitudes, dtype=np.complex128)
+    if (psi.shape != (1 << initial_state.n_qubits,) or not np.all(np.isfinite(psi))
+            or not np.isclose(np.vdot(psi, psi).real, 1.0, rtol=0, atol=1e-10)):
+        raise QuantumCoreError("QPE eigenstate must be normalized and match its register dimension.")
     circuit = build_phase_estimation_circuit(
         unitary, list(range(precision_bits, precision_bits + initial_state.n_qubits)),
         total_qubits=precision_bits + initial_state.n_qubits,
     )
-    # Prepare system register via X gates on set bits of the basis index.
-    from ..circuits.model import Operation
-
-    prep_ops: list[Operation] = []
-    for q in range(initial_state.n_qubits):
-        if (basis_index >> q) & 1:
-            prep_ops.append(Operation(kind="gate", gate="X", params=(), qubits=(precision_bits + q,)))
-    full = Circuit(
-        num_qubits=circuit.num_qubits,
-        num_clbits=circuit.num_clbits,
-        operations=prep_ops + circuit.operations,
-        name="qpe-full",
-        metadata=dict(circuit.metadata),
-    )
-    res = simulate(full, seed=seed, shots=shots)
-    best_key = res.most_likely_outcome()
-    measured_int = int(best_key, 2)
-    estimated = measured_int / (1 << precision_bits)
-    err = abs(estimated - known_eigenphase) if known_eigenphase is not None else None
+    evolved = unitary @ psi
+    eigenvalue = np.vdot(psi, evolved)
+    residual = float(np.linalg.norm(evolved - eigenvalue * psi))
+    if residual > 1e-10:
+        raise QuantumCoreError("QPE initial_state must be an eigenstate of the supplied unitary.")
+    eigenphase = float((np.angle(eigenvalue) / (2 * np.pi)) % 1.0)
+    if known_eigenphase is not None:
+        if not np.isfinite(known_eigenphase) or not 0 <= known_eigenphase < 1:
+            raise QuantumCoreError("Known eigenphase must lie in [0, 1).")
+        if abs((known_eigenphase - eigenphase + 0.5) % 1 - 0.5) > 1e-10:
+            raise QuantumCoreError("Known eigenphase does not match the supplied eigenstate.")
+    # Tensor |psi>_system with |0...0>_precision without manufacturing a
+    # state-preparation unitary or restricting psi to a computational basis.
+    dim_precision = 1 << precision_bits
+    amplitudes = np.zeros(dim_precision * len(psi), dtype=np.complex128)
+    amplitudes[::dim_precision] = psi
+    prepared = StateVector(amplitudes, circuit.num_qubits)
+    exact = simulate(circuit, initial_state=prepared, shots=None, seed=seed)
+    marginal = exact.final_state.probabilities().reshape(len(psi), dim_precision).sum(axis=0)
+    res = simulate(circuit, initial_state=prepared, seed=seed, shots=shots)
+    measured_int = int(res.most_likely_outcome(), 2)
+    estimated = measured_int / dim_precision
+    err = (abs((estimated - known_eigenphase + 0.5) % 1 - 0.5)
+           if known_eigenphase is not None else None)
     return PhaseEstimationResult(
         true_phase=known_eigenphase,
         estimated_phase=float(estimated),
@@ -152,6 +162,9 @@ def run_phase_estimation(
         measured_integer=measured_int,
         error=float(err) if err is not None else None,
         counts=res.counts,
+        probabilities={format(y, f"0{precision_bits}b"): float(p) for y, p in enumerate(marginal)},
+        eigenphase=eigenphase,
+        eigenstate_residual=residual,
     )
 
 

@@ -183,3 +183,59 @@ def measure_node_x(state: StateVector, node: int,
             "probability": p_plus if outcome == 0 else 1.0 - p_plus,
             "post_state": StateVector(post, n),
             "byproduct": "Z" if outcome == 1 else "I"}
+
+
+def run_mbqc_pattern(adjacency, input_state, angles, outcomes=None,
+                     rng: np.random.Generator | None = None) -> dict:
+    """Execute two adaptive equatorial measurements on a three-node path.
+
+    Nodes are MSB-first tensor factors: input at node 0, output at node 2.
+    Measurement bras are (1, (-1)^s exp(-i angle))/sqrt(2). Feed-forward
+    sets the second angle to (-1)^s0 beta; correcting X^s1 Z^s0 yields
+    H Rz(-beta) H Rz(-alpha)|input>. This is not a general MBQC compiler.
+    """
+    path = np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]])
+    if not np.array_equal(np.asarray(adjacency), path):
+        raise QuantumCoreError("MBQC requires the three-node path 0-1-2.")
+    ket = np.asarray(input_state, dtype=np.complex128)
+    if (ket.shape != (2,) or not np.all(np.isfinite(ket))
+            or not np.isclose(np.vdot(ket, ket).real, 1, atol=1e-10, rtol=0)):
+        raise QuantumCoreError("MBQC input must be a normalized single-qubit state.")
+    values = np.asarray(angles, dtype=float)
+    if values.shape != (2,) or not np.all(np.isfinite(values)):
+        raise QuantumCoreError("MBQC requires two finite angles.")
+    if outcomes is not None:
+        if len(outcomes) != 2 or any(s not in (0, 1) for s in outcomes):
+            raise QuantumCoreError("MBQC outcomes must be two bits.")
+    rng = rng if rng is not None else np.random.default_rng()
+    state = _kron_list([ket, _H_STATE, _H_STATE])
+    state = cz_gate((1, 2), 3) @ (cz_gate((0, 1), 3) @ state)
+    measured, probabilities, measurement_angles = [], [], []
+    for index in range(2):
+        angle = float(values[index])
+        if index == 1:
+            angle *= (-1) ** measured[0]
+        tensor = state.reshape(2, -1)
+        plus = np.array([1, np.exp(-1j * angle)]) / np.sqrt(2)
+        post_plus = plus @ tensor
+        p_plus = float(np.vdot(post_plus, post_plus).real)
+        outcome = (int(outcomes[index]) if outcomes is not None
+                   else int(rng.random() >= np.clip(p_plus, 0, 1)))
+        bra = plus if outcome == 0 else plus * np.array([1, -1])
+        post = post_plus if outcome == 0 else bra @ tensor
+        probability = float(np.vdot(post, post).real)
+        if probability <= 0:
+            raise QuantumCoreError("Requested MBQC branch has zero probability.")
+        state = post / np.sqrt(probability)
+        measured.append(outcome)
+        probabilities.append(probability)
+        measurement_angles.append(angle)
+    raw = StateVector(state.copy(), 1)
+    if measured[1]:
+        state = pauli_matrix("X") @ state
+    if measured[0]:
+        state = pauli_matrix("Z") @ state
+    return {"state": StateVector(state, 1), "raw_state": raw,
+            "outcomes": measured, "probabilities": probabilities,
+            "measurement_angles": measurement_angles,
+            "correction": {"x": measured[1], "z": measured[0]}}

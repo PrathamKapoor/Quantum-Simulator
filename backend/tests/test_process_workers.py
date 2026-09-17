@@ -392,6 +392,29 @@ class TestConcurrencyAndIsolation:
         assert svc.get_run(rid)["status"] != "COMPLETED"
         assert svc.get_result(rid) is None
 
+    def test_result_write_failure_records_terminal_run(self, svc, jq, monkeypatch):
+        """A rejected result INSERT must terminate the persisted run, not only the job."""
+        execute = svc.db.execute
+
+        def reject_result_insert(sql, *args, **kwargs):
+            if sql.startswith("INSERT INTO results"):
+                raise RuntimeError("result storage unavailable")
+            return execute(sql, *args, **kwargs)
+
+        monkeypatch.setattr(svc.db, "execute", reject_result_insert)
+        rid = make_run(svc, "process_probe", {"action": "succeed"}, seed=31)
+        job = jq.submit_run_job(rid, svc)
+        deadline = time.monotonic() + WAIT_S
+        while job.completed_at is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert job.completed_at is not None
+        assert job.status == "FAILED"
+        run = svc.get_run(rid)
+        assert run["status"] == "FAILED"
+        assert run["error_code"] == "PersistenceError"
+        assert "result storage unavailable" in run["error_message"]
+        assert svc.get_result(rid) is None
+
 
 # ---------------------------------------------------------------------------
 # Real experiment types through the process boundary (§60-§63, §159)

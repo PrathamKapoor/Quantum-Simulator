@@ -251,6 +251,27 @@ class TestSubparityExperiment:
         assert fails_without == fails_with == 12
 
 
+class TestD7SingleFaults:
+    """Distance-7 exhaustive single-fault validation (this study):
+    every elementary baseline fault decodes correctly; the correlation
+    decoder strictly reduces the control's failures."""
+
+    def test_d7_all_single_faults_corrected(self):
+        code = RotatedSurfaceCode.build(7)
+        db = build_signature_db(code, ROUNDS, EXTRACTION_BASELINE)
+        assert len(db.mid) == 840 and len(db.final) == 840
+        n = phen_fail = corr_fail = 0
+        for f in _all_faults(code, EXTRACTION_BASELINE):
+            ex, ez, phen, corr = _decode_fault(code, db, EXTRACTION_BASELINE, f)
+            if not (ex or ez) and not phen.detection_events:
+                continue
+            n += 1
+            phen_fail += not phen.success
+            corr_fail += not corr.success
+        assert n == 1344
+        assert phen_fail == 28
+        assert corr_fail == 0
+
 # ---------------------------------------------------------------------------
 # Multi-fault and Monte Carlo.
 # ---------------------------------------------------------------------------

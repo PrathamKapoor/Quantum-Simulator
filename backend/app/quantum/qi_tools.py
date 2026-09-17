@@ -77,6 +77,32 @@ def povm_probabilities(rho: DensityMatrix, effects: list[np.ndarray]) -> list[fl
     return probs
 
 
+def helstrom_measurement(rho: DensityMatrix, sigma: DensityMatrix,
+                        prior: float = 0.5) -> list[np.ndarray]:
+    """Return optimal binary-discrimination effects [guess_rho, guess_sigma].
+
+    ``prior`` is the probability of preparing ``rho``. The nonnegative
+    eigenspace of prior*rho - (1-prior)*sigma is assigned to guess_rho,
+    including its zero eigenspace; the complementary effect guesses sigma.
+    Inputs must have equal qubit counts and be positive semidefinite with
+    unit trace, up to DEFAULT_TOLERANCE. Invalid inputs raise QuantumCoreError.
+    """
+    if not np.isfinite(prior) or not 0.0 <= prior <= 1.0:
+        raise QuantumCoreError("Helstrom prior must be finite and lie in [0, 1].")
+    if rho.n_qubits != sigma.n_qubits:
+        raise QuantumCoreError("Helstrom measurement requires equal qubit counts.")
+    for name, state in (("rho", rho), ("sigma", sigma)):
+        if abs(np.trace(state.matrix) - 1.0) > DEFAULT_TOLERANCE:
+            raise QuantumCoreError(f"Helstrom {name} must have unit trace.")
+        if np.linalg.eigvalsh(state.matrix).min() < -DEFAULT_TOLERANCE:
+            raise QuantumCoreError(f"Helstrom {name} must be positive semi-definite.")
+    difference = prior * rho.matrix - (1.0 - prior) * sigma.matrix
+    eigenvalues, eigenvectors = np.linalg.eigh((difference + difference.conj().T) / 2)
+    positive_basis = eigenvectors[:, eigenvalues >= 0.0]
+    guess_rho = positive_basis @ positive_basis.conj().T
+    return [guess_rho, np.eye(1 << rho.n_qubits, dtype=np.complex128) - guess_rho]
+
+
 def generalized_measure(rho: DensityMatrix,
                         kraus_operators: list[np.ndarray]) -> list[dict]:
     """Generalized measurement with Kraus operators M_i.

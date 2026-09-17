@@ -268,6 +268,10 @@ class JobQueue:
                     # as persisted (§47-§48).
                     job.status = JOB_FAILED
                     job.error = f"PersistenceError: {exc}"
+                    try:
+                        facade.persist_run_failure(run_id, "PersistenceError", str(exc))
+                    except Exception as failure_exc:
+                        job.error += f" (failure persistence also failed: {failure_exc})"
         else:
             job.status = JOB_FAILED
             if result.error_message:

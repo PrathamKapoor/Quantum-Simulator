@@ -188,16 +188,20 @@ class SimonProblem:
     table: dict[int, int] = field(default_factory=dict)
 
     def __post_init__(self):
+        if not isinstance(self.n, int) or isinstance(self.n, bool) or self.n < 1:
+            raise QuantumCoreError("Simon requires a positive integer register size.")
         if len(self.s) != self.n or any(b not in "01" for b in self.s):
             raise QuantumCoreError("Simon mask s must be an n-bit 0/1 string.")
         self.s_int = int(self.s, 2)
+        if self.s_int == 0:
+            raise QuantumCoreError("This Simon implementation requires the nonzero two-to-one promise.")
 
     def evaluate(self, x: int) -> int:
         return self.table[x]
 
 
 def make_simon_problem(n: int, s: str, seed: int = 5) -> SimonProblem:
-    rng = np.random.default_rng(seed)
+    """Construct a canonical promised table; seed is retained for caller compatibility."""
     problem = SimonProblem(n=n, s=s)
     s_int = problem.s_int
     assignment: dict[int, int] = {}
@@ -220,6 +224,16 @@ def build_simon_circuit(problem: SimonProblem) -> Circuit:
     (first register = low bits) and converted to gate-local basis.
     """
     n = problem.n
+    # Verify both directions of the promise: every output has exactly one pair.
+    if set(problem.table) != set(range(1 << n)):
+        raise QuantumCoreError("Simon oracle must define every n-bit input.")
+    preimages: dict[int, list[int]] = {}
+    for x, value in problem.table.items():
+        if not isinstance(value, (int, np.integer)) or not 0 <= value < (1 << n):
+            raise QuantumCoreError("Simon oracle outputs must be n-bit integers.")
+        preimages.setdefault(value, []).append(x)
+    if any(len(xs) != 2 or xs[0] ^ xs[1] != problem.s_int for xs in preimages.values()):
+        raise QuantumCoreError("Simon oracle violates the nonzero two-to-one promise.")
     total = 2 * n
     dim = 1 << total
     from .conventions import local_reorder
@@ -249,15 +263,50 @@ def build_simon_circuit(problem: SimonProblem) -> Circuit:
 
 
 def run_simon(problem: SimonProblem, shots: int = 32, seed: int = 9) -> dict:
+    """Acquire independent low-register equations until rank n-1 or budget.
+
+    ``shots`` is a maximum query budget, not a promise of successful recovery.
+    The returned secret is derived only from observations and the nonzero promise.
+    """
+    if not isinstance(shots, int) or isinstance(shots, bool) or shots < 1:
+        raise QuantumCoreError("Simon shots must be a positive integer budget.")
     circuit = build_simon_circuit(problem)
-    res = simulate(circuit, seed=seed, shots=shots)
-    ys = [int(k, 2) for k in res.counts if k != "0" * problem.n]
-    recovered = solve_gf2_linear_system(ys, problem.n)
+    basis: dict[int, int] = {}
+    independent: list[int] = []
+    samples: list[int] = []
+    counts: dict[str, int] = {}
+    target_rank = problem.n - 1
+    while len(basis) < target_rank and len(samples) < shots:
+        result = simulate(circuit, seed=seed + len(samples), shots=1)
+        # Printed keys include the discarded high output register. Only the
+        # low n bits are y; including the high register corrupts the equations.
+        y = int(next(iter(result.counts)), 2) & ((1 << problem.n) - 1)
+        samples.append(y)
+        key = format(y, f"0{problem.n}b")
+        counts[key] = counts.get(key, 0) + 1
+        row = y
+        while row:
+            pivot = row.bit_length() - 1
+            if pivot not in basis:
+                basis[pivot] = row
+                independent.append(y)
+                break
+            row ^= basis[pivot]
+    rank = len(basis)
+    recovered = solve_gf2_linear_system(independent, problem.n) if rank == target_rank else None
     return {
         "algorithm": "simon",
         "hidden_mask": problem.s,
         "recovered_mask": recovered,
-        "orthogonal_samples": sorted(set(ys)),
+        "orthogonal_samples": sorted(set(samples)),
+        "independent_equations": [format(y, f"0{problem.n}b") for y in independent],
+        "rank": rank,
+        "target_rank": target_rank,
+        "shots_used": len(samples),
+        "shot_budget": shots,
+        "stopping_reason": "rank_reached" if rank == target_rank else "shot_budget_exhausted",
+        "promise": "nonzero_two_to_one",
+        "counts": counts,
         "correct": recovered == problem.s,
     }
 
@@ -270,8 +319,6 @@ def solve_gf2_linear_system(vectors: list[int], n: int) -> str | None:
     this at larger n. Returns None when samples underdetermine s.
     """
     rows = [v for v in vectors if v != 0]
-    if not rows:
-        return None
     solutions = []
     for cand in range(1, 1 << n):
         if all(bin(y & cand).count("1") % 2 == 0 for y in set(rows)):
@@ -289,11 +336,15 @@ def solve_gf2_linear_system(vectors: list[int], n: int) -> str | None:
 
 @dataclass
 class GroverResult:
-    marked_state: str
+    marked_states: list[str]
+    marked_state: str | None
     counts: dict[str, int]
     iterations_used: int
     optimal_iterations: int
     success_probability_estimate: float
+    exact_success_probability: float
+    marked_fraction: float
+    analytic_per_iteration_probabilities: list[float]
     per_iteration_probabilities: list[float] = field(default_factory=list)
 
 
@@ -313,32 +364,75 @@ def _mcz_matrix(n_qubits: int) -> "np.ndarray":
 
 
 def grover_optimal_iterations(n_qubits: int, marked_count: int = 1) -> int:
-    N = 1 << n_qubits
-    theta = np.arcsin(np.sqrt(marked_count / N))
-    return max(1, int(round((np.pi / 2 - theta) / (2 * theta))))
+    """Nearest integer to the first rotation peak; ties prefer fewer queries.
+
+    This is the usual first-peak query prescription, not a global maximum
+    over arbitrarily many later oscillations. It allows k=0 when M/N >= 1/2.
+    """
+    if not isinstance(n_qubits, int) or isinstance(n_qubits, bool) or not 1 <= n_qubits <= 12:
+        raise QuantumCoreError("Grover supports 1 through 12 qubits.")
+    if not isinstance(marked_count, int) or isinstance(marked_count, bool) or not 1 <= marked_count <= (1 << n_qubits):
+        raise QuantumCoreError("marked_count must be between 1 and the register size.")
+    theta = np.arcsin(np.sqrt(marked_count / (1 << n_qubits)))
+    peak = (np.pi / (2 * theta) - 1) / 2
+    return max(0, int(np.ceil(peak - 0.5 - 1e-12)))
 
 
-def build_grover_circuit(n_qubits: int, marked_index: int, iterations: int | None = None) -> tuple[Circuit, int]:
-    """Grover search with phase oracle for a single marked state."""
-    if not (0 <= marked_index < (1 << n_qubits)):
-        raise QuantumCoreError(f"marked_index out of range for {n_qubits} qubits.")
-    iters = iterations if iterations is not None else grover_optimal_iterations(n_qubits)
+def grover_analytic_success_probability(n_qubits: int, marked_count: int, iterations: int) -> float:
+    """sin^2((2k+1) asin(sqrt(M/N))) for the two-dimensional Grover rotation."""
+    if not 1 <= marked_count <= (1 << n_qubits):
+        raise QuantumCoreError("marked_count must be between 1 and the register size.")
+    if not isinstance(iterations, int) or isinstance(iterations, bool) or iterations < 0:
+        raise QuantumCoreError("iterations must be a nonnegative integer.")
+    theta = np.arcsin(np.sqrt(marked_count / (1 << n_qubits)))
+    return float(np.sin((2 * iterations + 1) * theta) ** 2)
+
+
+def build_grover_circuit(
+    n_qubits: int,
+    marked_index: int | list[int] | None = None,
+    iterations: int | None = None,
+    *,
+    marked_indices: int | list[int] | None = None,
+) -> tuple[Circuit, int]:
+    """Grover phase oracle over a distinct, nonempty marked set."""
+    if not isinstance(n_qubits, int) or isinstance(n_qubits, bool) or not 1 <= n_qubits <= 12:
+        raise QuantumCoreError("Grover supports 1 through 12 qubits.")
+    if marked_index is not None and marked_indices is not None:
+        raise QuantumCoreError("Specify marked_index or marked_indices, not both.")
+    if marked_indices is None and marked_index is not None:
+        marked_indices = marked_index
+    if marked_indices is None:
+        raise QuantumCoreError("Grover requires at least one marked state.")
+    if isinstance(marked_indices, int):
+        marked_list = [marked_indices]
+    else:
+        marked_list = list(marked_indices)
+    if not marked_list or any(not isinstance(m, int) or isinstance(m, bool) or not 0 <= m < (1 << n_qubits) for m in marked_list):
+        raise QuantumCoreError(f"marked indices must be distinct integers in [0, 2^{n_qubits}).")
+    if len(set(marked_list)) != len(marked_list):
+        raise QuantumCoreError("Grover marked indices must be distinct.")
+    iters = iterations if iterations is not None else grover_optimal_iterations(n_qubits, len(marked_list))
+    if not isinstance(iters, int) or isinstance(iters, bool) or iters < 0:
+        raise QuantumCoreError("Grover iterations must be a nonnegative integer.")
     c = Circuit(num_qubits=n_qubits, num_clbits=n_qubits, name=f"grover-{n_qubits}q")
     from ..quantum.operators import custom_gate
 
     mcz = custom_gate("MCZ", _mcz_matrix(n_qubits))
     c.metadata["custom_gates"] = {"MCZ": {"matrix": mcz.matrix.tolist(), "n_qubits": n_qubits}}
+    c.metadata["marked_indices"] = sorted(marked_list)
     for q in range(n_qubits):
         c.add_gate("H", [q])
 
     def add_oracle():
-        # Map marked -> |11..1>, MCZ, map back.
-        flip_bits = [i for i in range(n_qubits) if not ((marked_index >> i) & 1)]
-        for i in flip_bits:
-            c.add_gate("X", [i])
-        c.add_gate("MCZ", list(range(n_qubits)))
-        for i in flip_bits:
-            c.add_gate("X", [i])
+        # Phase-flip each marked basis state: map it to |11..1>, MCZ, map back.
+        for marked in marked_list:
+            flip_bits = [i for i in range(n_qubits) if not ((marked >> i) & 1)]
+            for i in flip_bits:
+                c.add_gate("X", [i])
+            c.add_gate("MCZ", list(range(n_qubits)))
+            for i in flip_bits:
+                c.add_gate("X", [i])
 
     def add_diffusion():
         for q in range(n_qubits):
@@ -352,35 +446,47 @@ def build_grover_circuit(n_qubits: int, marked_index: int, iterations: int | Non
     for _ in range(iters):
         add_oracle()
         add_diffusion()
-
     c.add_measure(list(range(n_qubits)), list(range(n_qubits)))
     return c, iters
 
 
 def run_grover(
     n_qubits: int,
-    marked_index: int,
+    marked_index: int | list[int] | None = None,
     *,
+    marked_indices: int | list[int] | None = None,
     shots: int = 1024,
     seed: int = 17,
     iterations: int | None = None,
 ) -> GroverResult:
-    c, iters = build_grover_circuit(n_qubits, marked_index, iterations)
+    if not isinstance(shots, int) or isinstance(shots, bool) or shots < 1:
+        raise QuantumCoreError("Grover shots must be a positive integer.")
+    c, iters = build_grover_circuit(
+        n_qubits, marked_index, iterations, marked_indices=marked_indices)
+    marked_list = c.metadata["marked_indices"]
+    m = len(marked_list)
+    n = 2 ** n_qubits
     res = simulate(c, seed=seed, shots=shots)
-    marked_key = format(marked_index, f"0{n_qubits}b")
-    success = res.counts.get(marked_key, 0) / shots
-    # Exact per-iteration probabilities via noiseless single-run evolution:
+    keys = [format(i, f"0{n_qubits}b") for i in marked_list]
+    success = sum(res.counts.get(k, 0) for k in keys) / shots
+    analytic = [grover_analytic_success_probability(n_qubits, m, k) for k in range(1, iters + 1)]
+    # Exact per-iteration marked probability via noiseless evolution:
     per_iter = []
     for k in range(1, iters + 1):
-        ck, _ = build_grover_circuit(n_qubits, marked_index, k)
+        ck, _ = build_grover_circuit(n_qubits, marked_list, k)
         r = simulate(ck, shots=None)
-        per_iter.append(float(r.final_state.probabilities()[marked_index]))
+        probs = r.final_state.probabilities()
+        per_iter.append(float(sum(probs[i] for i in marked_list)))
     return GroverResult(
-        marked_state=marked_key,
+        marked_states=sorted(keys),
+        marked_state=keys[0] if m == 1 else None,
         counts=res.counts,
         iterations_used=iters,
-        optimal_iterations=grover_optimal_iterations(n_qubits),
+        optimal_iterations=grover_optimal_iterations(n_qubits, m),
         success_probability_estimate=success,
+        exact_success_probability=float(res.final_state.probabilities()[marked_list].sum()),
+        marked_fraction=m / n,
+        analytic_per_iteration_probabilities=analytic,
         per_iteration_probabilities=per_iter,
     )
 

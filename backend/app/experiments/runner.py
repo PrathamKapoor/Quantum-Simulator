@@ -1382,6 +1382,19 @@ RUNNER_REGISTRY = {
     "book_cluster_state": _book("book_cluster_state"),
     "book_adiabatic_well": _book("book_adiabatic_well"),
     "book_adiabatic_hadamard": _book("book_adiabatic_hadamard"),
+    "book_gram_schmidt": _book("book_gram_schmidt"),
+    "book_purification": _book("book_purification"),
+    "book_entanglement_swapping": _book("book_entanglement_swapping"),
+    "book_qec_codes": _book("book_qec_codes"),
+    "book_state_tomography": _book("book_state_tomography"),
+    "book_rabi_oscillations": _book("book_rabi_oscillations"),
+    "book_helstrom": _book("book_helstrom"),
+    "book_channel_algebra": _book("book_channel_algebra"),
+    "book_mbqc": _book("book_mbqc"),
+    "book_simon": _book("book_simon"),
+    "book_qft": _book("book_qft"),
+    "book_qpe": _book("book_qpe"),
+    "book_multigrover": _book("book_multigrover"),
 }
 
 

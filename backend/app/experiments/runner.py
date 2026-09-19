@@ -1395,6 +1395,15 @@ RUNNER_REGISTRY = {
     "book_qft": _book("book_qft"),
     "book_qpe": _book("book_qpe"),
     "book_multigrover": _book("book_multigrover"),
+    "book_classical_info": _book("book_classical_info"),
+    "book_beamsplitter": _book("book_beamsplitter"),
+    "book_hubbard": _book("book_hubbard"),
+    "book_rsa_toy": _book("book_rsa_toy"),
+    "book_ghz_superdense": _book("book_ghz_superdense"),
+    "book_adiabatic_nonlinear": _book("book_adiabatic_nonlinear"),
+    "book_qutrit_measurement": _book("book_qutrit_measurement"),
+    "book_operator_worksheet": _book("book_operator_worksheet"),
+    "book_density_worksheet": _book("book_density_worksheet"),
 }
 
 

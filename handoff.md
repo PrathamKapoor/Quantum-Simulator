@@ -401,3 +401,29 @@ is the operator's decision, not the agent's.
 - **Report:** `docs/QUANTUMLAB_MASTER_COMPLETION_REPORT.md` (29 required
   sections). Final assessment: **PARTIAL** — remaining book gaps itemized in
   the report §26; no threshold/fault-tolerance/security claims made.
+
+---
+## Session 2026-09-19 — Gap-closure (post-session 15 / post-cf25c1b)
+
+### Completed this session
+- 9 new book experiment runners (`book_classical_info`, `book_beamsplitter`, `book_hubbard`, `book_rsa_toy`, `book_ghz_superdense`, `book_adiabatic_nonlinear`, `book_qutrit_measurement`, `book_operator_worksheet`, `book_density_worksheet`) through existing registry/API/UI/e2e architecture.
+- `book_adiabatic_well` extended (configurable `initial_level`, `width_from`/`width_to`, analytic energy `E_n=(n*pi/L)^2/2`); engine (`adiabatic.py`) gains optional `coupling` and `initial_level` (backward-compatible).
+- Focused regression: `tests/test_book_gap_closure.py` (60 tests); full backend suite exit 0; Playwright 70 passed; tsc/vite/oxlint clean; secret scan clean.
+- Source-fixtured source records promoted honestly (`docs/book_coverage.json`): 8 `VALIDATED`, 14 `EXPERIMENTAL`, 1 `PRIMITIVE_ONLY` promotion (`ch03.exercise.7`); denominator unchanged (413); `whole_book_validated` false.
+- Documentation: `BOOK_COVERAGE_MATRIX.md` status table + appendix; master report extended (§30 recommendation); this handoff updated.
+
+### What remains (honest gaps, not hidden by promotion)
+- Matrix/report/handoff final alignment complete above (docs updates done this session).
+- `NOT_STARTED` 14 items: some genuinely prose/non-executable (`ch02.section.9`, `ch03.section.26`-`30`, `ch11.section.3` conceptual probes, `ch14.exercise.1` derivation); some require larger independent fixtures (`ch06.yti.3` normalization glyph; `ch07.exercise.1` arbitrary-direction spin fixtures; `ch09.exercise.4` DJ relation fixtures; `ch13.example.7` worst-case fidelity; `ch15.example.2` five-node XYYY; `ch15.exercise.2` adjacency matrix of pictured graph).
+- `UNVERIFIED` 59 items: mostly visual/glyph/geometric conflicts (`ch02.example.3` linear dependence; `ch03.exercise.4` C3 adjoint; `ch05.example.5` coherent mixture; `ch07.example.5` YY Bell eigenvalues; `ch08.exercise.5` Bell preparation from figure; `ch09.exercise.3` DJ stages; `ch12.exercise.2` environment-dependent flip probability) or suspected arithmetic conflicts (`ch05.yti.4`, `.5`, `ch07.yti.2`, `ch13.example.11`, `ch13.exercise.8` entropy ordering) documented in JSON, not silently adopted.
+- `DEFERRED` 0: nothing deferred and promoted; deferred candidates (`docs/EXPANSION_RESEARCH.md`) remain documented but unimplemented (Landau-Zener, amplitude estimation, Lindblad, finite-key QKD, process/multi-qubit tomography, adaptive MBQC 5-node, noisy teleportation/swap bridge, multi-state discrimination).
+
+### Why it remains / why it is safe to defer
+- `VALIDATED` claims are tied to concrete independent oracles (`tests/test_book_gap_closure.py`, analytical formulas, dense matrix checks); any further promotion needs the same standard (independent reference, focused regression, strict JSON, clean full suite + Playwright + e2e loop). The deferred items lack either the exact source fixture, the independent reference, or both.
+- No QEC/default decoder/change made; no `D=7` rerun; no `threshold` claim; no `fault-tolerant` claim; no `security` claim. The `D7_SCALING_STUDY.md` and `docs/data/d7_study_verified.json` artifacts remain durable historical evidence; nothing from that base was altered.
+
+### Next highest-value task (if continuing immediately)
+- Complete `docs/QUANTUMLAB_MASTER_COMPLETION_REPORT.md` §30 with exact evidence IDs and final `OVERALL_STATUS` (this session completed it; the master report only requires the final formatting/review, not new code or science).
+- If a new scientific milestone is chosen: `ch15` adaptive MBQC (`ch15.example.2` exact XYYY 16-branch fixture with topology adjudication) or `ch03` full arbitrary-operator worksheet (`ch03.exercise.3` / `.7` / `.10` / `.12` / `.13` / `.14`) require larger bounded fixtures with independent matrix/algebra oracles, not unrelated AI/optimization/enterprise additions.
+- Preserve all previous verified artifacts (`docs/data/d7_*.json`, `.pytest_full_final.log`, `playwright_final.log`, `docs/ARCHITECTURE_DECISIONS.md`, `docs/AUTONOMOUS_SESSION_LOG.md`, `docs/SCIENTIFIC_MODELS.md`, `docs/EXPANSION_RESEARCH.md`).
+- Do NOT add unrelated systems; do NOT reintroduce `SAT-SA`; do NOT fabricate statistics or citations; do NOT claim `VALIDATED` for `UNVERIFIED` or `NOT_STARTED` items; do NOT claim `threshold`/`security` from toy experiments; do NOT rewrite git history; do NOT create second registry/framework.

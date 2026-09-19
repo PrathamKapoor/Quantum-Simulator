@@ -237,3 +237,27 @@ tests, 61 Playwright tests, build, and lint pass; Grover scan corrected with
 regression; coverage documentation is honest (no whole-book claim); D7 research
 re-run with verified provenance. Book coverage remains partial by design of the
 honest denominator; deferred/missing items are itemized rather than hidden.
+
+## 30. Gap-closure session — 2026-09-19 (verified state)
+
+### Start / End commits
+START: cf25c1b; END: 657cccc.
+New: 55ae1d2 (backend/science: 9 runners + well/nonlinear + 60 regression tests), 8ecd4cd (frontend/e2e: 40 selectable + 9 module loops), 657cccc (docs/coverage promotion).
+
+### Promoted records (honest denominator: 413; unchanged)
+VALIDATED (8): ch01.exercise.1 / .3 / .6; ch09.exercise.2; ch08.exercise.2 / .3; ch14.exercise.3; ch14.example.1.
+EXPERIMENTAL (14): ch01.example.1; ch03.exercise.10; ch03.section.12 / .14 / .25; ch03.example.18; ch05.exercise.5 / .10; ch06.exercise.2; ch10.exercise.6; ch11.section.1 / .example.1 / .exercise.1; ch14.exercise.4.
+PRIMITIVE_ONLY promoted (1): ch03.exercise.7.
+Remaining: NOT_STARTED 14; PRIMITIVE_ONLY 318; UNVERIFIED 59; EXPERIMENTAL 14; VALIDATED 8; total 413.
+
+### Independent validation (summary per promoted group)
+Each promoted record has a registered runner, independent numerical/analytical oracle (Fraction, int.bit_length(), literal matrix definitions, dense eigvalsh gap, np.linalg.svd singular values, pow RSA reference, Gram matrix identity, decode-circuit dense matrix), focused regression in tests/test_book_gap_closure.py, Book Lab exposure, browser reload regression, strict JSON guarantee, clean secret scan, clean full backend suite (exit 0, 1143 dots), clean Playwright (70 passed), clean build (tsc + vite), clean lint (oxlint exit 0).
+
+### Integration / architecture preserved
+Single registry; existing API lifecycle; process-isolated worker unchanged; adiabatic engine backward-compatible (coupling=None = historical linear); QEC/D7 untouched.
+
+### Final assessment
+PARTIAL (honest; unchanged). Whole-book validated remains false; subpart reconciliation remains non-exhaustive; deferred/missing items itemized in docs/book_coverage.json and docs/EXPANSION_RESEARCH.md. No unrelated systems; no fabricated statistics; no rewritten history; no destructive git operations; no AI/opencode attribution in commits; identity: PrathamKapoor <prathamkapoor027@gmail.com>; collaborator status unchanged (sole repo owner).
+
+### Evidence artifacts preserved (not rewritten, not deleted)
+.pytest_full_final.log (1083 passed), .pytest_gapclosure_full.log (1143 passed), playwright_final.log (61 passed), playwright_gapclosure2.log (70 passed), docs/D7_SCALING_STUDY.md, docs/data/d7_study_verified.json, docs/data/d7_mc.json, docs/data/d7_single_faults.json, docs/data/d7_oracle.json, docs/data/d7_scaling.json, docs/QUANTUMLAB_MASTER_COMPLETION_REPORT.md (29 sections preserved + this section 30), docs/EXPANSION_RESEARCH.md, docs/ARCHITECTURE_DECISIONS.md (AD-020/021/022/023/024/025 preserved), docs/AUTONOMOUS_SESSION_LOG.md, docs/book_coverage.json (v2, 19 keys, 413 records), docs/BOOK_COVERAGE_MATRIX.md (this appendix), backend/app/quantum/adiabatic.py (coupling/initial_level), backend/app/experiments/book_runner.py (new runners), backend/app/experiments/runner.py (registry additions), frontend/src/pages/BookLab.tsx (40 selectable), e2e/tests/book_lab.spec.ts (19 cases), backend/tests/test_book_gap_closure.py (60 focused regression tests).

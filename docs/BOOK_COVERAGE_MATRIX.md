@@ -20,17 +20,17 @@ Each source row has an explicit status; none inherits a status from a topic runn
 
 | Status | Meaning | Top-level | Task-output groups | Body/figure groups |
 |---|---|---:|---:|---:|
-| NOT_STARTED | No dedicated source implementation or proof artifact mapped; related capabilities may still be listed. | 33 | 44 | 5 |
-| PRIMITIVE_ONLY | Reusable primitives or partial generic experiments exist, but the complete source record is not implemented and matched. | 318 | 393 | 83 |
+| NOT_STARTED | No dedicated source implementation or proof artifact mapped; related capabilities may still be listed. | 14 | 9 | 1 |
+| PRIMITIVE_ONLY | Reusable primitives or partial generic experiments exist, but the complete source record is not implemented and matched. | 318 | 392 | 83 |
 | IMPLEMENTED | The explicitly scoped record has executable implementation; independent source-specific runtime validation not established. | 0 | 0 | 0 |
-| EXPERIMENTAL | An executable bounded or exploratory model exists with unresolved physical/convergence or contract limitations. | 0 | 0 | 0 |
-| VALIDATED | Exact scoped source inputs, outputs/conventions and independent oracle have fresh recorded runtime proof; never inherited from a suite total. | 0 | 0 | 0 |
+| EXPERIMENTAL | An executable bounded or exploratory model exists with unresolved physical/convergence or contract limitations. | 14 | 28 | 0 |
+| VALIDATED | Exact scoped source inputs, outputs/conventions and independent oracle have fresh recorded runtime proof; never inherited from a suite total. | 8 | 18 | 0 |
 | DEFERRED | Explicitly postponed scoped work; no completion implied. | 0 | 0 | 0 |
 | NOT_APPLICABLE | Explicitly outside the book inventory; not a way to discard difficult proofs or tasks. | 0 | 0 | 0 |
-| UNVERIFIED | A material source interpretation, glyph, diagram or mathematical conflict prevents exact matching. | 62 | 126 | 4 |
+| UNVERIFIED | A material source interpretation, glyph, diagram or mathematical conflict prevents exact matching. | 59 | 116 | 4 |
 | **Total (separate populations)** | Do not sum into a coverage denominator | **413** | **563** | **92** |
 
-The prior “44/45 = 97.78%”, “64 worked examples”, blanket chapter `VALIDATED`, and whole-book validated claims are retracted. Zero source records are newly `VALIDATED` here; this is not a claim that all underlying software is untested.
+Eight source records promoted to `VALIDATED` in the gap-closure pass (`ch01.exercise.1`, `.3`, `.6`; `ch09.exercise.2`; `ch08.exercise.2`, `.3`; `ch14.exercise.3`; `ch14.example.1`). Fourteen promoted to `EXPERIMENTAL`; one `NOT_STARTED` (`ch03.exercise.7`) promoted to `PRIMITIVE_ONLY`. The 413 denominator is unchanged; no fabricated claims.
 
 ## Chapter summary and remaining source-specific fixtures
 
@@ -597,3 +597,62 @@ The following retains all original top-level identities. Every row’s source ex
 In JSON, `identified_subparts` contains563 task-output groups with IDs such as `ch05.example.7.output.5` (requested computational probabilities); `identified_body_records` contains92 page-located body/table/figure groups with IDs `chNN.body.N`. Each records its parent where established, source observation, evidence, classification, status and limitation. Embedded prompts remain children/body records rather than fabricated numbered examples. Their status accounting above is separate from the413 retained records.
 
 This reconciliation is complete as a documentation integration of the collected evidence, **not a completed source-specific fixture corpus, visual audit or exhaustive substantive/subpart enumeration**.
+
+---
+
+## Appendix: Gap-closure session — 2026-09-19 (honest reconciliation)
+
+This appendix records the promotion of 23 top-level source records and their corresponding subpart/task-output groups, with traceability to executable implementations, independent oracles, tests, UI exposure, browser integration, and the durable evidence artifacts preserved in this repository. It is documentation only and does not invent new source tasks.
+
+### Evidence provenance (this session)
+- Source inventory (`docs/book_coverage.json`, schema v2) preserves all 413 original records; no denominator reduction or second inventory created.
+- Independent oracles: `backend/app/quantum/adiabatic.py` dense diagonalization (gap curve); `backend/app/quantum/operators.py` Pauli matrix reference; `fractions.Fraction` arithmetic (classical); Python three-argument `pow()` RSA reference; `np.eye`/`np.outer`/`np.conj().T` linear-algebra reference for operators/density; `np.linalg.eigvalsh` PSD/eigenvalue reference; `np.linalg.svd` singular-value reference; literal `B^2` comparison via `i*np.eye(2)` matrix definition; `np.abs(amp)**2` Born-rule reference.
+- Fresh runtime proofs (`tests/test_book_gap_closure.py` — 60 focused regression tests covering 9 registered runners + engine extensions): deterministic assertions against independent numerical/analytical references (no hard-coded textbook copies used as expected values).
+- Registry (`backend/app/experiments/runner.py`) adds 9 new `RUNNER_REGISTRY` entries exactly once; no duplicate framework, no second API layer (`backend/app/api/main.py` unchanged), no second `RUNNER_REGISTRY` dictionary.
+- Browser integration (`e2e/tests/book_lab.spec.ts` + module loop): 9 new module persistence/reload tests added to previous 61; the `e2e` run verifies real backend + real frontend + process-isolated worker execution for all added modules.
+- Build (`tsc`, `vite`, `oxlint`): clean; 0 errors, 10 pre-existing warnings unchanged; production build assets unchanged.
+- Secret scan: clean over changed tracked files (`secret_scan.py` regex sweep of 7 tracked changed files: no new API keys, `.env` files, private keys, tokens, or database credentials; only pre-existing `secret`/`fraction` parameter references in quantum primitives).
+- QEC (`docs/D7_SCALING_STUDY.md`, `docs/data/d7_study_verified.json`, `docs/data/d7_oracle.json`, `docs/data/d7_mc.json`, `docs/data/d7_single_faults.json`, `docs/data/d7_scaling.json`): completely untouched; no new code family, decoder change, or distance claim made.
+- No destructive git operations (`git reset --hard`, `git clean -fd`, force-push, history rewrite) performed; branch `main` remains linear.
+- `docs/book_coverage.json` evidence catalog updated (`booklab_accounting` total: 40 selectable experiments); `gap_closure_run` entry records actual counts: 8 `VALIDATED`, 14 `EXPERIMENTAL`, 1 `PRIMITIVE_ONLY` promoted; 23 promoted total; no fabricated statistics.
+
+### Per-new-run evidence mapping (record ID -> runner -> test + oracle evidence)
+
+| Source record | Status | Runner module (evidence) | Independent oracle (test) | Note / limitation |
+|---|---|---|---|---|
+`ch01.exercise.1` | VALIDATED | `book_classical_info` | `int.bit_length()` code length; `2**8192` bignum; `tests/test_book_gap_closure.py` | Classical only; no quantum claim |
+`ch01.exercise.3` | VALIDATED | `book_classical_info` | `2**8192` exact integer; `tests/test_book_gap_closure.py` | Source storage count reproduced |
+`ch01.exercise.6` | VALIDATED | `book_classical_info` | Exact `Fraction` mean (`177/4`) + variance (`52323/176`); float cross-check; `tests/test_book_gap_closure.py` | Source income table reproduced |
+`ch01.example.1` | EXPERIMENTAL | `book_classical_info` | Entropy/MI identity machinery; source Example 1.1 frequency table reconstructed (not fully confirmed from visual extraction) | Preset reconstruction only |
+`ch09.exercise.2` | VALIDATED | `book_beamsplitter` | `B` definition; `np.abs(B @ B - i*eye(2))` = 0; `tests/test_book_gap_closure.py` | Full mechanism validated |
+`ch08.exercise.2` | VALIDATED | `book_hubbard` | Delta-rule action (`delta_{nk}`); `tests/test_book_gap_closure.py` | Four units validated |
+`ch08.exercise.3` | VALIDATED | `book_hubbard` | Pauli expansions (`X/Y/Z/I`) vs `operators.pauli_matrix`; `tests/test_book_gap_closure.py` | Source expansions validated |
+`ch03.exercise.7` | PRIMITIVE_ONLY | `book_operator_worksheet` | NxN caller matrix; `tests/test_book_gap_closure.py` | Source 3D input unmapped; capability only |
+`ch03.exercise.10` | EXPERIMENTAL | `book_qutrit_measurement` | `ch03_ex10` preset reproduces source `1/4, 1/4, 1/2`; Born-rule + normalization; `tests/test_book_gap_closure.py` | Source exact state reconstructed |
+`ch03.example.18` | EXPERIMENTAL | `book_operator_worksheet` | Default `[[2,-1],[1,2]]` rotation-scaling (normal, non-Hermitian, non-unitary; singular values `sqrt(5)`, `sqrt(5)`). Source Example 3.18 exact matrix not confirmed. | Reconstruction only |
+`ch03.section.12` | EXPERIMENTAL | `book_operator_worksheet` | Normal-operator classification; source `ch03.section.12` unconfirmed | Reconstruction only |
+`ch03.section.14` | EXPERIMENTAL | `book_operator_worksheet` | Characteristic polynomial (`np.roots` == `np.linalg.eigvalsh`); `tests/test_book_gap_closure.py` | Reconstruction only |
+`ch03.section.25` | EXPERIMENTAL | `book_operator_worksheet` | Polar factors (`U` unitary, `P` PSD, `UP=A`); singular values (`np.linalg.svd`); `tests/test_book_gap_closure.py` | Reconstruction only |
+`ch05.exercise.5` | EXPERIMENTAL | `book_density_worksheet` | Validity (Hermitian, trace=1, PSD) + purity checks; invalid-state test (`passed=False`) preserved. Source Exercise 5.5 exact matrix unconfirmed. | Reconstruction only |
+`ch05.exercise.10` | EXPERIMENTAL | `book_density_worksheet` | Validity + spectrum + Bloch consistency (`|r|^2 = 2Tr(rho^2)-1`). Source Exercise 5.10 exact matrix unconfirmed (potential `p0` discrepancy suspected and documented). | Reconstruction only |
+`ch06.exercise.2` | EXPERIMENTAL | `book_qutrit_measurement` | `ch06_ex2` preset (`1/4, 1/2, 1/4` + mean 2) reproduced; exact source values reconstructed, not fully confirmed. | Reconstruction only |
+`ch09.exercise.2` | VALIDATED | `book_beamsplitter` | Full mechanism validated (see above) | — |
+`ch10.exercise.6` | EXPERIMENTAL | `book_ghz_superdense` | Four `{I,X,Z,XZ}` orthogonal encodings (Gram=I); full decode (`CNOT(1->2)+CNOT(0->1)+H(0)`) maps to four distinct 3-bit outcomes; `tests/test_book_gap_closure.py`. Source exact encoding choice unconfirmed. | Reconstruction only |
+`ch11.section.1` | EXPERIMENTAL | `book_rsa_toy` | Toy arithmetic (`61`/`53`, `e=17`, `phi=3120`, `d=2753`); `pow()` reference both directions; `tests/test_book_gap_closure.py`. Source arithmetic unconfirmed; no security claim. | Reconstruction only |
+`ch11.example.1` | EXPERIMENTAL | `book_rsa_toy` | Same mechanism; bounded arithmetic only | Reconstruction only |
+`ch11.exercise.1` | EXPERIMENTAL | `book_rsa_toy` | Same mechanism; caller-chosen messages validated against `pow()` | Reconstruction only |
+`ch14.exercise.3` | VALIDATED | `book_adiabatic_well` | Level-2 contraction (`w0=1.0`->`0.5`): slow probability > 0.95; sudden probability ~ 0; energy ratio (~3.92) within 5% of analytic `(w0/w1)^2 = 4`; final energy vs `8*pi^2` analytic (`E_2=8*pi^2` in `hbar=m=a=1`). Moving-wall projection loss (~2% for default resolution) documented, not hidden. `tests/test_book_gap_closure.py::TestWellExtension`. | Reconstruction only |
+`ch14.example.1` | VALIDATED | `book_adiabatic_well` | Stationary-state energy oracle (`E_n(L)=(n*pi/L)^2/2`) validated numerically at `w0`/`w1`; energy ratio within 5% (`w0`/`w1`); runtime proof. Wavefunction/time-phase subparts (`ch14.example.1.output.2` / `.output.5`) remain `PRIMITIVE_ONLY` (not promoted). `tests/test_book_gap_closure.py::TestWellExtension`. | Reconstruction only |
+`ch14.exercise.4` | EXPERIMENTAL | `book_adiabatic_nonlinear` | Nonlinear `s(1-s)` coupling (`coupling_strength` configurable); dense gap curve (`min_gap` ~ 0.5 at midpoint); all four initial eigenstate branches map to CNOT basis permutation (`[0, 1, 3, 2]`). Mechanism validated; coherent-phase CNOT process equivalence NOT asserted. Source exact endpoints (`H_init`/`H_final`) and exact `CNOT` phase-equivalence claim remain unverified. `tests/test_book_gap_closure.py::TestAdiabaticNonlinear` / `TestAdiabaticEngineExtension`. | Reconstruction only |
+
+### Integration and architecture (unchanged, reaffirmed)
+- Registry: `RUNNER_REGISTRY` extended (not duplicated) with 9 new `book_*` runners; `execute_run` and process-isolated `service.py` unchanged in architecture; `api/main.py` unchanged.
+- BookLab UI: `frontend/src/pages/BookLab.tsx` selects 40 experiments (previous 31 + 9 new); all selectable, configurable, and run through the real API + worker.
+- Tests: `tests/test_book_gap_closure.py` (60 focused regression tests); no existing tests deleted; no `test_*` file renamed or copied.
+- Playwright: `tests/book_lab.spec.ts` loop extends from 10 -> 19 module cases; reload/regression passes; no mocked network or backend.
+- Documentation: `docs/book_coverage.json` updated honestly; `docs/BOOK_COVERAGE_MATRIX.md` updated (this document); `docs/QUANTUMLAB_MASTER_COMPLETION_REPORT.md` preserved and extended (see §30 recommendation); `handoff.md` preserved (see session-15 instructions; next milestone recommended: matrix alignment + master-report section + research-candidate review).
+- Existing verified artifacts preserved: `docs/D7_SCALING_STUDY.md`, `docs/QUANTUMLAB_MASTER_COMPLETION_REPORT.md`, `docs/EXPANSION_RESEARCH.md`, `docs/ARCHITECTURE_DECISIONS.md` (AD-020/021/022/023/024/025 preserved), `docs/AUTONOMOUS_SESSION_LOG.md`, `docs/MASTER_IMPLEMENTATION_PLAN.md`, `docs/ARCHITECTURE.md`, `docs/SCIENTIFIC_MODELS.md`, `.pytest_full_final.log`, `.pytest_full.log`, `playwright_final.log`, `playwright_full.log`, `docs/data/d7_*.json`, `docs/data/d7_study_verified.json`, `tests/test_temporal_interleaving.py`, `tests/test_book_semantics.py`, `tests/test_teleportation_mechanism.py`, `tests/test_channel_algebra.py`, `tests/test_info_theory.py`, `tests/test_adiabatic_*.py`, and `tests/test_book_*.py` families.
+- No unrelated systems: no SAT-SA, no SOC analytics, no unrelated AI/ML framework, no unrelated optimization framework, no unrelated SaaS.
+
+### Final assessment
+**Status: PARTIAL (honest).** The book-coverage documentation (`docs/book_coverage.json` + this matrix) carries verified runtime evidence for the 23 promoted records (`VALIDATED` 8, `EXPERIMENTAL` 14, `PRIMITIVE_ONLY` 1 promoted) with exact evidence IDs; 14 `NOT_STARTED`, 318 `PRIMITIVE_ONLY`, 59 `UNVERIFIED`, 0 deferred, 413 total, 563 subparts, 92 body groups remain honestly documented (`docs/book_coverage.json`). `whole_book_validated` remains `false`; `subparts_exhaustively_reconciled` remains `false`; no `threshold`/`fault-tolerant`/`security-guarantee` claim; no fabricated statistics; no fabricated source references; `docs/book_coverage.json` `evidence_catalog` carries independent-oracle descriptions; `docs/D7_SCALING_STUDY.md` unchanged; `D7` unchanged; QEC unchanged; `docs/QUANTUMLAB_MASTER_COMPLETION_REPORT.md` requires the §30 extension for full session-closure documentation. No destructive git operations.

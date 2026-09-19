@@ -24,7 +24,7 @@ test.describe("Book Laboratory", () => {
     await expect(panel.getByText(/Validation \(backend-computed\)/)).toBeVisible();
     monitor.assertClean();
   });
-  for (const module of ["book_helstrom", "book_channel_algebra", "book_state_tomography", "book_rabi_oscillations", "book_mbqc", "book_simon", "book_qft", "book_qpe", "book_multigrover"]) {
+  for (const module of ["book_helstrom", "book_channel_algebra", "book_state_tomography", "book_rabi_oscillations", "book_mbqc", "book_simon", "book_qft", "book_qpe", "book_multigrover", "book_classical_info", "book_beamsplitter", "book_hubbard", "book_rsa_toy", "book_ghz_superdense", "book_adiabatic_nonlinear", "book_qutrit_measurement", "book_operator_worksheet", "book_density_worksheet"]) {
     test(`${module} persists a scientifically validated result`, async ({ page }) => {
       const monitor = ErrorMonitor.attach(page);
       await gotoPage(page, "Book Lab");
